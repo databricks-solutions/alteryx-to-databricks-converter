@@ -1,0 +1,205 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="5"/>
+          <Fields>
+            <Field name="Name" type="V_WString" size="100"/>
+            <Field name="Department" type="V_WString" size="50"/>
+            <Field name="Salary" type="Double" size="8"/>
+            <Field name="HireDate" type="Date" size="10"/>
+            <Field name="Status" type="V_WString" size="20"/>
+          </Fields>
+          <Data>
+            <r><c>Alice</c><c>Engineering</c><c>95000</c><c>2020-03-15</c><c>Active</c></r>
+            <r><c>Bob</c><c>Marketing</c><c>72000</c><c>2019-06-01</c><c>Active</c></r>
+            <r><c>Charlie</c><c>Engineering</c><c>110000</c><c>2018-01-10</c><c>Active</c></r>
+            <r><c>Diana</c><c>Marketing</c><c>68000</c><c>2021-09-20</c><c>Inactive</c></r>
+            <r><c>Eve</c><c>Engineering</c><c>105000</c><c>2017-11-05</c><c>Active</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Employee Data</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="200" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="[Salary] * 1.1" field="AdjustedSalary" size="8" type="Double"/>
+            <FormulaField expression="DateTimeNow() - [HireDate]" field="Tenure" size="4" type="Int32"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Compute Adjusted Salary and Tenure</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Filter.Filter">
+        <Position x="350" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Expression>[Status] = "Active"</Expression>
+          <Mode>Simple</Mode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Active Employees Only</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.AlteryxSelect.AlteryxSelect">
+        <Position x="500" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <OrderChanged Value="False"/>
+          <SelectFields>
+            <SelectField field="Name" selected="True" type="V_WString" size="100"/>
+            <SelectField field="Department" selected="True" type="V_WString" size="50"/>
+            <SelectField field="AdjustedSalary" selected="True" rename="Salary" type="Double" size="8"/>
+            <SelectField field="Tenure" selected="True" type="Int32" size="4"/>
+            <SelectField field="Status" selected="False"/>
+            <SelectField field="HireDate" selected="False"/>
+            <SelectField field="Salary" selected="False"/>
+          </SelectFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Select and Rename Fields</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="650" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortFields>
+            <SortField field="Department" order="Ascending"/>
+            <SortField field="Salary" order="Descending"/>
+          </SortFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Sort by Dept, Salary</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Unique.Unique">
+        <Position x="800" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <UniqueFields>
+            <Field field="Department"/>
+          </UniqueFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Unique by Department</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Summarize.Summarize">
+        <Position x="950" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="Department" action="GroupBy" rename="Department"/>
+            <SummarizeField field="Salary" action="Sum" rename="TotalSalary"/>
+            <SummarizeField field="Salary" action="Avg" rename="AvgSalary"/>
+            <SummarizeField field="Name" action="Count" rename="HeadCount"/>
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Summarize by Department</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="8">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1100" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="department_summary.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Department Summary Output</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection>
+      <Origin ToolID="1" Connection="Output"/>
+      <Destination ToolID="2" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="2" Connection="Output"/>
+      <Destination ToolID="3" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="3" Connection="True"/>
+      <Destination ToolID="4" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="4" Connection="Output"/>
+      <Destination ToolID="5" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="5" Connection="Output"/>
+      <Destination ToolID="6" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="6" Connection="Unique"/>
+      <Destination ToolID="7" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="7" Connection="Output"/>
+      <Destination ToolID="8" Connection="Input"/>
+    </Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/>
+    <GlobalRecordLimit Value="0"/>
+    <TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <ConvErrorLimit Value="10"/>
+    <ConvErrorLimit_Stop Value="False"/>
+    <CancelOnError Value="False"/>
+    <DisableBrowse Value="False"/>
+    <EnablePerformanceProfiling Value="False"/>
+    <RunWithE2 Value="True"/>
+    <PredictiveToolsCodePage Value="65001"/>
+    <DisableAllOutput Value="False"/>
+    <ShowAllMacroMessages Value="False"/>
+    <ShowConnectionErrors Value="True"/>
+    <ShowConversionErrors Value="True"/>
+    <ShowFieldConversionErrors Value="True"/>
+    <Layout>
+      <ViewInfo MaximizeCanvasWidth="True" MaximizeCanvasHeight="True"/>
+    </Layout>
+    <MetaInfo>
+      <NameIsFileName Value="True"/>
+      <Name>complex_pipeline</Name>
+      <Description>Complex pipeline: TextInput -&gt; Formula -&gt; Filter -&gt; Select -&gt; Sort -&gt; Unique -&gt; Summarize -&gt; Output</Description>
+      <Url/>
+      <Author>Test</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

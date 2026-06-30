@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-destructive: #ef4444;
+}
+
+/* Base layer */
+:root {
+  --bg: #ffffff;
+  --bg-card: #f8fafc;
+  --bg-sidebar: #f1f5f9;
+  --fg: #0f172a;
+  --fg-muted: #64748b;
+  --border: #e2e8f0;
+  --ring: #2563eb;
+}
+
+.dark {
+  --bg: #020617;
+  --bg-card: #0f172a;
+  --bg-sidebar: #0c1222;
+  --fg: #f8fafc;
+  --fg-muted: #94a3b8;
+  --border: #1e293b;
+  --ring: #3b82f6;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+/* Flash highlight when navigating to a code line from the workflow graph */
+@keyframes a2d-line-flash {
+  0% { background-color: rgba(59, 130, 246, 0.45); }
+  100% { background-color: transparent; }
+}
+.a2d-line-flash {
+  animation: a2d-line-flash 1.2s ease-out;
+}

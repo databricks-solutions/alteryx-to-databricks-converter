@@ -1,0 +1,181 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="10"/>
+          <Fields>
+            <Field name="ID" type="Int32" size="4"/>
+            <Field name="Feature1" type="Double" size="8"/>
+            <Field name="Feature2" type="Double" size="8"/>
+            <Field name="Feature3" type="Double" size="8"/>
+            <Field name="Label" type="Int32" size="4"/>
+          </Fields>
+          <Data>
+            <r><c>1</c><c>2.5</c><c>3.1</c><c>1.2</c><c>0</c></r>
+            <r><c>2</c><c>1.8</c><c>4.2</c><c>0.9</c><c>1</c></r>
+            <r><c>3</c><c>3.3</c><c>2.0</c><c>2.1</c><c>0</c></r>
+            <r><c>4</c><c>0.5</c><c>5.5</c><c>0.3</c><c>1</c></r>
+            <r><c>5</c><c>4.1</c><c>1.8</c><c>3.0</c><c>0</c></r>
+            <r><c>6</c><c>1.2</c><c>4.9</c><c>0.7</c><c>1</c></r>
+            <r><c>7</c><c>3.8</c><c>2.4</c><c>2.5</c><c>0</c></r>
+            <r><c>8</c><c>0.9</c><c>5.1</c><c>0.5</c><c>1</c></r>
+            <r><c>9</c><c>2.7</c><c>3.5</c><c>1.8</c><c>0</c></r>
+            <r><c>10</c><c>1.5</c><c>4.7</c><c>0.6</c><c>1</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>ML Training Data</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.BoostedModel.BoostedModel">
+        <Position x="300" y="100"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <TargetField>Label</TargetField>
+          <FeatureFields>Feature1,Feature2,Feature3</FeatureFields>
+          <ModelType>classification</ModelType>
+          <NumIterations>100</NumIterations>
+          <MaxDepth>5</MaxDepth>
+          <LearningRate>0.1</LearningRate>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Gradient Boosted Trees</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.NaiveBayes.NaiveBayes">
+        <Position x="300" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <TargetField>Label</TargetField>
+          <FeatureFields>Feature1,Feature2,Feature3</FeatureFields>
+          <Smoothing>1.0</Smoothing>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Naive Bayes Classifier</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.KCentroids.KCentroids">
+        <Position x="300" y="400"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FeatureFields>Feature1,Feature2,Feature3</FeatureFields>
+          <K>3</K>
+          <MaxIterations>50</MaxIterations>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>K-Means Clustering</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.PrincipalComponents.PrincipalComponents">
+        <Position x="300" y="550"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FeatureFields>Feature1,Feature2,Feature3</FeatureFields>
+          <NumComponents>2</NumComponents>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>PCA Dimensionality Reduction</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.BrowseV2.BrowseV2">
+        <Position x="550" y="100"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration/>
+        <Annotation DisplayMode="0"><Name>GBT Results</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.BrowseV2.BrowseV2">
+        <Position x="550" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration/>
+        <Annotation DisplayMode="0"><Name>NB Results</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="8">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.BrowseV2.BrowseV2">
+        <Position x="550" y="400"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration/>
+        <Annotation DisplayMode="0"><Name>Cluster Results</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="9">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.BrowseV2.BrowseV2">
+        <Position x="550" y="550"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration/>
+        <Annotation DisplayMode="0"><Name>PCA Results</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection>
+      <Origin ToolID="1" Connection="Output"/>
+      <Destination ToolID="2" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="1" Connection="Output"/>
+      <Destination ToolID="3" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="1" Connection="Output"/>
+      <Destination ToolID="4" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="1" Connection="Output"/>
+      <Destination ToolID="5" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="2" Connection="Output"/>
+      <Destination ToolID="6" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="3" Connection="Output"/>
+      <Destination ToolID="7" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="4" Connection="Output"/>
+      <Destination ToolID="8" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="5" Connection="Output"/>
+      <Destination ToolID="9" Connection="Input"/>
+    </Connection>
+  </Connections>
+  <Properties>
+    <Memory default="True"/>
+    <GlobalRecordLimit value="0"/>
+    <TempFiles default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <ConveyorEnabled>True</ConveyorEnabled>
+    <ConveycheckaliasesEnabled>True</ConveycheckaliasesEnabled>
+    <MetaInfo>
+      <NameIsFileName value="True"/>
+      <Name>11_advanced_ml_pipeline</Name>
+      <Description>Advanced ML pipeline with BoostedModel, NaiveBayes, KCentroids, and PCA</Description>
+      <RootToolName/>
+      <ToolVersion/>
+      <ToolInDb value="False"/>
+      <CategoryName/>
+      <SearchTags/>
+      <Author>a2d demo</Author>
+      <Company/>
+      <Copyright/>
+      <DescriptionLink actual="" displayed=""/>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

@@ -1,0 +1,9 @@
+name: "simple_filter_dlt"
+input: "tests/fixtures/workflows/simple_filter.yxmd"
+format: dlt
+expect:
+  min_confidence: 80
+  max_warnings: 10
+  must_not_contain:
+    - "ERROR"
+  min_nodes: 2

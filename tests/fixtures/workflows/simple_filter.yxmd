@@ -1,0 +1,112 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="100" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="3"/>
+          <Fields>
+            <Field name="Name" type="V_WString" size="50"/>
+            <Field name="Age" type="Int32" size="4"/>
+            <Field name="City" type="V_WString" size="100"/>
+          </Fields>
+          <Data>
+            <r><c>Alice</c><c>30</c><c>Toronto</c></r>
+            <r><c>Bob</c><c>22</c><c>Vancouver</c></r>
+            <r><c>Charlie</c><c>35</c><c>Montreal</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Text Input - People</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Filter.Filter">
+        <Position x="300" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Expression>[Age] &gt; 25</Expression>
+          <Mode>Simple</Mode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Filter Age &gt; 25</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="500" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="output_true.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Output True Branch</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="500" y="300"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="output_false.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Output False Branch</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection>
+      <Origin ToolID="1" Connection="Output"/>
+      <Destination ToolID="2" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="2" Connection="True"/>
+      <Destination ToolID="3" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="2" Connection="False"/>
+      <Destination ToolID="4" Connection="Input"/>
+    </Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/>
+    <GlobalRecordLimit Value="0"/>
+    <TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <ConvErrorLimit Value="10"/>
+    <ConvErrorLimit_Stop Value="False"/>
+    <CancelOnError Value="False"/>
+    <DisableBrowse Value="False"/>
+    <EnablePerformanceProfiling Value="False"/>
+    <RunWithE2 Value="True"/>
+    <PredictiveToolsCodePage Value="65001"/>
+    <DisableAllOutput Value="False"/>
+    <ShowAllMacroMessages Value="False"/>
+    <ShowConnectionErrors Value="True"/>
+    <ShowConversionErrors Value="True"/>
+    <ShowFieldConversionErrors Value="True"/>
+    <Layout>
+      <ViewInfo MaximizeCanvasWidth="True" MaximizeCanvasHeight="True"/>
+    </Layout>
+    <MetaInfo>
+      <NameIsFileName Value="True"/>
+      <Name>simple_filter</Name>
+      <Description>A minimal workflow: TextInput -> Filter -> 2 Outputs</Description>
+      <Url/>
+      <Author>Test</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

@@ -1,0 +1,242 @@
+[
+    {
+        "description": "Simple field comparison: greater than number",
+        "alteryx": "[Age] > 25",
+        "pyspark": "(F.col(\"Age\") > 25)",
+        "sql": "(`Age` > 25)"
+    },
+    {
+        "description": "Simple field comparison: equality with string",
+        "alteryx": "[Name] = \"Smith\"",
+        "pyspark": "(F.col(\"Name\") == F.lit(\"Smith\"))",
+        "sql": "(`Name` = 'Smith')"
+    },
+    {
+        "description": "Not equal comparison",
+        "alteryx": "[Status] != \"Active\"",
+        "pyspark": "(F.col(\"Status\") != F.lit(\"Active\"))",
+        "sql": "(`Status` != 'Active')"
+    },
+    {
+        "description": "Alteryx-style not-equal with angle brackets",
+        "alteryx": "[Status] <> \"Active\"",
+        "pyspark": "(F.col(\"Status\") != F.lit(\"Active\"))",
+        "sql": "(`Status` != 'Active')"
+    },
+    {
+        "description": "Less-than-or-equal comparison",
+        "alteryx": "[Score] <= 100",
+        "pyspark": "(F.col(\"Score\") <= 100)",
+        "sql": "(`Score` <= 100)"
+    },
+    {
+        "description": "Arithmetic: multiplication of two fields",
+        "alteryx": "[Price] * [Quantity]",
+        "pyspark": "(F.col(\"Price\") * F.col(\"Quantity\"))",
+        "sql": "(`Price` * `Quantity`)"
+    },
+    {
+        "description": "Arithmetic: addition and multiplication precedence",
+        "alteryx": "[Price] * [Quantity] + [Tax]",
+        "pyspark": "((F.col(\"Price\") * F.col(\"Quantity\")) + F.col(\"Tax\"))",
+        "sql": "((`Price` * `Quantity`) + `Tax`)"
+    },
+    {
+        "description": "Arithmetic: subtraction",
+        "alteryx": "[Total] - [Discount]",
+        "pyspark": "(F.col(\"Total\") - F.col(\"Discount\"))",
+        "sql": "(`Total` - `Discount`)"
+    },
+    {
+        "description": "Arithmetic: division",
+        "alteryx": "[Total] / [Count]",
+        "pyspark": "(F.col(\"Total\") / F.col(\"Count\"))",
+        "sql": "(`Total` / `Count`)"
+    },
+    {
+        "description": "Arithmetic: modulo",
+        "alteryx": "[Value] % 2",
+        "pyspark": "(F.col(\"Value\") % 2)",
+        "sql": "(`Value` % 2)"
+    },
+    {
+        "description": "String function: Contains",
+        "alteryx": "Contains([Name], \"Smith\")",
+        "pyspark": "(F.col(\"Name\")).contains(F.lit(\"Smith\"))",
+        "sql": "`Name` LIKE CONCAT('%', 'Smith', '%')"
+    },
+    {
+        "description": "String function: Left",
+        "alteryx": "Left([Name], 3)",
+        "pyspark": "F.substring(F.col(\"Name\"), 1, 3)",
+        "sql": "LEFT(`Name`, 3)"
+    },
+    {
+        "description": "String function: Trim",
+        "alteryx": "Trim([Name])",
+        "pyspark": "F.trim(F.col(\"Name\"))",
+        "sql": "TRIM(`Name`)"
+    },
+    {
+        "description": "String function: LowerCase",
+        "alteryx": "LowerCase([Name])",
+        "pyspark": "F.lower(F.col(\"Name\"))",
+        "sql": "LOWER(`Name`)"
+    },
+    {
+        "description": "String function: Length",
+        "alteryx": "Length([Name])",
+        "pyspark": "F.length(F.col(\"Name\"))",
+        "sql": "LENGTH(`Name`)"
+    },
+    {
+        "description": "Math function: ABS",
+        "alteryx": "ABS([Value])",
+        "pyspark": "F.abs(F.col(\"Value\"))",
+        "sql": "ABS(`Value`)"
+    },
+    {
+        "description": "Math function: Round with 2 decimal places",
+        "alteryx": "Round([Price], 2)",
+        "pyspark": "F.round(F.col(\"Price\"), 2)",
+        "sql": "ROUND(`Price`, 2)"
+    },
+    {
+        "description": "Math function: SQRT",
+        "alteryx": "SQRT([Value])",
+        "pyspark": "F.sqrt(F.col(\"Value\"))",
+        "sql": "SQRT(`Value`)"
+    },
+    {
+        "description": "DateTime function: DateTimeYear",
+        "alteryx": "DateTimeYear([OrderDate])",
+        "pyspark": "F.year(F.col(\"OrderDate\"))",
+        "sql": "YEAR(`OrderDate`)"
+    },
+    {
+        "description": "DateTime function: DateTimeNow",
+        "alteryx": "DateTimeNow()",
+        "pyspark": "F.current_timestamp()",
+        "sql": "CURRENT_TIMESTAMP()"
+    },
+    {
+        "description": "DateTime function: DateTimeMonth",
+        "alteryx": "DateTimeMonth([OrderDate])",
+        "pyspark": "F.month(F.col(\"OrderDate\"))",
+        "sql": "MONTH(`OrderDate`)"
+    },
+    {
+        "description": "Test function: IsNull",
+        "alteryx": "IsNull([Field])",
+        "pyspark": "F.isnull(F.col(\"Field\"))",
+        "sql": "`Field` IS NULL"
+    },
+    {
+        "description": "Test function: IsEmpty",
+        "alteryx": "IsEmpty([Field])",
+        "pyspark": "(F.isnull(F.col(\"Field\")) | (F.trim(F.col(\"Field\")) == F.lit('')))",
+        "sql": "(`Field` IS NULL OR TRIM(`Field`) = '')"
+    },
+    {
+        "description": "Simple IF/THEN/ELSE/ENDIF",
+        "alteryx": "IF [Status] = \"Active\" THEN 1 ELSE 0 ENDIF",
+        "pyspark": "F.when((F.col(\"Status\") == F.lit(\"Active\")), 1).otherwise(0)",
+        "sql": "CASE WHEN (`Status` = 'Active') THEN 1 ELSE 0 END"
+    },
+    {
+        "description": "Nested IF with ELSEIF",
+        "alteryx": "IF [A] > 0 THEN \"pos\" ELSEIF [A] = 0 THEN \"zero\" ELSE \"neg\" ENDIF",
+        "pyspark": "F.when((F.col(\"A\") > 0), F.lit(\"pos\")).when((F.col(\"A\") == 0), F.lit(\"zero\")).otherwise(F.lit(\"neg\"))",
+        "sql": "CASE WHEN (`A` > 0) THEN 'pos' WHEN (`A` = 0) THEN 'zero' ELSE 'neg' END"
+    },
+    {
+        "description": "Logical AND with two comparisons",
+        "alteryx": "[A] > 0 AND [B] < 100",
+        "pyspark": "((F.col(\"A\") > 0) & (F.col(\"B\") < 100))",
+        "sql": "((`A` > 0) AND (`B` < 100))"
+    },
+    {
+        "description": "Logical OR",
+        "alteryx": "[Status] = \"Active\" OR [Status] = \"Pending\"",
+        "pyspark": "((F.col(\"Status\") == F.lit(\"Active\")) | (F.col(\"Status\") == F.lit(\"Pending\")))",
+        "sql": "((`Status` = 'Active') OR (`Status` = 'Pending'))"
+    },
+    {
+        "description": "Logical NOT with IsNull",
+        "alteryx": "NOT IsNull([Field])",
+        "pyspark": "~(F.isnull(F.col(\"Field\")))",
+        "sql": "NOT (`Field` IS NULL)"
+    },
+    {
+        "description": "Nested function: Trim(LowerCase(field))",
+        "alteryx": "Trim(LowerCase([Name]))",
+        "pyspark": "F.trim(F.lower(F.col(\"Name\")))",
+        "sql": "TRIM(LOWER(`Name`))"
+    },
+    {
+        "description": "Complex IF with function in condition",
+        "alteryx": "IF Contains([Email], \"@\") AND Length([Email]) > 5 THEN \"valid\" ELSE \"invalid\" ENDIF",
+        "pyspark": "F.when(((F.col(\"Email\")).contains(F.lit(\"@\")) & (F.length(F.col(\"Email\")) > 5)), F.lit(\"valid\")).otherwise(F.lit(\"invalid\"))",
+        "sql": "CASE WHEN (`Email` LIKE CONCAT('%', '@', '%') AND (LENGTH(`Email`) > 5)) THEN 'valid' ELSE 'invalid' END"
+    },
+    {
+        "description": "IN expression",
+        "alteryx": "[Color] IN (\"Red\", \"Blue\", \"Green\")",
+        "pyspark": "F.col(\"Color\").isin([F.lit(\"Red\"), F.lit(\"Blue\"), F.lit(\"Green\")])",
+        "sql": "`Color` IN ('Red', 'Blue', 'Green')"
+    },
+    {
+        "description": "Number literal: decimal",
+        "alteryx": "[Price] > 9.99",
+        "pyspark": "(F.col(\"Price\") > 9.99)",
+        "sql": "(`Price` > 9.99)"
+    },
+    {
+        "description": "Unary minus",
+        "alteryx": "-[Value]",
+        "pyspark": "(-F.col(\"Value\"))",
+        "sql": "(-`Value`)"
+    },
+    {
+        "description": "Boolean literal TRUE",
+        "alteryx": "TRUE",
+        "pyspark": "F.lit(True)",
+        "sql": "TRUE"
+    },
+    {
+        "description": "NULL literal",
+        "alteryx": "NULL",
+        "pyspark": "F.lit(None)",
+        "sql": "NULL"
+    },
+    {
+        "description": "Conversion: ToNumber (uses try_cast for Alteryx null-on-failure semantics)",
+        "alteryx": "ToNumber([Amount])",
+        "pyspark": "F.try_cast(F.col(\"Amount\"), 'double')",
+        "sql": "TRY_CAST(`Amount` AS DOUBLE)"
+    },
+    {
+        "description": "Conversion: ToString",
+        "alteryx": "ToString([ID])",
+        "pyspark": "(F.col(\"ID\")).cast('string')",
+        "sql": "CAST(`ID` AS STRING)"
+    },
+    {
+        "description": "String function: Uppercase",
+        "alteryx": "Uppercase([Name])",
+        "pyspark": "F.upper(F.col(\"Name\"))",
+        "sql": "UPPER(`Name`)"
+    },
+    {
+        "description": "String function: ReverseString",
+        "alteryx": "ReverseString([Name])",
+        "pyspark": "F.reverse(F.col(\"Name\"))",
+        "sql": "REVERSE(`Name`)"
+    },
+    {
+        "description": "Parenthesized expression changes precedence",
+        "alteryx": "[A] * ([B] + [C])",
+        "pyspark": "(F.col(\"A\") * (F.col(\"B\") + F.col(\"C\")))",
+        "sql": "(`A` * (`B` + `C`))"
+    }
+]

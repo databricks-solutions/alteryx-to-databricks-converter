@@ -1,0 +1,128 @@
+bundle:
+  name: a2d_migration_accelerator
+
+# ----------------------------------------------------------------------------
+# Variables
+# ----------------------------------------------------------------------------
+# `provision_lakebase` and `lakebase_database_name` drive the optional database_instances
+# resource below. Set `provision_lakebase=true` at deploy time to have the bundle
+# create the Lakebase instance for you. Otherwise the bundle assumes the instance
+# (or external Postgres) has already been provisioned and you supply the endpoint
+# name via `lakebase_endpoint`.
+#
+# The legacy four `workspace_host`, `lakebase_endpoint`, `pg_host`, `pg_user`
+# variables are preserved for backward compatibility with deployments that pre-date
+# the native `apps.resources:` binding pattern. With the native binding,
+# `pg_host` / `pg_user` are no longer required (PGHOST/PGUSER are auto-injected
+# by the App runtime), but they remain accepted so existing CI commands keep working.
+variables:
+  # NOTE: workspace.host cannot use ${var.<name>} interpolation in current
+  # bundle CLI versions (the host is needed at validate time, before vars are
+  # resolved). Operators set the workspace via the standard CLI mechanisms:
+  #   - export DATABRICKS_HOST=https://<workspace>.cloud.databricks.com
+  #   - or `databricks auth login --host https://...` (writes ~/.databrickscfg)
+  #   - or per-target literal `host:` if you want it pinned in YAML.
+  # `workspace_host` is kept as a no-op variable for backward compat with any
+  # deploy scripts that still pass `--var workspace_host=...`.
+  workspace_host:
+    description: "[deprecated — set DATABRICKS_HOST or use --profile instead]"
+    default: ""
+  lakebase_endpoint:
+    description: "Lakebase endpoint (projects/<id>/branches/<id>/endpoints/<id>). Override with --var or LAKEBASE_ENDPOINT env for non-default workspaces."
+    default: "projects/my-lakebase-project/branches/my-branch/endpoints/my-endpoint"
+  provision_lakebase:
+    description: "If true, the bundle provisions a Lakebase database_instance for you."
+    default: false
+  lakebase_instance_name:
+    description: "Name of the Lakebase instance (used when provision_lakebase=true)."
+    default: "a2d-lakebase"
+  lakebase_database_name:
+    description: "Postgres database name inside the Lakebase instance."
+    default: "databricks_postgres"
+  lakebase_capacity:
+    description: "Capacity of the provisioned Lakebase instance."
+    default: "CU_1"
+  # Legacy fallbacks — only consumed when the native apps.resources: binding is
+  # not picked up by the Apps runtime (e.g. older bundle CLI). Safe to leave empty.
+  pg_host:
+    description: "[legacy] Lakebase PostgreSQL hostname (only required if not using apps.resources: binding). Example: ep-xxxx-xxxx.database.<region>.cloud.databricks.com"
+    default: ""
+  pg_user:
+    description: "[legacy] Service principal client ID (only required if not using apps.resources: binding)."
+    default: ""
+
+# ----------------------------------------------------------------------------
+# Resources
+# ----------------------------------------------------------------------------
+# NOTE: Two Lakebase products exist in Databricks today:
+#   1. "Database Instances" — newer; supports `apps.resources.database` binding
+#      that auto-injects PG* env vars. Provisioned via `database_instances:`.
+#   2. "Lakebase Autoscaling Postgres Projects" — what most people use today.
+#      Bound via explicit env vars (A2D_LAKEBASE_ENDPOINT + A2D_PG_HOST).
+#      OAuth token is rotated by server/services/lakebase.py.
+# This bundle defaults to the Autoscaling pattern (env-var binding) since
+# that's the more common Lakebase deployment shape today.
+# To switch to a Database Instance, uncomment the `apps.resources.database`
+# block below and the `database_instances:` resource above.
+resources:
+  apps:
+    a2d_app:
+      name: "a2d-migration-accelerator"
+      description: "Alteryx-to-Databricks Migration Accelerator"
+      source_code_path: .
+
+      # # Database Instance binding — uncomment if you have provisioned
+      # # a Database Instance (NOT an Autoscaling project). The runtime
+      # # auto-injects PGHOST/PGPORT/PGDATABASE/PGUSER/PGSSLMODE.
+      # resources:
+      #   - name: database
+      #     description: "Lakebase Database Instance for conversion history"
+      #     database:
+      #       database_name: ${var.lakebase_database_name}
+      #       instance_name: ${var.lakebase_instance_name}
+      #       permission: CAN_CONNECT_AND_CREATE
+
+      config:
+        command:
+          - uvicorn
+          - server.main:app
+          - --host
+          - "0.0.0.0"
+          - --port
+          - "8000"
+        env:
+          - name: PYTHONPATH
+            value: "src:."
+          # Lakebase Autoscaling: explicit env-var binding. server/services/
+          # lakebase.py creates a psycopg pool with an OAuthConnection
+          # subclass that calls WorkspaceClient.postgres.generate_database_
+          # credential() on each connect. The App SP's identity is the user.
+          - name: A2D_DB_BACKEND
+            value: "lakebase"
+          - name: A2D_LAKEBASE_ENDPOINT
+            value: ${var.lakebase_endpoint}
+          - name: A2D_PG_HOST
+            value: ${var.pg_host}
+          - name: A2D_PG_DATABASE
+            value: ${var.lakebase_database_name}
+          - name: A2D_CORS_ORIGINS
+            value: '["*"]'
+      permissions:
+        - level: CAN_USE
+          group_name: users
+
+# ----------------------------------------------------------------------------
+# Targets
+# ----------------------------------------------------------------------------
+targets:
+  # The workspace.host is intentionally NOT pinned here — bundle picks it up
+  # from $DATABRICKS_HOST or your ~/.databrickscfg profile at deploy time.
+  # If you want to pin it for a specific target, replace the empty `workspace`
+  # block below with:
+  #   workspace:
+  #     host: https://<workspace>.cloud.databricks.com
+  dev:
+    mode: development
+    default: true
+  prod:
+    mode: production

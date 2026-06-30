@@ -1,0 +1,124 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="12"/>
+          <Fields>
+            <Field name="Region" type="V_WString" size="20"/>
+            <Field name="Quarter" type="V_WString" size="10"/>
+            <Field name="ProductLine" type="V_WString" size="30"/>
+            <Field name="Revenue" type="Double" size="8"/>
+            <Field name="Units" type="Int32" size="4"/>
+          </Fields>
+          <Data>
+            <r><c>Ontario</c><c>Q1</c><c>Mortgages</c><c>1250000</c><c>42</c></r>
+            <r><c>Ontario</c><c>Q2</c><c>Mortgages</c><c>1480000</c><c>51</c></r>
+            <r><c>Ontario</c><c>Q1</c><c>Credit Cards</c><c>890000</c><c>3200</c></r>
+            <r><c>Ontario</c><c>Q2</c><c>Credit Cards</c><c>920000</c><c>3450</c></r>
+            <r><c>Quebec</c><c>Q1</c><c>Mortgages</c><c>780000</c><c>28</c></r>
+            <r><c>Quebec</c><c>Q2</c><c>Mortgages</c><c>850000</c><c>32</c></r>
+            <r><c>Quebec</c><c>Q1</c><c>Credit Cards</c><c>540000</c><c>2100</c></r>
+            <r><c>Quebec</c><c>Q2</c><c>Credit Cards</c><c>610000</c><c>2350</c></r>
+            <r><c>BC</c><c>Q1</c><c>Mortgages</c><c>1680000</c><c>38</c></r>
+            <r><c>BC</c><c>Q2</c><c>Mortgages</c><c>1750000</c><c>41</c></r>
+            <r><c>BC</c><c>Q1</c><c>Credit Cards</c><c>720000</c><c>2800</c></r>
+            <r><c>BC</c><c>Q2</c><c>Credit Cards</c><c>790000</c><c>3050</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Sales Data by Region/Quarter</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Summarize.Summarize">
+        <Position x="250" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="Region" action="GroupBy" rename="Region"/>
+            <SummarizeField field="Quarter" action="GroupBy" rename="Quarter"/>
+            <SummarizeField field="Revenue" action="Sum" rename="TotalRevenue"/>
+            <SummarizeField field="Units" action="Sum" rename="TotalUnits"/>
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Aggregate by Region+Quarter</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.CrossTab.CrossTab">
+        <Position x="450" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <GroupByFields>
+            <Field field="Region"/>
+          </GroupByFields>
+          <HeaderField field="Quarter"/>
+          <DataField field="TotalRevenue"/>
+          <Method>Sum</Method>
+          <Separator>_</Separator>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Pivot Quarter Columns</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="650" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="([Q2] - [Q1]) / [Q1] * 100" field="GrowthPct" size="8" type="Double"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Calculate Q/Q Growth %</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="850" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortFields>
+            <SortField field="GrowthPct" order="Descending"/>
+          </SortFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Rank by Growth</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1050" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="regional_sales_pivot.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Regional Sales Report</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="2" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Output"/><Destination ToolID="6" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>cross_tab_sales_report</Name>
+      <Description>Pivots quarterly sales data by region using CrossTab, calculates quarter-over-quarter growth</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

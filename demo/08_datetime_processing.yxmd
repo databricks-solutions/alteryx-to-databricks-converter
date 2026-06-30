@@ -1,0 +1,147 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="8"/>
+          <Fields>
+            <Field name="LoanID" type="Int32" size="4"/>
+            <Field name="BorrowerName" type="V_WString" size="50"/>
+            <Field name="OriginationDate" type="V_WString" size="20"/>
+            <Field name="MaturityDate" type="V_WString" size="20"/>
+            <Field name="Principal" type="Double" size="8"/>
+            <Field name="Rate" type="Double" size="8"/>
+          </Fields>
+          <Data>
+            <r><c>9001</c><c>Acme Corp</c><c>2022-03-15</c><c>2027-03-15</c><c>500000</c><c>4.25</c></r>
+            <r><c>9002</c><c>Globex Inc</c><c>2021-07-01</c><c>2026-07-01</c><c>750000</c><c>3.75</c></r>
+            <r><c>9003</c><c>Initech LLC</c><c>2023-01-10</c><c>2028-01-10</c><c>320000</c><c>5.10</c></r>
+            <r><c>9004</c><c>Umbrella Corp</c><c>2020-11-20</c><c>2025-11-20</c><c>1200000</c><c>3.50</c></r>
+            <r><c>9005</c><c>Waystar Royco</c><c>2023-06-30</c><c>2033-06-30</c><c>2500000</c><c>4.80</c></r>
+            <r><c>9006</c><c>Hooli Inc</c><c>2022-09-01</c><c>2025-09-01</c><c>180000</c><c>5.50</c></r>
+            <r><c>9007</c><c>Pied Piper</c><c>2024-02-14</c><c>2029-02-14</c><c>650000</c><c>4.00</c></r>
+            <r><c>9008</c><c>Stark Industries</c><c>2021-12-01</c><c>2026-12-01</c><c>900000</c><c>3.90</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Loan Portfolio</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DateTime.DateTime">
+        <Position x="250" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <IsFrom Value="True"/>
+          <InputFieldName>OriginationDate</InputFieldName>
+          <Format>yyyy-MM-dd</Format>
+          <OutputFieldName>OriginDate_Parsed</OutputFieldName>
+          <OutputFieldType>Date</OutputFieldType>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Parse Origination Date</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DateTime.DateTime">
+        <Position x="250" y="350"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <IsFrom Value="True"/>
+          <InputFieldName>MaturityDate</InputFieldName>
+          <Format>yyyy-MM-dd</Format>
+          <OutputFieldName>MaturityDate_Parsed</OutputFieldName>
+          <OutputFieldType>Date</OutputFieldType>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Parse Maturity Date</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="500" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="DateTimeDiff([MaturityDate_Parsed], [OriginDate_Parsed], 'days')" field="LoanTermDays" size="4" type="Int32"/>
+            <FormulaField expression="DateTimeDiff('2024-06-30', [OriginDate_Parsed], 'months')" field="MonthsSinceOrigination" size="4" type="Int32"/>
+            <FormulaField expression="DateTimeDiff([MaturityDate_Parsed], '2024-06-30', 'months')" field="MonthsToMaturity" size="4" type="Int32"/>
+            <FormulaField expression="IF DateTimeDiff([MaturityDate_Parsed], '2024-06-30', 'months') &lt; 12 THEN 'Maturing Soon' ELSEIF DateTimeDiff([MaturityDate_Parsed], '2024-06-30', 'months') &lt; 24 THEN 'Medium Term' ELSE 'Long Term' ENDIF" field="MaturityBucket" size="20" type="V_WString"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Calculate Loan Metrics</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.AlteryxSelect.AlteryxSelect">
+        <Position x="700" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <OrderChanged Value="True"/>
+          <SelectFields>
+            <SelectField field="LoanID" selected="True" type="Int32" size="4"/>
+            <SelectField field="BorrowerName" selected="True" type="V_WString" size="50"/>
+            <SelectField field="Principal" selected="True" type="Double" size="8"/>
+            <SelectField field="Rate" selected="True" type="Double" size="8"/>
+            <SelectField field="OriginDate_Parsed" selected="True" rename="OriginationDate" type="Date" size="10"/>
+            <SelectField field="MaturityDate_Parsed" selected="True" rename="MaturityDate" type="Date" size="10"/>
+            <SelectField field="LoanTermDays" selected="True" type="Int32" size="4"/>
+            <SelectField field="MonthsSinceOrigination" selected="True" type="Int32" size="4"/>
+            <SelectField field="MonthsToMaturity" selected="True" type="Int32" size="4"/>
+            <SelectField field="MaturityBucket" selected="True" type="V_WString" size="20"/>
+            <SelectField field="OriginationDate" selected="False"/>
+            <SelectField field="MaturityDate" selected="False"/>
+          </SelectFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Select Final Fields</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="900" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortFields>
+            <SortField field="MonthsToMaturity" order="Ascending"/>
+          </SortFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Sort by Maturity Urgency</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1100" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="loan_maturity_report.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Loan Maturity Report</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="2" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Output"/><Destination ToolID="6" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="6" Connection="Output"/><Destination ToolID="7" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>datetime_processing</Name>
+      <Description>Parses loan dates with DateTime tool, calculates maturity metrics and classifies loans by time-to-maturity</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

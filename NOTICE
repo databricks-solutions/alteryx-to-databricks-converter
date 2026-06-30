@@ -1,0 +1,16 @@
+Alteryx-to-Databricks Migration Accelerator (a2d)
+Copyright (2026) Databricks, Inc.
+
+This product is licensed under the Databricks License (see LICENSE.md).
+
+------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------
+
+This repository bundles the following third-party materials, redistributed
+under their own licenses:
+
+- Alteryx .yxmd test workflows under tests/fixtures/packt/
+  Sourced from Packt Publishing's open-source book repositories, released
+  under the MIT License. Full attribution and the MIT license text are in
+  tests/fixtures/packt/LICENSE.

@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="6"/>
+          <Fields>
+            <Field name="TxnID" type="Int32" size="4"/>
+            <Field name="BranchCode" type="V_WString" size="10"/>
+            <Field name="Amount" type="Double" size="8"/>
+            <Field name="Description" type="V_WString" size="100"/>
+          </Fields>
+          <Data>
+            <r><c>5001</c><c>TOR-001</c><c>12500.00</c><c>Wire transfer to client acct</c></r>
+            <r><c>5002</c><c>VAN-003</c><c>8750.50</c><c>Mortgage payment received</c></r>
+            <r><c>5003</c><c>MTL-002</c><c>45000.00</c><c>Commercial loan disbursement</c></r>
+            <r><c>5004</c><c>TOR-001</c><c>2300.75</c><c>Credit card chargeback</c></r>
+            <r><c>5005</c><c>CAL-001</c><c>67000.00</c><c>Investment portfolio rebalance</c></r>
+            <r><c>5006</c><c>VAN-003</c><c>15800.00</c><c>Line of credit drawdown</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Transaction Records</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="350"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="4"/>
+          <Fields>
+            <Field name="Code" type="V_WString" size="10"/>
+            <Field name="BranchName" type="V_WString" size="50"/>
+            <Field name="Region" type="V_WString" size="20"/>
+            <Field name="Manager" type="V_WString" size="50"/>
+          </Fields>
+          <Data>
+            <r><c>TOR-001</c><c>Toronto Downtown</c><c>Ontario</c><c>Sarah Chen</c></r>
+            <r><c>VAN-003</c><c>Vancouver Westside</c><c>British Columbia</c><c>James Wilson</c></r>
+            <r><c>MTL-002</c><c>Montreal Centre-Ville</c><c>Quebec</c><c>Marie Dupont</c></r>
+            <r><c>CAL-001</c><c>Calgary Tower</c><c>Alberta</c><c>David Kim</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Branch Lookup Table</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.FindReplace.FindReplace">
+        <Position x="300" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FindField>Code</FindField>
+          <ReplaceField>BranchName</ReplaceField>
+          <TargetField>BranchCode</TargetField>
+          <AppendFields>
+            <Field field="Region"/>
+            <Field field="Manager"/>
+          </AppendFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Enrich with Branch Details</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.AlteryxSelect.AlteryxSelect">
+        <Position x="500" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <OrderChanged Value="True"/>
+          <SelectFields>
+            <SelectField field="TxnID" selected="True" type="Int32" size="4"/>
+            <SelectField field="BranchCode" selected="True" rename="BranchName" type="V_WString" size="50"/>
+            <SelectField field="Region" selected="True" type="V_WString" size="20"/>
+            <SelectField field="Manager" selected="True" type="V_WString" size="50"/>
+            <SelectField field="Amount" selected="True" type="Double" size="8"/>
+            <SelectField field="Description" selected="True" type="V_WString" size="100"/>
+          </SelectFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Rename &amp; Reorder</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Summarize.Summarize">
+        <Position x="700" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="Region" action="GroupBy" rename="Region"/>
+            <SummarizeField field="Amount" action="Sum" rename="TotalAmount"/>
+            <SummarizeField field="TxnID" action="Count" rename="TxnCount"/>
+            <SummarizeField field="Amount" action="Avg" rename="AvgAmount"/>
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Summarize by Region</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="900" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="regional_txn_summary.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Regional Summary Output</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="3" Connection="Replace"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Output"/><Destination ToolID="6" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>find_replace_enrichment</Name>
+      <Description>Enriches transactions with branch details using FindReplace lookup, then summarizes by region</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

@@ -1,0 +1,204 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="12"/>
+          <Fields>
+            <Field name="CustomerID" type="Int32" size="4"/>
+            <Field name="Tenure" type="Int32" size="4"/>
+            <Field name="MonthlyCharges" type="Double" size="8"/>
+            <Field name="TotalCharges" type="Double" size="8"/>
+            <Field name="NumSupportCalls" type="Int32" size="4"/>
+            <Field name="ContractType" type="V_WString" size="20"/>
+            <Field name="PaymentMethod" type="V_WString" size="30"/>
+            <Field name="Churned" type="Int32" size="4"/>
+          </Fields>
+          <Data>
+            <r><c>3001</c><c>48</c><c>65.50</c><c>3144.00</c><c>1</c><c>TwoYear</c><c>BankTransfer</c><c>0</c></r>
+            <r><c>3002</c><c>3</c><c>85.20</c><c>255.60</c><c>5</c><c>Monthly</c><c>CreditCard</c><c>1</c></r>
+            <r><c>3003</c><c>24</c><c>72.00</c><c>1728.00</c><c>2</c><c>OneYear</c><c>BankTransfer</c><c>0</c></r>
+            <r><c>3004</c><c>6</c><c>95.80</c><c>574.80</c><c>7</c><c>Monthly</c><c>CreditCard</c><c>1</c></r>
+            <r><c>3005</c><c>36</c><c>55.00</c><c>1980.00</c><c>0</c><c>TwoYear</c><c>BankTransfer</c><c>0</c></r>
+            <r><c>3006</c><c>2</c><c>110.50</c><c>221.00</c><c>4</c><c>Monthly</c><c>CreditCard</c><c>1</c></r>
+            <r><c>3007</c><c>60</c><c>45.00</c><c>2700.00</c><c>1</c><c>TwoYear</c><c>BankTransfer</c><c>0</c></r>
+            <r><c>3008</c><c>12</c><c>78.30</c><c>939.60</c><c>3</c><c>OneYear</c><c>CreditCard</c><c>0</c></r>
+            <r><c>3009</c><c>1</c><c>92.00</c><c>92.00</c><c>6</c><c>Monthly</c><c>CreditCard</c><c>1</c></r>
+            <r><c>3010</c><c>42</c><c>60.00</c><c>2520.00</c><c>0</c><c>TwoYear</c><c>BankTransfer</c><c>0</c></r>
+            <r><c>3011</c><c>8</c><c>88.00</c><c>704.00</c><c>4</c><c>Monthly</c><c>CreditCard</c><c>1</c></r>
+            <r><c>3012</c><c>30</c><c>68.50</c><c>2055.00</c><c>2</c><c>OneYear</c><c>BankTransfer</c><c>0</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Customer Behavior Data</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DataCleansing.DataCleansing">
+        <Position x="250" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Cleanse>
+            <RemoveLeadingTrailingWhitespace>True</RemoveLeadingTrailingWhitespace>
+            <RemoveExtraWhitespace>True</RemoveExtraWhitespace>
+            <RemoveAllWhitespace>False</RemoveAllWhitespace>
+            <RemoveLetters>False</RemoveLetters>
+            <RemoveNumbers>False</RemoveNumbers>
+            <RemovePunctuation>False</RemovePunctuation>
+            <ModifyCase>None</ModifyCase>
+            <SetNull>False</SetNull>
+          </Cleanse>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Clean Customer Data</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="450" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="[MonthlyCharges] * 12" field="AnnualCharges" size="8" type="Double"/>
+            <FormulaField expression="[NumSupportCalls] / [Tenure]" field="SupportCallRate" size="8" type="Double"/>
+            <FormulaField expression="IF [ContractType] = 'Monthly' THEN 0 ELSEIF [ContractType] = 'OneYear' THEN 1 ELSE 2 ENDIF" field="ContractEncoded" size="4" type="Int32"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Engineer Features</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.DecisionTree.DecisionTree">
+        <Position x="650" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <TargetField>Churned</TargetField>
+          <FeatureFields>Tenure,MonthlyCharges,TotalCharges,NumSupportCalls,ContractEncoded,AnnualCharges,SupportCallRate</FeatureFields>
+          <ModelType>classification</ModelType>
+          <MaxDepth>4</MaxDepth>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Decision Tree (Churn Classifier)</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.ForestModel.ForestModel">
+        <Position x="650" y="350"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <TargetField>Churned</TargetField>
+          <FeatureFields>Tenure,MonthlyCharges,TotalCharges,NumSupportCalls,ContractEncoded,AnnualCharges,SupportCallRate</FeatureFields>
+          <ModelType>classification</ModelType>
+          <NumTrees>50</NumTrees>
+          <MaxDepth>6</MaxDepth>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Random Forest (Churn Classifier)</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Summarize.Summarize">
+        <Position x="850" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="Churned" action="GroupBy" rename="Churned"/>
+            <SummarizeField field="CustomerID" action="Count" rename="CustomerCount"/>
+            <SummarizeField field="MonthlyCharges" action="Avg" rename="AvgMonthlyCharges"/>
+            <SummarizeField field="Tenure" action="Avg" rename="AvgTenure"/>
+            <SummarizeField field="NumSupportCalls" action="Sum" rename="TotalSupportCalls"/>
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Churn Summary Stats</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="1050" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortFields>
+            <SortField field="Churned" order="Descending"/>
+          </SortFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Sort by Churn Status</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="8">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1250" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="churn_summary_decision_tree.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Decision Tree Churn Summary</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="9">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="850" y="450"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="churn_forest_model_output.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Random Forest Model Output</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="10">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.LinearRegression.LinearRegression">
+        <Position x="650" y="550"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <TargetField>TotalCharges</TargetField>
+          <FeatureFields>Tenure,MonthlyCharges,NumSupportCalls,ContractEncoded,AnnualCharges</FeatureFields>
+          <Regularization>0.1</Regularization>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Linear Regression (Predict Total Charges)</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="11">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="850" y="600"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="total_charges_regression_output.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Linear Regression Output</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="2" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="6" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="6" Connection="Output"/><Destination ToolID="7" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="7" Connection="Output"/><Destination ToolID="8" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Output"/><Destination ToolID="9" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="10" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="10" Connection="Output"/><Destination ToolID="11" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>churn_prediction_forest</Name>
+      <Description>Customer churn prediction: engineers features from behavior data, trains DecisionTree and RandomForest classifiers plus LinearRegression for total charges prediction</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

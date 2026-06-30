@@ -1,0 +1,129 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="10"/>
+          <Fields>
+            <Field name="Date" type="Date" size="10"/>
+            <Field name="Warehouse" type="V_WString" size="30"/>
+            <Field name="SKU" type="V_WString" size="20"/>
+            <Field name="Quantity" type="Int32" size="4"/>
+            <Field name="Type" type="V_WString" size="10"/>
+          </Fields>
+          <Data>
+            <r><c>2024-01-02</c><c>Toronto-DC</c><c>WIDGET-A</c><c>500</c><c>Inbound</c></r>
+            <r><c>2024-01-03</c><c>Toronto-DC</c><c>WIDGET-A</c><c>-120</c><c>Outbound</c></r>
+            <r><c>2024-01-05</c><c>Toronto-DC</c><c>WIDGET-A</c><c>-80</c><c>Outbound</c></r>
+            <r><c>2024-01-07</c><c>Toronto-DC</c><c>WIDGET-A</c><c>300</c><c>Inbound</c></r>
+            <r><c>2024-01-02</c><c>Vancouver-DC</c><c>GADGET-B</c><c>1000</c><c>Inbound</c></r>
+            <r><c>2024-01-04</c><c>Vancouver-DC</c><c>GADGET-B</c><c>-250</c><c>Outbound</c></r>
+            <r><c>2024-01-06</c><c>Vancouver-DC</c><c>GADGET-B</c><c>-400</c><c>Outbound</c></r>
+            <r><c>2024-01-08</c><c>Vancouver-DC</c><c>GADGET-B</c><c>200</c><c>Inbound</c></r>
+            <r><c>2024-01-03</c><c>Toronto-DC</c><c>GADGET-B</c><c>750</c><c>Inbound</c></r>
+            <r><c>2024-01-05</c><c>Toronto-DC</c><c>GADGET-B</c><c>-300</c><c>Outbound</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Inventory Movements</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="200" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortFields>
+            <SortField field="Warehouse" order="Ascending"/>
+            <SortField field="SKU" order="Ascending"/>
+            <SortField field="Date" order="Ascending"/>
+          </SortFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Sort by Warehouse/SKU/Date</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.RunningTotal.RunningTotal">
+        <Position x="400" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <RunningTotalFields>
+            <RunningTotalField field="Quantity" groupByField="Warehouse,SKU" rename="RunningBalance"/>
+          </RunningTotalFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Cumulative Stock Balance</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="600" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="IF [RunningBalance] &lt; 100 THEN 'LOW' ELSEIF [RunningBalance] &lt; 300 THEN 'MEDIUM' ELSE 'OK' ENDIF" field="StockStatus" size="10" type="V_WString"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Classify Stock Level</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Filter.Filter">
+        <Position x="800" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Expression>[StockStatus] = "LOW"</Expression>
+          <Mode>Simple</Mode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Low Stock Alerts</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1000" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="low_stock_alerts.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Low Stock Alerts Output</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1000" y="300"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="full_inventory_ledger.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Full Inventory Ledger</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="2" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="True"/><Destination ToolID="6" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="7" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>running_total_inventory</Name>
+      <Description>Tracks cumulative inventory balance using RunningTotal, flags low-stock items per warehouse/SKU</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

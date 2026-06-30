@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="5"/>
+          <Fields>
+            <Field name="FullName" type="V_WString" size="100"/>
+            <Field name="Phone" type="V_WString" size="20"/>
+            <Field name="Address" type="V_WString" size="200"/>
+            <Field name="PostalCode" type="V_WString" size="10"/>
+            <Field name="Revenue" type="Double" size="8"/>
+          </Fields>
+          <Data>
+            <r><c>  john SMITH  </c><c>(416) 555-1234</c><c>  123 Bay St, Suite 400  </c><c>M5J 2T3</c><c>52000</c></r>
+            <r><c>MARY   jones</c><c>905.555.5678</c><c>456 King St W</c><c>m5v 1k4</c><c>78000</c></r>
+            <r><c>robert WILLIAMS</c><c>647-555-9012</c><c>789 Queen St E  </c><c>M4M 1H8</c><c>0</c></r>
+            <r><c>  Jennifer DAVIS  </c><c>416 555 3456</c><c>321 Yonge St</c><c>m5b 1s8</c><c>125000</c></r>
+            <r><c>MICHAEL  brown</c><c>(905)555-7890</c><c>  654 Dundas St W  </c><c>M6J 1V1</c><c>43500</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Raw Customer Data (dirty)</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DataCleansing.DataCleansing">
+        <Position x="200" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Cleanse>
+            <RemoveLeadingTrailingWhitespace>True</RemoveLeadingTrailingWhitespace>
+            <RemoveExtraWhitespace>True</RemoveExtraWhitespace>
+            <RemoveAllWhitespace>False</RemoveAllWhitespace>
+            <RemoveLetters>False</RemoveLetters>
+            <RemoveNumbers>False</RemoveNumbers>
+            <RemovePunctuation>False</RemovePunctuation>
+            <ModifyCase>TitleCase</ModifyCase>
+            <SetNull>False</SetNull>
+          </Cleanse>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Clean Whitespace &amp; Title Case</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="400" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="REGEX_Replace([Phone], '[^0-9]', '')" field="CleanPhone" size="20" type="V_WString"/>
+            <FormulaField expression="Uppercase([PostalCode])" field="PostalCode" size="10" type="V_WString"/>
+            <FormulaField expression="IF [Revenue] = 0 THEN 'New' ELSEIF [Revenue] &lt; 50000 THEN 'Bronze' ELSEIF [Revenue] &lt; 100000 THEN 'Silver' ELSE 'Gold' ENDIF" field="Tier" size="10" type="V_WString"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Normalize Phone, PostalCode &amp; Assign Tier</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.AlteryxSelect.AlteryxSelect">
+        <Position x="600" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <OrderChanged Value="True"/>
+          <SelectFields>
+            <SelectField field="FullName" selected="True" rename="CustomerName" type="V_WString" size="100"/>
+            <SelectField field="CleanPhone" selected="True" rename="Phone" type="V_WString" size="20"/>
+            <SelectField field="Address" selected="True" type="V_WString" size="200"/>
+            <SelectField field="PostalCode" selected="True" type="V_WString" size="10"/>
+            <SelectField field="Revenue" selected="True" type="Double" size="8"/>
+            <SelectField field="Tier" selected="True" type="V_WString" size="10"/>
+            <SelectField field="Phone" selected="False"/>
+          </SelectFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Rename &amp; Reorder Fields</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="800" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortFields>
+            <SortField field="Tier" order="Ascending"/>
+            <SortField field="Revenue" order="Descending"/>
+          </SortFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Sort by Tier &amp; Revenue</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1000" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="cleansed_customers.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Export Cleansed Data</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="2" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Output"/><Destination ToolID="6" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>data_cleansing_pipeline</Name>
+      <Description>Data cleansing: Trims whitespace, normalizes phone numbers, assigns revenue tiers</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

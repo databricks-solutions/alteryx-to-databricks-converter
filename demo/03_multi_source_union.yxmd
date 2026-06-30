@@ -1,0 +1,148 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="100"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="3"/>
+          <Fields>
+            <Field name="AccountID" type="Int32" size="4"/>
+            <Field name="AccountName" type="V_WString" size="100"/>
+            <Field name="Balance" type="Double" size="8"/>
+            <Field name="Source" type="V_WString" size="20"/>
+          </Fields>
+          <Data>
+            <r><c>1001</c><c>Acme Corp</c><c>250000</c><c>Salesforce</c></r>
+            <r><c>1002</c><c>Globex Inc</c><c>180000</c><c>Salesforce</c></r>
+            <r><c>1003</c><c>Initech LLC</c><c>92000</c><c>Salesforce</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Salesforce Accounts</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="3"/>
+          <Fields>
+            <Field name="AccountID" type="Int32" size="4"/>
+            <Field name="AccountName" type="V_WString" size="100"/>
+            <Field name="Balance" type="Double" size="8"/>
+            <Field name="Source" type="V_WString" size="20"/>
+          </Fields>
+          <Data>
+            <r><c>2001</c><c>Umbrella Corp</c><c>420000</c><c>SAP</c></r>
+            <r><c>2002</c><c>Globex Inc</c><c>180000</c><c>SAP</c></r>
+            <r><c>2003</c><c>Waystar Royco</c><c>670000</c><c>SAP</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>SAP Accounts</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="400"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="2"/>
+          <Fields>
+            <Field name="AccountID" type="Int32" size="4"/>
+            <Field name="AccountName" type="V_WString" size="100"/>
+            <Field name="Balance" type="Double" size="8"/>
+            <Field name="Source" type="V_WString" size="20"/>
+          </Fields>
+          <Data>
+            <r><c>3001</c><c>Hooli Inc</c><c>310000</c><c>Oracle</c></r>
+            <r><c>3002</c><c>Acme Corp</c><c>250000</c><c>Oracle</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Oracle Accounts</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.UnionV2.UnionV2">
+        <Position x="300" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <ByName_or_Position ByName="True"/>
+          <Mode>Auto</Mode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Union All Sources</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Unique.Unique">
+        <Position x="500" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <UniqueFields>
+            <Field field="AccountName"/>
+          </UniqueFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Deduplicate by Account Name</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.RecordID.RecordID">
+        <Position x="650" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FieldName>MasterID</FieldName>
+          <StartValue>1</StartValue>
+          <FieldType>Int32</FieldType>
+          <Position>First</Position>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Assign Master ID</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="850" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="master_accounts.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Master Account List</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="8">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.BrowseV2.BrowseV2">
+        <Position x="650" y="350"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration/>
+        <Annotation DisplayMode="0"><Name>View Duplicates</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Unique"/><Destination ToolID="6" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="6" Connection="Output"/><Destination ToolID="7" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Duplicate"/><Destination ToolID="8" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>multi_source_union</Name>
+      <Description>Consolidates accounts from Salesforce, SAP, and Oracle into a deduplicated master list</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

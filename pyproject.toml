@@ -1,0 +1,184 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alteryx2databricks"
+version = "2.0.0"
+description = "Alteryx to Databricks migration accelerator - parse .yxmd workflows and generate PySpark, DLT, SQL, and Lakeflow Designer code"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.md" }
+authors = [
+    { name = "Databricks Field Engineering" },
+]
+keywords = ["alteryx", "databricks", "migration", "pyspark", "etl"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Code Generators",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "lxml>=5.0",
+    "networkx>=3.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "sqlglot>=25.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+    "pydantic-settings>=2.0",
+]
+history = [
+    "alteryx2databricks[server]",
+    "psycopg[binary]>=3.2",
+]
+lakebase = [
+    "alteryx2databricks[server]",
+    "psycopg[binary]>=3.2",
+    "psycopg_pool>=3.2",
+    "databricks-sdk>=0.105.0",
+]
+validation = [
+    "datacompy>=0.12",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "lxml-stubs>=0.5",
+    "types-PyYAML>=6.0",
+    "pip-tools>=7.0",
+    "pre-commit>=3.7",
+]
+all = [
+    "alteryx2databricks[server,validation,dev]",
+]
+
+[project.urls]
+Documentation = "https://github.com/databricks-solutions/alteryx-to-databricks-converter#readme"
+Changelog = "https://github.com/databricks-solutions/alteryx-to-databricks-converter/blob/main/CHANGELOG.md"
+Issues = "https://github.com/databricks-solutions/alteryx-to-databricks-converter/issues"
+
+[project.scripts]
+a2d = "a2d.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/a2d"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-v --tb=short --cov=a2d --cov-report=term-missing"
+asyncio_mode = "strict"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow-running tests",
+]
+filterwarnings = [
+    "ignore::pytest.PytestCollectionWarning",
+]
+
+[tool.coverage.run]
+source = ["src/a2d"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_empty = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
+# E501   — line length handled by `ruff format`, not check
+# E741   — ambiguous variable names (rare; readable in context)
+# E402   — module-level import not at top of file (test fixtures need late imports)
+# SIM102 — nested `if` blocks: more readable than 1-line `and`
+# SIM108 — ternary preference: stylistic
+# RUF001 — ambiguous unicode (we deliberately use `ℹ` / `—` in UI strings)
+ignore = ["E501", "E741", "E402", "SIM102", "SIM108", "RUF001"]
+
+[tool.ruff.lint.per-file-ignores]
+# Visitor methods use IR / AST class names verbatim (`_visit_BinaryOp`,
+# `_body_ReadNode`, `_generate_FilterNode`, etc.) — N802 doesn't apply
+# to AST/IR-class-named visitor patterns.
+"src/a2d/expressions/*.py" = ["N802"]
+"src/a2d/generators/*.py" = ["N802"]
+# Typer's documented pattern is `arg: T = typer.Option(...)` in defaults;
+# FastAPI's documented pattern is `dep = Depends(get_dep)` in defaults.
+# Both are flagged B008 ("function call in argument default") but are
+# the canonical idiom in those libraries.
+"src/a2d/cli.py" = ["B008"]
+# Server routers also use the FastAPI HTTPException pattern where the
+# original exception is already logged (`logger.exception(...)`) and the
+# HTTP response intentionally drops the chained `__cause__` (B904) to
+# avoid leaking traceback details to API clients.
+"server/routers/*.py" = ["B008", "B904"]
+# Expression Expr base class is the visitor-pattern root (no abstract
+# methods needed — `_visit` does the dispatching).
+"src/a2d/expressions/ast.py" = ["B024"]
+# Smoke tests use broad `Exception` catches by design.
+"tests/smoke/*.py" = ["B017"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+mypy_path = "src"
+packages = ["a2d", "server"]
+# Converters use safe_get(...) helpers that return Optional[str]. The
+# generators tolerate None at runtime, but mypy's strict view produces
+# noisy "Any | None where str expected" reports across ~20 files. Allow
+# them — full strictness is a separate cleanup task tracked in
+# follow-ups; tests guarantee the actual behaviour.
+disable_error_code = [
+    "arg-type",
+    "assignment",
+    "attr-defined",
+    "no-redef",
+    "no-any-return",
+    "import-not-found",
+    "import-untyped",
+    "str-bytes-safe",
+    "return-value",
+]
+
+[[tool.mypy.overrides]]
+module = ["server.*"]
+disallow_untyped_defs = false
+
+# Third-party libraries that don't ship type stubs. Relevant for both
+# the `a2d` package (networkx) and `server` (psycopg, psycopg_pool,
+# databricks-sdk).
+[[tool.mypy.overrides]]
+module = [
+    "networkx",
+    "networkx.*",
+    "psycopg",
+    "psycopg.*",
+    "psycopg_pool",
+    "databricks.*",
+    "lxml",
+    "lxml.*",
+    "sqlglot",
+    "sqlglot.*",
+    "datacompy",
+]
+ignore_missing_imports = true

@@ -1,0 +1,11 @@
+name: "join_and_summarize_pyspark"
+input: "tests/fixtures/workflows/join_and_summarize.yxmd"
+format: pyspark
+expect:
+  min_confidence: 80
+  max_warnings: 15
+  must_contain:
+    - ".join("
+  must_not_contain:
+    - "ERROR"
+  min_nodes: 3

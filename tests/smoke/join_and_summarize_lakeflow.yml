@@ -1,0 +1,13 @@
+name: "join_and_summarize_lakeflow"
+input: "tests/fixtures/workflows/join_and_summarize.yxmd"
+format: lakeflow
+expect:
+  min_confidence: 80
+  max_warnings: 10
+  must_contain:
+    - "CREATE OR REFRESH"
+    - "LIVE."
+  must_not_contain:
+    - "ERROR"
+    - "WITH "
+  min_nodes: 2

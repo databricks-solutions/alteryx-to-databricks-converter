@@ -1,0 +1,9 @@
+name: "complex_pipeline_sql"
+input: "tests/fixtures/workflows/complex_pipeline.yxmd"
+format: sql
+expect:
+  min_confidence: 80
+  max_warnings: 25
+  must_not_contain:
+    - "ERROR"
+  min_nodes: 5

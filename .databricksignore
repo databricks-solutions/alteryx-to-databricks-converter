@@ -1,0 +1,21 @@
+# Exclude from Databricks App deployment (large/unnecessary directories)
+tests/
+docs/
+examples/
+.github/
+.pre-commit-config.yaml
+Dockerfile
+Makefile
+LICENSE
+*.md
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+node_modules/
+.git/
+.gitignore
+.databricksignore
+.coverage
+htmlcov/

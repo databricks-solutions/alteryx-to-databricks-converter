@@ -1,0 +1,413 @@
+"""Tests for the Databricks Asset Bundle (DAB) generator."""
+
+from __future__ import annotations
+
+import pytest
+
+from a2d.config import ConversionConfig
+from a2d.generators.base import GeneratedFile, GeneratedOutput
+from a2d.generators.dab import DABGenerator
+
+
+@pytest.fixture
+def config() -> ConversionConfig:
+    return ConversionConfig(
+        catalog_name="test_catalog",
+        schema_name="test_schema",
+        spark_version="3.5",
+    )
+
+
+@pytest.fixture
+def generator(config: ConversionConfig) -> DABGenerator:
+    return DABGenerator(config)
+
+
+def _make_output(files: list[GeneratedFile] | None = None) -> GeneratedOutput:
+    """Create a GeneratedOutput with optional files."""
+    return GeneratedOutput(files=files or [])
+
+
+class TestDABGenerateFileStructure:
+    """Tests for the overall DAB file structure."""
+
+    def test_generates_expected_file_count(self, generator: DABGenerator):
+        """Should generate: databricks.yml, job yml, source py, 3 env ymls = 6 files."""
+        output = _make_output(
+            [
+                GeneratedFile(filename="workflow.py", content="x = 1", file_type="python"),
+            ]
+        )
+        dag = None  # DAG is not used in generate
+
+        files = generator.generate(dag, "my_workflow", output)
+
+        # databricks.yml + job yml + source py + 3 env ymls = 6
+        assert len(files) == 6
+        filenames = [f.filename for f in files]
+        assert "databricks.yml" in filenames
+        assert "resources/my_workflow_job.yml" in filenames
+        assert "src/my_workflow.py" in filenames
+        assert "environments/dev.yml" in filenames
+        assert "environments/staging.yml" in filenames
+        assert "environments/prod.yml" in filenames
+
+    def test_no_main_code_produces_5_files(self, generator: DABGenerator):
+        """When no Python/SQL code is found, source file is omitted."""
+        output = _make_output(
+            [
+                GeneratedFile(filename="metadata.json", content="{}", file_type="json"),
+            ]
+        )
+
+        files = generator.generate(None, "my_workflow", output)
+
+        # databricks.yml + job yml + 3 env ymls = 5 (no source py)
+        assert len(files) == 5
+        filenames = [f.filename for f in files]
+        assert "src/my_workflow.py" not in filenames
+
+    def test_empty_output_produces_5_files(self, generator: DABGenerator):
+        """With empty GeneratedOutput, no source file but rest generated."""
+        output = _make_output([])
+
+        files = generator.generate(None, "test", output)
+
+        assert len(files) == 5
+        filenames = [f.filename for f in files]
+        assert "src/test.py" not in filenames
+
+    def test_all_files_have_content(self, generator: DABGenerator):
+        """Every generated file should have non-empty content."""
+        output = _make_output(
+            [
+                GeneratedFile(filename="code.py", content="print('hello')", file_type="python"),
+            ]
+        )
+
+        files = generator.generate(None, "wf", output)
+
+        for f in files:
+            assert f.content.strip(), f"{f.filename} should have non-empty content"
+
+
+class TestDatabricksYml:
+    """Tests for databricks.yml content."""
+
+    def test_bundle_name(self, generator: DABGenerator):
+        """databricks.yml should contain the workflow name in the bundle name."""
+        output = _make_output()
+        files = generator.generate(None, "sales_pipeline", output)
+
+        db_yml = _find_file(files, "databricks.yml")
+        assert db_yml is not None
+        assert "sales_pipeline_migration" in db_yml.content
+
+    def test_includes_resources_and_environments(self, generator: DABGenerator):
+        """databricks.yml should reference resources/ and environments/ paths."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        db_yml = _find_file(files, "databricks.yml")
+        assert "resources/*.yml" in db_yml.content
+        assert "environments/*.yml" in db_yml.content
+
+    def test_workspace_root_path(self, generator: DABGenerator):
+        """databricks.yml should set a workspace root path with the workflow name."""
+        output = _make_output()
+        files = generator.generate(None, "my_job", output)
+
+        db_yml = _find_file(files, "databricks.yml")
+        assert "my_job" in db_yml.content
+        assert "root_path" in db_yml.content
+
+    def test_file_type_is_yaml(self, generator: DABGenerator):
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        db_yml = _find_file(files, "databricks.yml")
+        assert db_yml.file_type == "yaml"
+
+    def test_header_comment(self, generator: DABGenerator):
+        """Generated YAML should have a header comment mentioning a2d."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        db_yml = _find_file(files, "databricks.yml")
+        assert "Generated by a2d" in db_yml.content or "a2d" in db_yml.content
+
+
+class TestJobYml:
+    """Tests for the job resource YAML."""
+
+    def test_job_name(self, generator: DABGenerator):
+        """Job YAML should contain the workflow name as the job name."""
+        output = _make_output()
+        files = generator.generate(None, "daily_etl", output)
+
+        job_yml = _find_file(files, "resources/daily_etl_job.yml")
+        assert job_yml is not None
+        assert "daily_etl" in job_yml.content
+
+    def test_spark_python_task_reference(self, generator: DABGenerator):
+        """Job should reference the source Python file."""
+        output = _make_output()
+        files = generator.generate(None, "my_wf", output)
+
+        job_yml = _find_file(files, "resources/my_wf_job.yml")
+        assert "../src/my_wf.py" in job_yml.content
+
+    def test_spark_version_from_config(self, generator: DABGenerator):
+        """Job should use spark_version from config."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        assert "3.5" in job_yml.content
+
+    def test_catalog_and_schema_parameters(self, generator: DABGenerator):
+        """Job should include catalog and schema as parameters."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        assert "test_catalog" in job_yml.content
+        assert "test_schema" in job_yml.content
+
+    def test_tags_present(self, generator: DABGenerator):
+        """Job should have migration source tags."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        assert "alteryx_migration" in job_yml.content
+        assert "a2d" in job_yml.content
+
+    def test_schedule_present(self, generator: DABGenerator):
+        """Job should have a default schedule."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        assert "quartz_cron_expression" in job_yml.content
+
+    def test_uses_job_clusters_indirection(self, generator: DABGenerator):
+        """Job should use top-level `job_clusters` + `job_cluster_key: main`,
+        not an inline `new_cluster` per task. Matches Databricks best practice
+        and aligns with the Workflow JSON generator."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        # job_clusters[] block exists.
+        assert "job_clusters:" in job_yml.content
+        assert 'job_cluster_key: "main"' in job_yml.content
+        # new_cluster appears under job_clusters (not inline under tasks).
+        # Heuristic: the line containing "new_cluster" should be indented under
+        # job_clusters, so it should appear before "tasks:".
+        idx_new_cluster = job_yml.content.index("new_cluster")
+        idx_tasks = job_yml.content.index("tasks:")
+        assert idx_new_cluster < idx_tasks, "new_cluster should live under job_clusters, not inline in tasks"
+
+    def test_default_cloud_is_aws_node_type(self, generator: DABGenerator):
+        """Default cloud=aws should produce i3.xlarge (matches workflow.json)."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        assert 'node_type_id: "i3.xlarge"' in job_yml.content
+
+
+class TestJobYmlCloudPortability:
+    """Cloud-aware node_type_id selection in the DAB job YAML."""
+
+    @pytest.mark.parametrize(
+        "cloud,expected_node_type",
+        [
+            ("aws", "i3.xlarge"),
+            ("azure", "Standard_DS3_v2"),
+            ("gcp", "n1-highmem-4"),
+        ],
+    )
+    def test_node_type_id_matches_cloud(self, cloud: str, expected_node_type: str):
+        config = ConversionConfig(
+            catalog_name="test_catalog",
+            schema_name="test_schema",
+            spark_version="3.5",
+            cloud=cloud,  # type: ignore[arg-type]
+        )
+        gen = DABGenerator(config)
+        files = gen.generate(None, "wf", _make_output())
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        assert f'node_type_id: "{expected_node_type}"' in job_yml.content
+        # Also assert the generated comment notes which cloud the bundle is for.
+        assert f'cloud="{cloud}"' in job_yml.content
+
+
+class TestEnvironmentYml:
+    """Tests for environment YAML generation."""
+
+    def test_dev_environment(self, generator: DABGenerator):
+        """Dev environment should use development mode and be the default."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        dev_yml = _find_file(files, "environments/dev.yml")
+        assert dev_yml is not None
+        assert "development" in dev_yml.content
+        assert "default: true" in dev_yml.content
+
+    def test_staging_environment(self, generator: DABGenerator):
+        """Staging should use production mode and not be default."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        staging_yml = _find_file(files, "environments/staging.yml")
+        assert staging_yml is not None
+        assert "production" in staging_yml.content
+        assert "default: false" in staging_yml.content
+
+    def test_prod_environment(self, generator: DABGenerator):
+        """Prod should use production mode."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        prod_yml = _find_file(files, "environments/prod.yml")
+        assert prod_yml is not None
+        assert "production" in prod_yml.content
+
+    def test_dev_catalog_has_suffix(self, generator: DABGenerator):
+        """Dev catalog should have _dev suffix."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        dev_yml = _find_file(files, "environments/dev.yml")
+        assert "test_catalog_dev" in dev_yml.content
+
+    def test_staging_catalog_has_suffix(self, generator: DABGenerator):
+        """Staging catalog should have _staging suffix."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        staging_yml = _find_file(files, "environments/staging.yml")
+        assert "test_catalog_staging" in staging_yml.content
+
+    def test_prod_catalog_no_suffix(self, generator: DABGenerator):
+        """Prod catalog should use the original catalog name (no suffix)."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        prod_yml = _find_file(files, "environments/prod.yml")
+        assert '"test_catalog"' in prod_yml.content
+
+    def test_worker_counts_differ_by_env(self, generator: DABGenerator):
+        """Worker count should increase across dev < staging < prod."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        dev_yml = _find_file(files, "environments/dev.yml")
+        staging_yml = _find_file(files, "environments/staging.yml")
+        prod_yml = _find_file(files, "environments/prod.yml")
+
+        assert "num_workers: 1" in dev_yml.content
+        assert "num_workers: 2" in staging_yml.content
+        assert "num_workers: 4" in prod_yml.content
+
+    def test_all_env_files_are_yaml_type(self, generator: DABGenerator):
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        for env in ("dev", "staging", "prod"):
+            env_file = _find_file(files, f"environments/{env}.yml")
+            assert env_file.file_type == "yaml"
+
+    def test_schema_name_in_all_envs(self, generator: DABGenerator):
+        """Schema name from config should appear in all environments."""
+        output = _make_output()
+        files = generator.generate(None, "wf", output)
+
+        for env in ("dev", "staging", "prod"):
+            env_file = _find_file(files, f"environments/{env}.yml")
+            assert "test_schema" in env_file.content
+
+
+class TestFindMainCode:
+    """Tests for DABGenerator._find_main_code."""
+
+    def test_finds_python_file(self):
+        output = _make_output(
+            [
+                GeneratedFile(filename="metadata.json", content="{}", file_type="json"),
+                GeneratedFile(filename="workflow.py", content="print('hello')", file_type="python"),
+            ]
+        )
+
+        result = DABGenerator._find_main_code(output)
+
+        assert result == "print('hello')"
+
+    def test_finds_sql_file(self):
+        output = _make_output(
+            [
+                GeneratedFile(filename="pipeline.sql", content="SELECT 1", file_type="sql"),
+            ]
+        )
+
+        result = DABGenerator._find_main_code(output)
+
+        assert result == "SELECT 1"
+
+    def test_skips_json_files(self):
+        output = _make_output(
+            [
+                GeneratedFile(filename="config.json", content="{}", file_type="json"),
+            ]
+        )
+
+        result = DABGenerator._find_main_code(output)
+
+        assert result is None
+
+    def test_returns_first_matching_file(self):
+        """If multiple Python/SQL files, returns the first one."""
+        output = _make_output(
+            [
+                GeneratedFile(filename="first.py", content="a = 1", file_type="python"),
+                GeneratedFile(filename="second.py", content="b = 2", file_type="python"),
+            ]
+        )
+
+        result = DABGenerator._find_main_code(output)
+
+        assert result == "a = 1"
+
+    def test_empty_output_returns_none(self):
+        output = _make_output([])
+
+        result = DABGenerator._find_main_code(output)
+
+        assert result is None
+
+    def test_json_extension_python_type_excluded(self):
+        """Files with .json extension but python type should be excluded."""
+        output = _make_output(
+            [
+                GeneratedFile(filename="workflow.json", content="{}", file_type="python"),
+            ]
+        )
+
+        result = DABGenerator._find_main_code(output)
+
+        assert result is None
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _find_file(files: list[GeneratedFile], filename: str) -> GeneratedFile | None:
+    """Find a file by name in a list of generated files."""
+    for f in files:
+        if f.filename == filename:
+            return f
+    return None

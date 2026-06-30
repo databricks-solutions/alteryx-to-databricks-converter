@@ -1,0 +1,30 @@
+# Example connection mapping configuration for a2d
+# Maps Alteryx connection names to Databricks Unity Catalog locations.
+#
+# Usage:
+#   a2d convert workflow.yxmd --connection-map connection_mapping.yml
+
+default_catalog: main
+default_schema: default
+
+mappings:
+  # ODBC/OLEDB connections
+  "ODBCConnection_Sales":
+    catalog: analytics
+    schema: raw
+    table_prefix: "src_"
+
+  "ODBCConnection_HR":
+    catalog: enterprise
+    schema: hr_data
+
+  # File-based connections
+  "FileInput_Transactions":
+    catalog: main
+    schema: bronze
+
+  # SharePoint / cloud connections
+  "SharePoint_Reports":
+    catalog: main
+    schema: external
+    table_prefix: "sp_"

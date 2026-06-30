@@ -1,0 +1,11 @@
+name: "complex_pipeline_pyspark"
+input: "tests/fixtures/workflows/complex_pipeline.yxmd"
+format: pyspark
+expect:
+  min_confidence: 80
+  max_warnings: 25
+  must_contain:
+    - "from pyspark.sql import functions as F"
+  must_not_contain:
+    - "ERROR"
+  min_nodes: 5

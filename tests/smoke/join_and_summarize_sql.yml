@@ -1,0 +1,9 @@
+name: "join_and_summarize_sql"
+input: "tests/fixtures/workflows/join_and_summarize.yxmd"
+format: sql
+expect:
+  min_confidence: 80
+  max_warnings: 15
+  must_not_contain:
+    - "ERROR"
+  min_nodes: 3

@@ -1,0 +1,1508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>a2d: Alteryx to Databricks Migration Accelerator</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css" id="theme">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/monokai.css">
+<style>
+  :root {
+    --r-background-color: #1B1F23;
+    --r-main-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --r-main-font-size: 28px;
+    --r-main-color: #E8E8E8;
+    --r-heading-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --r-heading-color: #FF3621;
+    --r-heading-text-transform: none;
+    --r-link-color: #00A972;
+    --r-link-color-hover: #00D68F;
+    --r-selection-background-color: #FF362140;
+  }
+  .reveal { font-weight: 300; }
+  .reveal h1 { font-size: 2.2em; font-weight: 700; }
+  .reveal h2 { font-size: 1.5em; font-weight: 600; }
+  .reveal h3 { font-size: 1.1em; font-weight: 600; color: #FF3621; }
+  .reveal h4 { font-size: 0.95em; font-weight: 500; color: #00A972; }
+  .reveal .subtitle { color: #A0A8B0; font-size: 0.85em; margin-top: -0.3em; }
+  .reveal .surface { background: #2C3137; border-radius: 8px; padding: 18px; margin: 8px 0; }
+  .reveal .accent { color: #FF3621; }
+  .reveal .green { color: #00A972; }
+  .reveal .muted { color: #A0A8B0; }
+  .reveal .small { font-size: 0.7em; }
+  .reveal .medium { font-size: 0.85em; }
+  .reveal pre { width: 100%; margin: 10px 0; box-shadow: none; }
+  .reveal pre code {
+    background: #2C3137; border-radius: 6px; padding: 14px;
+    font-size: 0.6em; line-height: 1.45; max-height: 480px;
+  }
+  .reveal code { font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace; }
+  .reveal table { margin: 0 auto; border-collapse: collapse; font-size: 0.65em; }
+  .reveal table th { background: #FF362130; color: #FF3621; padding: 7px 12px; text-align: left; border-bottom: 2px solid #FF3621; }
+  .reveal table td { padding: 5px 12px; border-bottom: 1px solid #3A4048; }
+  .reveal table tr:hover td { background: #2C3137; }
+  .reveal .stat-grid { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+  .reveal .stat-box {
+    background: #2C3137; border-radius: 8px; padding: 14px 20px; text-align: center; min-width: 120px;
+    border-top: 3px solid #FF3621;
+  }
+  .reveal .stat-box .num { font-size: 1.8em; font-weight: 700; color: #FF3621; display: block; }
+  .reveal .stat-box .label { font-size: 0.6em; color: #A0A8B0; }
+  .reveal .cols { display: flex; gap: 24px; align-items: flex-start; }
+  .reveal .cols > * { flex: 1; }
+  .reveal .cols-60-40 > *:first-child { flex: 3; }
+  .reveal .cols-60-40 > *:last-child { flex: 2; }
+  .reveal .pipeline {
+    display: flex; align-items: center; gap: 6px; justify-content: center;
+    font-size: 0.7em; margin: 12px 0; flex-wrap: wrap;
+  }
+  .reveal .pipeline .stage {
+    background: #2C3137; border: 1px solid #3A4048; border-radius: 6px;
+    padding: 6px 12px; white-space: nowrap;
+  }
+  .reveal .pipeline .arrow { color: #FF3621; font-weight: 700; }
+  .reveal ul, .reveal ol { text-align: left; }
+  .reveal li { margin-bottom: 0.25em; }
+  .reveal .tip { background: #00A97215; border-left: 3px solid #00A972; padding: 10px 14px; border-radius: 4px; font-size: 0.75em; text-align: left; margin: 8px 0; }
+  .reveal .warn { background: #F5A62315; border-left: 3px solid #F5A623; padding: 10px 14px; border-radius: 4px; font-size: 0.75em; text-align: left; margin: 8px 0; }
+  .reveal .section-header { font-size: 0.55em; text-transform: uppercase; letter-spacing: 3px; color: #A0A8B0; margin-bottom: -0.5em; }
+  .reveal .footer { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; font-size: 0.35em; color: #555; z-index: 50; }
+  .reveal .check { color: #00A972; }
+  .reveal .cross { color: #FF3621; }
+  @media print {
+    .reveal .slides section { page-break-after: always; }
+    .reveal pre code { font-size: 9px; }
+    :root { --r-background-color: #fff; --r-main-color: #333; }
+  }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ================================================================ -->
+<!-- SECTION 1: INTRODUCTION (6 slides)                               -->
+<!-- ================================================================ -->
+
+<!-- S1 -->
+<section>
+  <p class="section-header">Databricks Migration Accelerator</p>
+  <h1>a2d</h1>
+  <p style="font-size:1.05em; color:#A0A8B0;">Alteryx to Databricks &mdash; End-to-End Guide</p>
+  <div class="stat-grid" style="margin-top:28px;">
+    <div class="stat-box"><span class="num">112</span><span class="label">Tool Types</span></div>
+    <div class="stat-box"><span class="num">141</span><span class="label">Functions</span></div>
+    <div class="stat-box"><span class="num">4</span><span class="label">Formats</span></div>
+    <div class="stat-box"><span class="num">1006</span><span class="label">Tests</span></div>
+  </div>
+  <p style="margin-top:1.2em; font-size:0.65em; color:#555;">
+    <kbd style="background:#2C3137;padding:2px 6px;border-radius:4px;">Space</kbd> advance &middot;
+    <kbd style="background:#2C3137;padding:2px 6px;border-radius:4px;">Esc</kbd> overview &middot;
+    <kbd style="background:#2C3137;padding:2px 6px;border-radius:4px;">&larr;&rarr;</kbd> navigate
+  </p>
+</section>
+
+<!-- S2 -->
+<section>
+  <h2>Who Is This For?</h2>
+  <div class="cols" style="font-size:0.75em;">
+    <div class="surface">
+      <h4>Data Engineers</h4>
+      <p>Converting Alteryx pipelines to PySpark/SQL for Databricks lakehouse.</p>
+    </div>
+    <div class="surface">
+      <h4>Migration Leads</h4>
+      <p>Planning portfolio-wide migration: effort estimates, wave grouping, progress tracking.</p>
+    </div>
+    <div class="surface">
+      <h4>Analysts</h4>
+      <p>Getting runnable Databricks code from existing workflows without writing PySpark by hand.</p>
+    </div>
+  </div>
+  <div class="warn" style="margin-top:12px;">
+    <strong>When NOT to use a2d:</strong> If the workflow is purely spatial, predictive/ML, or R-based, manual rewrite is faster. a2d will flag these honestly with <code># TODO</code> markers.
+  </div>
+</section>
+
+<!-- S3 -->
+<section>
+  <h2>The Problem</h2>
+  <div class="surface" style="text-align:left;">
+    <p>Organizations use <strong>Alteryx Designer</strong> to build hundreds of visual data pipelines.</p>
+    <p>Migrating to <strong>Databricks</strong> usually means:</p>
+    <ul>
+      <li>Reading every workflow manually &mdash; opaque XML under the visual canvas</li>
+      <li>Rewriting each one from scratch in PySpark or SQL</li>
+      <li>Weeks per workflow &times; hundreds of workflows = <span class="accent">months of engineering effort</span></li>
+    </ul>
+  </div>
+  <p class="muted small" style="margin-top:0.8em;">a2d does not require Alteryx to be installed. It reads the <code>.yxmd</code> XML directly.</p>
+</section>
+
+<!-- S4 -->
+<section>
+  <h2>The Solution</h2>
+  <div class="pipeline">
+    <div class="stage">.yxmd XML</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">Parser</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">DAG</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">62 Converters</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">60 IR Nodes</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">Generator</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">Runnable Code</div>
+  </div>
+  <div class="cols" style="font-size:0.75em; margin-top:14px;">
+    <div class="surface">
+      <h4>Phase 1 &mdash; Parse</h4>
+      <p><code>lxml</code> reads XML, maps plugin names via <code>PLUGIN_NAME_MAP</code>, builds a <code>WorkflowDAG</code> of typed <code>ParsedNode</code> objects.</p>
+    </div>
+    <div class="surface">
+      <h4>Phase 2 &mdash; Convert &amp; Generate</h4>
+      <p>Each node is converted to a typed IR node. Expressions go through a full recursive-descent compiler. The DAG is walked in topological order to emit code.</p>
+    </div>
+  </div>
+</section>
+
+<!-- S5 -->
+<section>
+  <h2>Four Output Formats</h2>
+  <table>
+    <thead><tr><th>Format</th><th>Filter flag</th><th>Best For</th><th>Output</th></tr></thead>
+    <tbody>
+      <tr><td><strong>PySpark</strong></td><td><code>-f pyspark</code></td><td>Interactive notebooks, full DataFrame API</td><td><code>.py</code></td></tr>
+      <tr><td><strong>Spark Declarative Pipelines (DLT)</strong></td><td><code>-f dlt</code></td><td>Declarative, managed pipelines</td><td><code>.py</code></td></tr>
+      <tr><td><strong>Databricks SQL</strong></td><td><code>-f sql</code></td><td>SQL-first teams, CTEs</td><td><code>.sql</code></td></tr>
+      <tr><td><strong>Lakeflow Designer</strong></td><td><code>-f lakeflow</code></td><td>Visual pipeline builder, streaming</td><td><code>.sql</code> + <code>.json</code></td></tr>
+    </tbody>
+  </table>
+  <p class="muted small" style="margin-top:10px;">Every conversion emits all four formats by default into per-format subdirectories (<code>output/pyspark/</code>, <code>output/dlt/</code>, <code>output/sql/</code>, <code>output/lakeflow/</code>). The <code>-f</code> flag is a comma-separated filter (e.g. <code>-f pyspark,sql</code>). Each format also produces a Workflow JSON for Databricks Jobs orchestration.</p>
+</section>
+
+<!-- S6 -->
+<section>
+  <h2>By the Numbers</h2>
+  <div class="stat-grid">
+    <div class="stat-box"><span class="num">112</span><span class="label">Tool Types</span></div>
+    <div class="stat-box"><span class="num">141</span><span class="label">Formula Functions</span></div>
+    <div class="stat-box"><span class="num">60</span><span class="label">IR Node Types</span></div>
+    <div class="stat-box"><span class="num">5</span><span class="label">CLI Commands</span></div>
+  </div>
+  <div class="stat-grid" style="margin-top:12px;">
+    <div class="stat-box"><span class="num">13</span><span class="label">API Endpoints</span></div>
+    <div class="stat-box"><span class="num">9</span><span class="label">Web Pages</span></div>
+    <div class="stat-box"><span class="num">1006</span><span class="label">Tests</span></div>
+    <div class="stat-box"><span class="num">82%</span><span class="label">Coverage</span></div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 2: GETTING STARTED (9 slides)                            -->
+<!-- ================================================================ -->
+
+<!-- S7 -->
+<section>
+  <h2>Two Ways to Run</h2>
+  <div class="cols" style="font-size:0.7em;">
+    <div class="surface">
+      <h4>CLI</h4>
+      <p>Full power. 5 commands, 17+ flags, scriptable, CI/CD-ready.</p>
+      <pre><code class="language-bash">pip install "."
+a2d convert workflow.yxmd -o out/</code></pre>
+    </div>
+    <div class="surface">
+      <h4>React Web UI</h4>
+      <p>DAG visualization, batch WebSocket progress, 10 pages.</p>
+      <pre><code class="language-bash">pip install ".[server]"
+uvicorn server.main:app</code></pre>
+    </div>
+  </div>
+  <p class="muted small">Requires Python 3.10+. No Alteryx license needed.</p>
+</section>
+
+<!-- S8 -->
+<section>
+  <h2>Installation</h2>
+  <div class="cols" style="font-size:0.7em;">
+    <div class="surface" style="text-align:left;">
+      <h4>CLI only</h4>
+      <pre><code class="language-bash">python3 -m venv .venv
+source .venv/bin/activate
+pip install "."</code></pre>
+      <h4>React Web UI</h4>
+      <pre><code class="language-bash">pip install ".[server]"
+cd frontend && npm install && npm run build && cd ..
+PYTHONPATH=src:. uvicorn server.main:app --port 8000</code></pre>
+    </div>
+    <div class="surface" style="text-align:left;">
+      <h4>Databricks Apps (recommended)</h4>
+      <pre><code class="language-bash">make deploy-dev    # uses databricks.yml + app.yaml
+# or:
+databricks bundle deploy -t dev</code></pre>
+      <h4>Self-hosted</h4>
+      <pre><code class="language-bash">pip install -e ".[server]"
+make frontend
+PYTHONPATH=src:. uvicorn server.main:app --port 8000</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- S9 -->
+<section>
+  <h2>Your First Conversion</h2>
+  <pre><code class="language-bash"># Convert a single workflow — emits ALL 4 formats by default
+# (output/pyspark/, output/dlt/, output/sql/, output/lakeflow/)
+a2d convert my_workflow.yxmd -o output/
+
+# Filter to one or more formats
+a2d convert my_workflow.yxmd -o output/ -f pyspark
+a2d convert my_workflow.yxmd -o output/ -f pyspark,sql
+a2d convert my_workflow.yxmd -o output/ -f lakeflow
+
+# Convert everything in a folder
+a2d convert workflows/ -o output/ --batch --report-format html
+
+# Full pipeline: connection mapping + DDL + DAB + hints + audit
+a2d convert my_workflow.yxmd -o output/ \
+  --connection-map mapping.yml --generate-ddl \
+  --generate-dab --performance-hints --expression-audit</code></pre>
+  <div class="tip">
+    Syntax is auto-validated after every conversion: <code>Written: output/my_workflow.py &mdash; Syntax OK</code>
+  </div>
+</section>
+
+<!-- S10: PySpark output -->
+<section>
+  <h2>Output: PySpark</h2>
+  <p class="subtitle">Interactive notebook with DataFrame API</p>
+  <pre><code class="language-python"># Databricks notebook source
+# Converted from: sales_pipeline.yxmd
+# Format: pyspark | Nodes: 8 | Confidence: 91%
+
+from pyspark.sql import functions as F
+
+# Step 1: Input Data (CSV)
+df_1 = spark.read.format("csv").option("header", True).load("/data/sales.csv")
+
+# Step 3: Filter
+df_3_true = df_1.filter(F.col("status") == "active")
+df_3_false = df_1.filter(~(F.col("status") == "active"))
+
+# Step 4: Formula
+df_4 = df_3_true.withColumn("total", F.col("price") * F.col("qty"))
+
+# Step 5: Summarize
+df_5 = df_4.groupBy("region").agg(
+    F.sum("total").alias("revenue"),
+    F.count("*").alias("orders")
+)
+
+# Step 7: Output Data
+df_5.write.format("delta").mode("overwrite").saveAsTable("main.default.sales_summary")</code></pre>
+</section>
+
+<!-- S11: DLT output -->
+<section>
+  <h2>Output: Spark Declarative Pipelines (DLT)</h2>
+  <p class="subtitle">Declarative <code>@dlt.table</code> functions &mdash; each step is a managed table</p>
+  <pre><code class="language-python">import dlt
+from pyspark.sql import functions as F
+
+@dlt.table(comment="Step 1: Input Data (CSV)")
+def step_1_input_data():
+    return spark.read.format("csv").option("header", True).load("/data/sales.csv")
+
+@dlt.table(comment="Step 3: Filter (True branch)")
+def step_3_filter_true():
+    return dlt.read("step_1_input_data").filter(F.col("status") == "active")
+
+@dlt.table(comment="Step 4: Formula")
+def step_4_formula():
+    return dlt.read("step_3_filter_true").withColumn(
+        "total", F.col("price") * F.col("qty")
+    )
+
+@dlt.table(comment="Step 5: Summarize")
+def step_5_summarize():
+    return dlt.read("step_4_formula").groupBy("region").agg(
+        F.sum("total").alias("revenue"),
+        F.count("*").alias("orders")
+    )</code></pre>
+</section>
+
+<!-- S12: SQL output -->
+<section>
+  <h2>Output: Databricks SQL</h2>
+  <p class="subtitle">Single CTE chain &mdash; one <code>WITH</code> block, each step is a named CTE</p>
+  <pre><code class="language-sql">-- Migrated from: sales_pipeline.yxmd
+-- Generated by: a2d | Confidence: 91%
+
+WITH step_1_input_data AS (
+  SELECT * FROM csv.`/data/sales.csv`
+),
+step_3_filter AS (
+  SELECT * FROM step_1_input_data WHERE `status` = 'active'
+),
+step_4_formula AS (
+  SELECT *, `price` * `qty` AS `total` FROM step_3_filter
+),
+step_5_summarize AS (
+  SELECT `region`,
+         SUM(`total`) AS `revenue`,
+         COUNT(*) AS `orders`
+  FROM step_4_formula
+  GROUP BY `region`
+)
+SELECT * FROM step_5_summarize;</code></pre>
+</section>
+
+<!-- S13: Lakeflow output -->
+<section>
+  <h2>Output: Lakeflow Designer</h2>
+  <p class="subtitle">Individual DDL statements with <code>LIVE.</code> prefix on upstream refs</p>
+  <pre><code class="language-sql">-- Lakeflow Designer pipeline: sales_pipeline
+-- Format: Lakeflow Declarative Pipelines (LDP) SQL
+
+-- Step 1: Input Data (CSV) → STREAMING TABLE (file-based source)
+CREATE OR REFRESH STREAMING TABLE step_1_input_data AS
+SELECT * FROM csv.`/data/sales.csv`;
+
+-- Step 3: Filter → MATERIALIZED VIEW
+CREATE OR REFRESH MATERIALIZED VIEW step_3_filter_true AS
+SELECT * FROM LIVE.step_1_input_data WHERE `status` = 'active';
+
+CREATE OR REFRESH MATERIALIZED VIEW step_3_filter_false AS
+SELECT * FROM LIVE.step_1_input_data WHERE NOT (`status` = 'active');
+
+-- Step 5: Summarize → MATERIALIZED VIEW
+CREATE OR REFRESH MATERIALIZED VIEW step_5_summarize AS
+SELECT `region`, SUM(`total`) AS `revenue`, COUNT(*) AS `orders`
+FROM LIVE.step_4_formula GROUP BY `region`;</code></pre>
+  <p class="muted small">Also produces <code>_lakeflow_pipeline.json</code> with catalog, target, cluster config.</p>
+</section>
+
+<!-- S14: Format comparison -->
+<section>
+  <h2>Choosing a Format</h2>
+  <table>
+    <thead><tr><th>Capability</th><th>PySpark</th><th>DLT</th><th>SQL</th><th>Lakeflow</th></tr></thead>
+    <tbody>
+      <tr><td>Interactive notebook editing</td><td class="check">Yes</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+      <tr><td>Managed declarative pipeline</td><td>&mdash;</td><td class="check">Yes</td><td>&mdash;</td><td class="check">Yes</td></tr>
+      <tr><td>SQL-native syntax</td><td>&mdash;</td><td>&mdash;</td><td class="check">Yes</td><td class="check">Yes</td></tr>
+      <tr><td>Visual pipeline builder (UI)</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td class="check">Yes</td></tr>
+      <tr><td>Auto-refresh / streaming support</td><td>&mdash;</td><td class="check">Yes</td><td>&mdash;</td><td class="check">Yes</td></tr>
+      <tr><td>Full DataFrame API (UDFs, loops)</td><td class="check">Yes</td><td class="check">Yes</td><td>&mdash;</td><td>&mdash;</td></tr>
+      <tr><td>Workflow JSON for orchestration</td><td class="check">Yes</td><td class="check">Yes</td><td class="check">Yes</td><td class="check">Yes</td></tr>
+    </tbody>
+  </table>
+  <div class="tip">
+    <strong>Default behaviour:</strong> Every conversion produces <em>all four</em> formats &mdash; PySpark, Spark Declarative Pipelines, SQL, and Lakeflow Designer &mdash; into per-format subdirs (<code>output/pyspark/</code>, <code>output/dlt/</code>, <code>output/sql/</code>, <code>output/lakeflow/</code>). a2d also picks a <strong>best format</strong> per workflow (highest confidence; tiebreak <code>pyspark&gt;dlt&gt;sql&gt;lakeflow</code>) and surfaces it in the CLI status table and the UI banner. Use <code>-f pyspark,sql</code> only if you want to skip the others.
+  </div>
+</section>
+
+<!-- S15: Understanding output markers -->
+<section>
+  <h2>Understanding Output Markers</h2>
+  <table>
+    <thead><tr><th>Marker</th><th>Meaning</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr><td><code># Step N: ToolName</code></td><td>Step comment &mdash; maps to original Alteryx tool</td><td>Reference for traceability</td></tr>
+      <tr><td><code># TODO: ...</code></td><td>Needs manual completion</td><td>Replace placeholder with real code</td></tr>
+      <tr><td><code># WARNING: ...</code></td><td>Potential runtime issue (UNC paths, Excel, etc.)</td><td>Review and fix before running</td></tr>
+      <tr><td><code>F.lit(True)</code> / <code>F.lit(None)</code></td><td>Safe placeholder for untranslatable expression</td><td>Find the <code># TODO</code> above it with original expression</td></tr>
+      <tr><td><code>.cache()</code></td><td>Auto-inserted fan-out cache</td><td>Node feeds 2+ downstream steps; Spark won't recompute</td></tr>
+    </tbody>
+  </table>
+  <div class="tip">
+    Run with <code>--comments</code> for detailed explanations. Enriched warnings include 50+ remediation hints.
+  </div>
+  <div class="surface" style="font-size:0.7em; margin-top:10px; text-align:left;">
+    <h4>CLI deploy-readiness banner &amp; categorized warnings</h4>
+    <p>After every conversion the CLI prints a 3-tier banner mirroring the UI Convert page:</p>
+    <ul>
+      <li><span class="green">&#10003; Ready to deploy</span> &mdash; clean coverage, no blockers</li>
+      <li><span style="color:#F5A623;">&#9888; Needs review</span> &mdash; warnings present but non-blocking</li>
+      <li><span class="accent">&#10007; Cannot deploy as-is</span> &mdash; blockers present (unsupported tools, missing generators, parser failures)</li>
+    </ul>
+    <p>Warnings are grouped into <strong>Cannot convert</strong>, <strong>Manual review needed</strong>, <strong>Graph structure note</strong>, and <strong>Other</strong> instead of a flat dump. The same rules drive the API <code>deploy_status</code> field and the React Convert page, so CLI and UI agree byte-for-byte.</p>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 3: CORE ARCHITECTURE (9 slides)                          -->
+<!-- ================================================================ -->
+
+<!-- S16 -->
+<section>
+  <h2>Pipeline Architecture</h2>
+  <pre style="font-size:0.5em;"><code class="language-text">
+  .yxmd XML
+       |
+  [Parser]  ──── lxml reads XML → WorkflowDAG of ParsedNode objects
+       |         Maps Alteryx plugin names via PLUGIN_NAME_MAP (157 entries)
+       |
+  [Converters]  ──── 62 tool-specific converters (ParsedNode → IRNode)
+       |              Expression engine: tokenizer → parser → AST → translator
+       |
+  [Generator]  ──── Walks DAG in topological order
+       |             Emits format-specific code (PySpark / DLT / SQL / Lakeflow)
+       |
+  [Post-processing]  ──── Syntax validation (ast.parse)
+       |                   Confidence score (5 dimensions)
+       |                   Complexity analysis (7 factors)
+       |
+  Output  ──── .py / .sql + workflow.json + optional: DDL, DAB, tests, audit CSV
+  </code></pre>
+  <p class="muted small">Orchestrated by <code>pipeline.py</code>. Single entry point: <code>ConversionPipeline.run()</code></p>
+</section>
+
+<!-- S17 -->
+<section>
+  <h2>Converter Registry</h2>
+  <pre><code class="language-python">@ConverterRegistry.register("Filter", "preparation")
+class FilterConverter(ToolConverter):
+    def convert(self, parsed: ParsedNode, dag: WorkflowDAG) -> FilterNode:
+        expression = safe_get_nested(
+            parsed.config, "Expression", "Simple", default=""
+        )
+        return FilterNode(
+            node_id=parsed.node_id,
+            expression=expression,
+            ...
+        )</code></pre>
+  <div class="surface" style="font-size:0.7em;">
+    <strong>62 converters</strong> handling 112 tool types across 8 categories:
+    <code>io</code> (7) &middot; <code>preparation</code> (15) &middot; <code>join</code> (5) &middot;
+    <code>transform</code> (7) &middot; <code>parse</code> (6) &middot; <code>predictive</code> (1 generic) &middot;
+    <code>spatial</code> (8) &middot; <code>developer</code> (11)
+  </div>
+  <p class="muted small">Predictive and spatial converters emit <code># TODO</code> stubs &mdash; they're registered so the tool is recognized, not silently skipped.</p>
+</section>
+
+<!-- S18 -->
+<section>
+  <h2>Expression Engine</h2>
+  <div class="pipeline">
+    <div class="stage">Alteryx Expression</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">Tokenizer</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">Parser (AST)</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">Translator</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage">PySpark / SQL</div>
+  </div>
+  <div class="cols" style="font-size:0.65em;">
+    <div>
+      <h4>Alteryx</h4>
+      <pre><code class="language-text">IF Contains([Name], "Corp")
+THEN Upper(Left([Name], 10))
+ELSE [Name]
+ENDIF</code></pre>
+    </div>
+    <div>
+      <h4>PySpark</h4>
+      <pre><code class="language-python">F.when(
+  F.col("Name").contains("Corp"),
+  F.upper(F.col("Name").substr(1, 10))
+).otherwise(
+  F.col("Name")
+)</code></pre>
+    </div>
+  </div>
+  <p class="muted small">Full recursive-descent parser. Handles nested functions, operators, field refs, row refs, IF/THEN/ELSE, IN, Switch.</p>
+</section>
+
+<!-- S19: Expression edge cases -->
+<section>
+  <h2>Expression Edge Cases</h2>
+  <p class="subtitle">141 functions + special constructs</p>
+  <table style="font-size:0.6em;">
+    <thead><tr><th>Alteryx</th><th>PySpark</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>[Row-1:Amount]</code></td>
+        <td><code>F.lag("Amount", 1).over(window)</code></td>
+        <td>Row references &rarr; window functions</td>
+      </tr>
+      <tr>
+        <td><code>Switch([S], "?", "A", "Active", "I", "Inactive")</code></td>
+        <td><code>F.when(col == "A", "Active").when(col == "I", "Inactive").otherwise("?")</code></td>
+        <td>Variable-arity dispatch</td>
+      </tr>
+      <tr>
+        <td><code>DateTimeAdd([Date], 30, "days")</code></td>
+        <td><code>F.date_add(F.col("Date"), 30)</code></td>
+        <td>Unit-aware: days, months, years</td>
+      </tr>
+      <tr>
+        <td><code>Null()</code></td>
+        <td><code>F.lit(None)</code></td>
+        <td>Null-as-function, not keyword</td>
+      </tr>
+      <tr>
+        <td><code>IN([Status], "A", "B", "C")</code></td>
+        <td><code>F.col("Status").isin("A", "B", "C")</code></td>
+        <td>Varargs &rarr; .isin()</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="warn">
+    When an expression can't be translated, a safe placeholder is emitted: <code>F.lit(True)</code> for filters, <code>F.lit(None)</code> for formulas &mdash; with the original expression in a <code># TODO</code> comment.
+  </div>
+</section>
+
+<!-- S20 -->
+<section>
+  <h2>Code Generators</h2>
+  <pre style="font-size:0.5em;"><code class="language-text">
+  BaseGenerator (~360 lines)
+      |                              Shared: _get_single_input, _resolve_input,
+      |                              syntax validation, stats collection
+      |
+      ├── PySpark Generator (~1960 lines)   → .py notebook, df_N variables
+      ├── DLT Generator (~1050 lines)       → @dlt.table decorated functions
+      ├── SQL Generator (~900 lines)        → WITH ... AS CTE chain
+      |     └── Lakeflow Generator (~280 lines)  → CREATE OR REFRESH + LIVE. prefix
+      |
+      └── Workflow JSON Generator           → Databricks Jobs orchestration JSON
+  </code></pre>
+  <p style="font-size:0.7em;">Lakeflow <strong>inherits all ~60 node handlers from SQL</strong> &mdash; overrides only: statement wrapping, LIVE. prefix, STREAMING TABLE for file sources, filter fan-out to separate views.</p>
+</section>
+
+<!-- S21: Safe fallbacks -->
+<section>
+  <h2>Safe Fallbacks</h2>
+  <p class="subtitle">What happens when things can't be converted</p>
+  <table>
+    <thead><tr><th>Scenario</th><th>What a2d Does</th></tr></thead>
+    <tbody>
+      <tr><td>Expression can't be parsed</td><td><code># TODO</code> + safe <code>F.lit(True)</code>/<code>F.lit(None)</code> placeholder</td></tr>
+      <tr><td>Unsupported tool (e.g. Spatial)</td><td>Recognized, emits <code># TODO</code> stub, passes data through</td></tr>
+      <tr><td>Unknown tool (not in registry)</td><td>Emits <code># TODO: Unsupported tool &lt;name&gt;</code>, passes data through</td></tr>
+      <tr><td>Empty expression field</td><td>Raises <code>BaseTranslationError</code>, caught by generator</td></tr>
+      <tr><td>Join keys can't be resolved</td><td><code># TODO: join keys</code> + cross-join with <code>F.lit(True)</code></td></tr>
+      <tr><td>Excel / network paths</td><td><code># WARNING</code> + placeholder path, never broken syntax</td></tr>
+    </tbody>
+  </table>
+  <div class="tip">
+    <strong>Guarantee:</strong> Generated code is always syntactically valid Python/SQL. It may contain TODOs, but it will parse.
+  </div>
+</section>
+
+<!-- S22: Auto-behaviors -->
+<section>
+  <h2>Automatic Optimizations</h2>
+  <table>
+    <thead><tr><th>Behavior</th><th>What It Does</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Fan-out caching</strong></td><td>When a node feeds 2+ downstream steps, <code>.cache()</code> is inserted automatically to prevent recomputation</td></tr>
+      <tr><td><strong>Passthrough elimination</strong></td><td>No-op tools (AutoField, Browse, BlockUntilDone) don't emit <code>df_N = df_M</code> &mdash; downstream code references the original variable</td></tr>
+      <tr><td><strong>Syntax validation</strong></td><td><code>ast.parse()</code> runs on every generated <code>.py</code> file; Databricks magic lines are stripped first</td></tr>
+      <tr><td><strong>withColumns batching</strong></td><td>MultiFieldFormula emits one <code>.withColumns({...})</code> instead of N separate <code>.withColumn()</code> calls</td></tr>
+      <tr><td><strong>Chain flattening</strong></td><td>Select renames+drops chained as one expression: <code>inp.withColumnRenamed(...).drop(...)</code></td></tr>
+      <tr><td><strong>Literal wrapping</strong></td><td>Bare number constants (e.g. <code>500</code>) automatically wrapped in <code>F.lit(500)</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S23: Workflow JSON -->
+<section>
+  <h2>Workflow JSON</h2>
+  <p class="subtitle">Auto-generated Lakeflow Jobs (Databricks Jobs API) orchestration config</p>
+  <pre><code class="language-json">{
+  "name": "a2d_sales_pipeline",
+  "tags": {"source": "alteryx", "migrated_by": "a2d"},
+  "tasks": [{
+    "task_key": "sales_pipeline_main",
+    "notebook_task": {
+      "notebook_path": "/Workspace/Shared/a2d/sales_pipeline",
+      "source": "WORKSPACE"
+    },
+    "job_cluster_key": "main",
+    "timeout_seconds": 3600
+  }],
+  "job_clusters": [{
+    "job_cluster_key": "main",
+    "new_cluster": {
+      "spark_version": "13.3.x-scala2.12",
+      "num_workers": 2,
+      "node_type_id": "i3.xlarge"
+    }
+  }],
+  "queue": {"enabled": true},
+  "parameters": [],
+  "max_concurrent_runs": 1
+}</code></pre>
+  <p class="muted small">Strict JSON &mdash; no <code>//</code> comment headers. The legacy <code>"format": "MULTI_TASK"</code> field is omitted (vestigial since Jobs API 2.1). Operator notes (<code>run_as</code>, <code>webhook_notifications</code>) live in the sibling <code>*_workflow.README.md</code>. <code>node_type_id</code> follows <code>--cloud</code> (<code>aws=i3.xlarge</code>, <code>azure=Standard_DS3_v2</code>, <code>gcp=n1-highmem-4</code>). For DLT/Lakeflow, emits <code>pipeline_task</code> instead of <code>notebook_task</code>.</p>
+</section>
+
+<!-- S24: Lakeflow deep dive -->
+<section>
+  <h2>Lakeflow Deep Dive</h2>
+  <div class="cols" style="font-size:0.65em;">
+    <div>
+      <h4>STREAMING TABLE</h4>
+      <p>Used for <strong>file-based sources</strong>: ReadNode, CloudStorageNode, DynamicInputNode.</p>
+      <pre><code class="language-sql">CREATE OR REFRESH STREAMING TABLE
+  step_1_input_data AS
+SELECT * FROM csv.`/data/input.csv`;</code></pre>
+
+      <h4>MATERIALIZED VIEW</h4>
+      <p>Used for <strong>all transformations</strong> and database reads.</p>
+      <pre><code class="language-sql">CREATE OR REFRESH MATERIALIZED VIEW
+  step_3_filter_true AS
+SELECT * FROM LIVE.step_1_input_data
+WHERE `status` = 'active';</code></pre>
+    </div>
+    <div>
+      <h4>LIVE. Prefix</h4>
+      <p>All upstream references get <code>LIVE.</code> prefix &mdash; Lakeflow's managed namespace.</p>
+
+      <h4>Filter Fan-out</h4>
+      <p>True/False branches &rarr; two separate views:</p>
+      <pre><code class="language-text">step_N_filter_true
+step_N_filter_false</code></pre>
+
+      <h4>Pipeline JSON</h4>
+      <p>Companion <code>_lakeflow_pipeline.json</code>:</p>
+      <pre><code class="language-json">{
+  "catalog": "main",
+  "target": "default",
+  "clusters": [{
+    "autoscale": {
+      "min_workers": 1,
+      "max_workers": 4
+    }
+  }]
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 4: WHAT IT CONVERTS (6 slides)                           -->
+<!-- ================================================================ -->
+
+<!-- S25 -->
+<section>
+  <h2>IO Tools</h2>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Alteryx Tool</th><th>Databricks Output</th></tr></thead>
+    <tbody>
+      <tr><td>Input Data (CSV/Parquet/JSON/Avro)</td><td><code>spark.read.format(...).load(path)</code></td></tr>
+      <tr><td>Input Data (ODBC/database)</td><td><code>spark.sql("""SELECT ...""")</code> + <code># TODO</code> for connection mapping</td></tr>
+      <tr><td>Output Data</td><td><code>df.write.format(...).save(path)</code> or <code>.saveAsTable()</code></td></tr>
+      <tr><td>Text Input (inline data)</td><td><code>spark.createDataFrame([...])</code></td></tr>
+      <tr><td>Browse</td><td><code>display(df)</code> &mdash; passthrough, no new variable</td></tr>
+      <tr><td>Dynamic Input (ModifySQL)</td><td>Python <code>for</code> loop + <code>spark.sql()</code> per row + <code>unionAll</code></td></tr>
+      <tr><td>Cloud Storage (S3/Azure/GCS)</td><td><code>spark.read</code> with cloud path</td></tr>
+    </tbody>
+  </table>
+  <h3 style="margin-top:16px;">Preparation Tools</h3>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Alteryx Tool</th><th>Databricks Output</th></tr></thead>
+    <tbody>
+      <tr><td>Select / Filter / Formula / Sort</td><td><code>withColumnRenamed</code> / <code>filter</code> / <code>withColumn</code> / <code>orderBy</code></td></tr>
+      <tr><td>Multi-Field/Row Formula</td><td><code>withColumns({...})</code> / Window functions</td></tr>
+      <tr><td>Sample / Unique / Data Cleansing</td><td><code>limit</code>/<code>sample</code> / <code>dropDuplicates</code> / trim+null handling</td></tr>
+      <tr><td>Record ID / Imputation</td><td><code>monotonically_increasing_id()</code> / fill logic</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S26 -->
+<section>
+  <h2>Join, Transform, Parse Tools</h2>
+  <div class="cols" style="font-size:0.6em;">
+    <div>
+      <h4>Joining</h4>
+      <table>
+        <tbody>
+          <tr><td>Join</td><td><code>.join(df, cond, how=...)</code></td></tr>
+          <tr><td>Union</td><td><code>.unionByName(allow=True)</code></td></tr>
+          <tr><td>Append Fields</td><td>Cross join</td></tr>
+          <tr><td>Find Replace</td><td>Lookup-based replacement</td></tr>
+          <tr><td>Join Multiple</td><td>Chained joins</td></tr>
+        </tbody>
+      </table>
+      <h4>Transforming</h4>
+      <table>
+        <tbody>
+          <tr><td>Summarize</td><td><code>.groupBy().agg()</code></td></tr>
+          <tr><td>Cross Tab</td><td><code>.pivot().agg()</code></td></tr>
+          <tr><td>Transpose</td><td><code>stack()</code></td></tr>
+          <tr><td>Running Total</td><td>Window cumulative sum</td></tr>
+          <tr><td>Tile</td><td><code>F.ntile(n).over(w)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h4>Parsing</h4>
+      <table>
+        <tbody>
+          <tr><td>RegEx</td><td><code>rlike / regexp_replace / regexp_extract</code></td></tr>
+          <tr><td>Text to Columns</td><td><code>F.split(col, delim)</code></td></tr>
+          <tr><td>DateTime</td><td><code>to_timestamp / date_format</code></td></tr>
+          <tr><td>JSON Parse</td><td><code>get_json_object</code></td></tr>
+          <tr><td>XML Parse</td><td><code>xpath</code></td></tr>
+        </tbody>
+      </table>
+      <h4>Developer</h4>
+      <table>
+        <tbody>
+          <tr><td>Python Tool</td><td>Code preserved inline</td></tr>
+          <tr><td>Download</td><td><code>requests.get()</code> UDF</td></tr>
+          <tr><td>Run Command</td><td><code>dbutils.notebook.run()</code></td></tr>
+          <tr><td>Block Until Done</td><td>Passthrough (no-op)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- S27 -->
+<section>
+  <h2>Expression Functions (141)</h2>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Category</th><th>#</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr><td>String</td><td>25</td><td><code>Contains</code>, <code>Left</code>, <code>Right</code>, <code>Trim</code>, <code>Replace</code>, <code>Substring</code>, <code>PadLeft</code>, <code>RegexMatch</code></td></tr>
+      <tr><td>Math</td><td>21</td><td><code>Abs</code>, <code>Round</code>, <code>Ceil</code>, <code>Floor</code>, <code>Sqrt</code>, <code>Pow</code>, <code>Log</code>, <code>Mod</code>, <code>Rand</code></td></tr>
+      <tr><td>Date/Time</td><td>15</td><td><code>DateTimeNow</code>, <code>DateTimeAdd</code>, <code>DateTimeDiff</code>, <code>DateTimeParse</code>, <code>DateTimeFormat</code></td></tr>
+      <tr><td>Conversion</td><td>10</td><td><code>ToNumber</code>, <code>ToInteger</code>, <code>ToString</code>, <code>ToDate</code>, <code>ToDateTime</code>, <code>CharToInt</code></td></tr>
+      <tr><td>Test / Null</td><td>10</td><td><code>IsNull</code>, <code>IsEmpty</code>, <code>IsNumber</code>, <code>Coalesce</code>, <code>IfNull</code>, <code>Null()</code></td></tr>
+      <tr><td>Conditional</td><td>11</td><td><code>IF/THEN/ELSE/ENDIF</code>, <code>IIF</code>, <code>Switch</code>, <code>IN</code></td></tr>
+    </tbody>
+  </table>
+  <div class="cols" style="font-size:0.6em; margin-top:10px;">
+    <div>
+      <h4>Alteryx</h4>
+      <pre><code class="language-text">IIF(IsNull([Amount]), 0,
+  Round([Amount] * 1.1, 2))</code></pre>
+    </div>
+    <div>
+      <h4>PySpark</h4>
+      <pre><code class="language-python">F.when(F.col("Amount").isNull(),
+  F.lit(0)).otherwise(
+  F.round(F.col("Amount") * 1.1, 2))</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- S28 -->
+<section>
+  <h2>What Needs Manual Work</h2>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Category</th><th>What to Do</th><th>Databricks Alternative</th></tr></thead>
+    <tbody>
+      <tr><td>Database connections (ODBC/DSN)</td><td>Replace with UC table or JDBC</td><td>Unity Catalog</td></tr>
+      <tr><td>Excel files (.xlsx/.xls)</td><td>Upload to Volume, update path</td><td>DBFS / Volumes</td></tr>
+      <tr><td>Network paths (\\server\...)</td><td>Upload to cloud storage</td><td>S3 / ADLS / GCS</td></tr>
+      <tr><td>Predictive / ML tools</td><td>Rewrite model training</td><td>MLflow + scikit-learn / MLlib</td></tr>
+      <tr><td>Spatial tools</td><td>Rewrite geospatial logic</td><td>Sedona / Mosaic / H3</td></tr>
+      <tr><td>Reporting / Layout</td><td>Rebuild dashboards</td><td>Databricks AI/BI</td></tr>
+      <tr><td>R Tool</td><td>Rewrite in Python</td><td>PySpark</td></tr>
+      <tr><td>Iterative macros</td><td>Manual loop rewrite</td><td>Lakeflow Jobs</td></tr>
+      <tr><td>Custom third-party tools</td><td>Bespoke conversion</td><td>Plugin SDK or manual</td></tr>
+    </tbody>
+  </table>
+  <div class="tip">
+    a2d <strong>recognizes</strong> all of these &mdash; it emits <code># TODO</code> stubs, never silently skips them. Search for <code>TODO</code> and <code>WARNING</code> in the output.
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 5: CLI DEEP DIVE (8 slides)                              -->
+<!-- ================================================================ -->
+
+<!-- S29 -->
+<section>
+  <h2>CLI: 5 Commands</h2>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Command</th><th>Purpose</th><th>Phase</th></tr></thead>
+    <tbody>
+      <tr><td><code>convert</code></td><td>Convert workflows to Databricks code &mdash; emits ALL 4 formats by default (use <code>-f</code> to filter)</td><td>Convert</td></tr>
+      <tr><td><code>analyze</code></td><td>Migration readiness reports (HTML/JSON) with confidence + complexity</td><td>Assess</td></tr>
+      <tr><td><code>validate</code></td><td>Validate generated Python syntax</td><td>Validate</td></tr>
+      <tr><td><code>list-tools</code></td><td>Show tool support matrix (--supported / --unsupported)</td><td>Assess</td></tr>
+      <tr><td><code>version</code></td><td>Show version</td><td>Any</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S30 -->
+<section>
+  <h2><code>a2d convert</code> &mdash; Flags</h2>
+  <table style="font-size:0.5em;">
+    <thead><tr><th>Flag</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>-o, --output-dir</code></td><td><code>./a2d-output</code></td><td>Output directory (per-format subdirs created automatically)</td></tr>
+      <tr><td><code>-f, --format</code></td><td><code>all</code></td><td>Comma-separated filter: <code>all</code> (default &mdash; emits all 4) or any of <code>pyspark,dlt,sql,lakeflow</code></td></tr>
+      <tr><td><code>--catalog</code></td><td><code>main</code></td><td>Unity Catalog name</td></tr>
+      <tr><td><code>--schema</code></td><td><code>default</code></td><td>Schema name</td></tr>
+      <tr><td><code>--cloud</code></td><td><code>aws</code></td><td>Target cloud for cluster sizing: <code>aws|azure|gcp</code> &mdash; drives <code>node_type_id</code> in Workflow JSON / DAB</td></tr>
+      <tr><td><code>--orchestration / --no-orchestration</code></td><td>true</td><td>Generate Workflow JSON (default on)</td></tr>
+      <tr><td><code>--comments / --no-comments</code></td><td>true</td><td>Explanatory comments in output (default on)</td></tr>
+      <tr><td><code>--verbose-unsupported</code></td><td>false</td><td>Detailed TODO stubs for unsupported nodes</td></tr>
+      <tr><td><code>-b, --batch</code></td><td>false</td><td>Batch mode with structured error tracking</td></tr>
+      <tr><td><code>--report-format</code></td><td><code>html</code></td><td>Batch report: json, jsonl, html, all</td></tr>
+      <tr><td><code>--connection-map</code></td><td>None</td><td>Connection mapping YAML path</td></tr>
+      <tr><td><code>--expression-audit / --no-expression-audit</code></td><td>true</td><td>Generate expression audit CSV (default on)</td></tr>
+      <tr><td><code>--performance-hints / --no-performance-hints</code></td><td>true</td><td>Include Spark performance hints (default on)</td></tr>
+      <tr><td><code>--generate-ddl</code></td><td>false</td><td>Unity Catalog DDL (non-Delta external tables emit <code>read_files()</code>)</td></tr>
+      <tr><td><code>--generate-dab</code></td><td>false</td><td>Databricks Asset Bundle project</td></tr>
+      <tr><td><code>--expand-macros</code></td><td>false</td><td>Expand macro references as functions (flag accepted; core impl is currently a no-op)</td></tr>
+      <tr><td><code>-q, --quiet</code></td><td>false</td><td>Suppress info messages (warnings only)</td></tr>
+      <tr><td><code>--debug</code></td><td>false</td><td>Enable debug logging</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S31 -->
+<section>
+  <h2><code>a2d convert</code> &mdash; Recipes</h2>
+  <div class="cols" style="font-size:0.6em;">
+    <div>
+      <h4>Quick conversion</h4>
+      <pre><code class="language-bash">a2d convert wf.yxmd -o out/</code></pre>
+      <h4>Spark Declarative Pipelines</h4>
+      <pre><code class="language-bash">a2d convert wf.yxmd -o out/ -f dlt</code></pre>
+      <h4>Lakeflow + comments</h4>
+      <pre><code class="language-bash">a2d convert wf.yxmd -o out/ \
+  -f lakeflow --comments</code></pre>
+      <h4>Batch a whole folder</h4>
+      <pre><code class="language-bash">a2d convert workflows/ -o out/ \
+  --batch --report-format html</code></pre>
+    </div>
+    <div>
+      <h4>Full enterprise pipeline</h4>
+      <pre><code class="language-bash">a2d convert wf.yxmd -o out/ \
+  --connection-map map.yml \
+  --generate-ddl \
+  --performance-hints \
+  --expression-audit \
+  --generate-dab \
+  --comments</code></pre>
+      <p>Produces: notebook + Workflow JSON + DDL + DAB config + expression audit CSV + performance hints</p>
+    </div>
+  </div>
+</section>
+
+<!-- S32 -->
+<section>
+  <h2><code>a2d analyze</code></h2>
+  <div style="font-size:0.68em;">
+    <h4>Readiness reports</h4>
+    <pre><code class="language-bash"># HTML report
+a2d analyze workflows/ -o report/
+
+# JSON + complexity breakdown
+a2d analyze workflows/ -o report/ \
+  --format both --complexity</code></pre>
+    <p>Reports include: coverage %, confidence score, complexity, enriched warnings with 50+ remediation hints.</p>
+    <div class="tip">
+      Use <code>--batch --report-format html</code> with <code>a2d convert</code> for portfolio-level batch reports with per-file status.
+    </div>
+  </div>
+</section>
+
+<!-- S33 -->
+<section>
+  <h2><code>validate</code> + <code>list-tools</code></h2>
+  <div class="cols" style="font-size:0.65em;">
+    <div>
+      <h4>validate &mdash; syntax check</h4>
+      <pre><code class="language-bash"># Validate generated Python files
+a2d validate output/wf.py
+
+# Validate an entire directory
+a2d validate output/</code></pre>
+      <p>Checks generated Python files for syntax errors using <code>ast.parse()</code>. Also verifies required imports are present.</p>
+    </div>
+    <div>
+      <h4>list-tools &mdash; support matrix</h4>
+      <pre><code class="language-bash"># All tools
+a2d list-tools
+
+# Filter by support status
+a2d list-tools --supported
+a2d list-tools --unsupported</code></pre>
+      <p>Shows all 112 recognized Alteryx tool types with their conversion status and category.</p>
+      <h4>version</h4>
+      <pre><code class="language-bash">a2d version
+a2d --version</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- S34: Batch mode -->
+<section>
+  <h2>Batch Mode</h2>
+  <pre><code class="language-bash"># Convert directory with HTML report
+a2d convert workflows/ -o output/ --batch --report-format html
+
+# JSON Lines for log ingestion
+a2d convert workflows/ -o output/ --batch --report-format jsonl
+
+# All report formats
+a2d convert workflows/ -o output/ --batch --report-format all</code></pre>
+  <div class="surface" style="font-size:0.7em; text-align:left;">
+    <strong>Batch reports include:</strong>
+    <ul>
+      <li>Per-file success/failure with error details</li>
+      <li>Aggregate confidence and complexity scores</li>
+      <li>Warning counts with enriched hints per workflow</li>
+      <li>Overall portfolio coverage summary</li>
+    </ul>
+  </div>
+</section>
+
+<!-- S35: Environment variables -->
+<section>
+  <h2>Environment Variables</h2>
+  <p class="subtitle">Server configuration (all optional)</p>
+  <table style="font-size:0.6em;">
+    <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>A2D_CORS_ORIGINS</code></td><td><code>["http://localhost:5173"]</code></td><td>Allowed CORS origins (JSON array)</td></tr>
+      <tr><td><code>A2D_MAX_UPLOAD_SIZE_BYTES</code></td><td><code>52428800</code> (50 MB)</td><td>Max upload file size</td></tr>
+      <tr><td><code>A2D_MAX_BATCH_FILES</code></td><td><code>50</code></td><td>Max files per batch</td></tr>
+      <tr><td><code>A2D_LOG_LEVEL</code></td><td><code>info</code></td><td>Logging level (debug/info/warning/error)</td></tr>
+      <tr><td><code>A2D_DATABASE_URL</code></td><td><code>""</code> (disabled)</td><td>PostgreSQL URL for conversion history</td></tr>
+      <tr><td><code>PORT</code></td><td><code>8000</code></td><td>Server port</td></tr>
+    </tbody>
+  </table>
+  <pre><code class="language-bash"># Example: production deployment
+A2D_CORS_ORIGINS='["https://app.example.com"]' \
+A2D_LOG_LEVEL=warning \
+PORT=8080 \
+PYTHONPATH=src:. uvicorn server.main:app --host 0.0.0.0</code></pre>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 6: WEB UI & API (5 slides)                               -->
+<!-- ================================================================ -->
+
+<!-- S36 -->
+<section>
+  <h2>React Web UI</h2>
+  <p class="subtitle">9 pages &mdash; React 19 + TypeScript + Tailwind 4</p>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Page</th><th>Features</th></tr></thead>
+    <tbody>
+      <tr><td>Home</td><td>Quick start, feature overview, stats</td></tr>
+      <tr><td>Convert</td><td>File upload, live conversion, multi-format code viewer (all 4 formats), download</td></tr>
+      <tr><td>Batch Convert</td><td>Multi-file upload, WebSocket real-time progress, ZIP download</td></tr>
+      <tr><td>Analyze</td><td>Readiness reports, complexity charts, enriched warnings</td></tr>
+      <tr><td>History</td><td>Past conversions with re-download</td></tr>
+      <tr><td>Tools</td><td>Tool support matrix with search/filter</td></tr>
+      <tr><td>Validate</td><td>Syntax validation for generated code</td></tr>
+      <tr><td>Settings</td><td>Catalog, feature toggles, connection mapping editor</td></tr>
+      <tr><td>About</td><td>Version, architecture, credits</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S38 -->
+<section>
+  <h2>API Overview</h2>
+  <p class="subtitle">13 endpoints across 6 routers</p>
+  <div class="cols" style="font-size:0.55em;">
+    <div>
+      <h4>Conversion</h4>
+      <table>
+        <tbody>
+          <tr><td><code>POST /api/convert</code></td><td>Single-file conversion</td></tr>
+          <tr><td><code>POST /api/convert/batch</code></td><td>Multi-file batch</td></tr>
+          <tr><td><code>GET /api/convert/batch/{id}</code></td><td>Batch result/status</td></tr>
+          <tr><td><code>WS /api/convert/ws/{id}</code></td><td>Real-time progress stream</td></tr>
+        </tbody>
+      </table>
+      <h4>Analysis</h4>
+      <table>
+        <tbody>
+          <tr><td><code>POST /api/analyze</code></td><td>Analysis report</td></tr>
+          <tr><td><code>POST /api/validate</code></td><td>Syntax check</td></tr>
+          <tr><td><code>GET /api/tools</code></td><td>Tool support matrix</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h4>Infrastructure</h4>
+      <table>
+        <tbody>
+          <tr><td><code>GET /api/health</code></td><td>Health check</td></tr>
+          <tr><td><code>GET /api/ready</code></td><td>Readiness (503 if no converters)</td></tr>
+        </tbody>
+      </table>
+      <h4>History</h4>
+      <table>
+        <tbody>
+          <tr><td><code>GET /api/history</code></td><td>Conversion history list</td></tr>
+          <tr><td><code>GET /api/history/{id}</code></td><td>Single conversion detail</td></tr>
+          <tr><td><code>DELETE /api/history/{id}</code></td><td>Delete history entry</td></tr>
+          <tr><td><code>DELETE /api/history</code></td><td>Clear all history</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- S39 -->
+<section>
+  <h2>Connection Mapping</h2>
+  <div class="cols" style="font-size:0.68em;">
+    <div>
+      <pre><code class="language-yaml"># connection_mapping.yml
+connections:
+  - alteryx_name: "Sales_ODBC"
+    uc_catalog: "analytics"
+    uc_schema: "sales"
+    uc_table: "orders"
+
+  - alteryx_name: "\\\\server\\share\\data.csv"
+    uc_catalog: "raw"
+    uc_schema: "files"
+    uc_table: "data"
+    volume_path: "/Volumes/raw/files/data.csv"</code></pre>
+    </div>
+    <div>
+      <p>Maps Alteryx ODBC connections and file paths to Unity Catalog locations.</p>
+      <pre><code class="language-bash"># Use it
+a2d convert wf.yxmd -o out/ \
+  --connection-map mapping.yml \
+  --generate-ddl</code></pre>
+      <p>When <code>--generate-ddl</code> is set, also produces:</p>
+      <pre><code class="language-sql">CREATE TABLE IF NOT EXISTS
+  analytics.sales.orders
+USING DELTA;</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- S40 -->
+<section>
+  <h2>Batch Processing &amp; WebSocket</h2>
+  <div class="surface" style="font-size:0.72em; text-align:left;">
+    <h4>Real-Time Progress</h4>
+    <p>Upload multiple <code>.yxmd</code> files via the React UI or API. WebSocket streams per-file status in real time.</p>
+    <h4>Limits</h4>
+    <p>Files up to 50 MB, up to 50 per batch. Sanitized filenames, XXE-protected XML parsing.</p>
+    <h4>API Example</h4>
+  </div>
+  <pre><code class="language-bash">curl -X POST http://localhost:8000/api/convert/batch \
+  -F "files=@workflow1.yxmd" \
+  -F "files=@workflow2.yxmd"</code></pre>
+  <p class="muted small">Each call returns all four formats in <code>response.formats</code> (<code>pyspark</code>, <code>dlt</code>, <code>sql</code>, <code>lakeflow</code>) plus a <code>best_format</code> hint &mdash; no <code>output_format</code> request param. Download individual files or the entire batch as a ZIP archive.</p>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 7: QUALITY & OBSERVABILITY (6 slides)                    -->
+<!-- ================================================================ -->
+
+<!-- S41 -->
+<section>
+  <h2>Confidence Scoring</h2>
+  <p class="subtitle">5 dimensions, weighted 0&ndash;100%</p>
+  <table style="font-size:0.6em;">
+    <thead><tr><th>Dimension</th><th>Weight</th><th>What It Measures</th></tr></thead>
+    <tbody>
+      <tr><td>Tool Coverage</td><td>35%</td><td>% of nodes with supported converters</td></tr>
+      <tr><td>Expression Fidelity</td><td>25%</td><td>% of expressions that translated cleanly</td></tr>
+      <tr><td>Join Completeness</td><td>15%</td><td>Whether join keys were fully resolved</td></tr>
+      <tr><td>Data Type Preservation</td><td>15%</td><td>Type casts preserved correctly</td></tr>
+      <tr><td>Generator Warnings</td><td>10%</td><td>Inverse of warning count</td></tr>
+    </tbody>
+  </table>
+  <div class="surface" style="font-size:0.68em; margin-top:8px;">
+    <strong>Example:</strong> 90% coverage, 85% expression, 100% joins, 100% types, 3 warnings<br>
+    = 0.35&times;90 + 0.25&times;85 + 0.15&times;100 + 0.15&times;100 + 0.10&times;70 = <span class="accent">89.75%</span>
+  </div>
+  <p class="muted small"><span class="green">80%+</span> = minimal manual work &middot; <span style="color:#F5A623;">50-80%</span> = needs review &middot; <span class="accent">&lt;50%</span> = significant effort</p>
+</section>
+
+<!-- S42 -->
+<section>
+  <h2>Complexity Analysis</h2>
+  <p class="subtitle">7 factors for effort estimation</p>
+  <div class="cols" style="font-size:0.68em;">
+    <div>
+      <table>
+        <thead><tr><th>Factor</th><th>Weight</th></tr></thead>
+        <tbody>
+          <tr><td>Node Count</td><td>18%</td></tr>
+          <tr><td>Tool Diversity</td><td>13%</td></tr>
+          <tr><td>Expression Complexity</td><td>18%</td></tr>
+          <tr><td>Unsupported Tools</td><td>23%</td></tr>
+          <tr><td>Macro Usage</td><td>8%</td></tr>
+          <tr><td>DAG Depth</td><td>10%</td></tr>
+          <tr><td>Spatial Tools</td><td>10%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h4>Effort Bands</h4>
+      <table>
+        <thead><tr><th>Score</th><th>Level</th><th>Estimate</th></tr></thead>
+        <tbody>
+          <tr><td>&lt;30</td><td class="green">Low</td><td>~2 hours</td></tr>
+          <tr><td>30-50</td><td style="color:#F5A623;">Medium</td><td>~8 hours</td></tr>
+          <tr><td>50-70</td><td class="accent">High</td><td>~16 hours</td></tr>
+          <tr><td>&gt;70</td><td class="accent">Very High</td><td>~40 hours</td></tr>
+        </tbody>
+      </table>
+      <p>Use <code>a2d analyze --complexity</code> for per-workflow breakdown.</p>
+    </div>
+  </div>
+</section>
+
+<!-- S43 -->
+<section>
+  <h2>Expression Audit</h2>
+  <pre><code class="language-bash">a2d convert wf.yxmd -o out/ --expression-audit</code></pre>
+  <div class="surface" style="font-size:0.68em;">
+    <p>Generates a CSV tracking every expression translation:</p>
+    <table style="font-size:0.85em;">
+      <thead><tr><th>Node</th><th>Type</th><th>Original</th><th>Translated</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Step 3</td><td>Filter</td><td><code>[Status] = "Active"</code></td><td><code>F.col("Status") == "Active"</code></td><td class="green">OK</td></tr>
+        <tr><td>Step 5</td><td>Formula</td><td><code>DateTimeAdd([D], 30, "days")</code></td><td><code>F.date_add(F.col("D"), 30)</code></td><td class="green">OK</td></tr>
+        <tr><td>Step 8</td><td>Formula</td><td><code>CustomFunc([X])</code></td><td>&mdash;</td><td class="accent">FAILED</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small">Use this to quickly find which expressions need manual attention.</p>
+</section>
+
+<!-- S44 -->
+<section>
+  <h2>Performance Hints</h2>
+  <pre><code class="language-bash">a2d convert wf.yxmd -o out/ --performance-hints</code></pre>
+  <div class="surface" style="font-size:0.7em; text-align:left;">
+    <table>
+      <thead><tr><th>Hint</th><th>Detection</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td>Broadcast join</td><td>Small table joined to large</td><td><code>.hint("broadcast")</code></td></tr>
+        <tr><td>Persist</td><td>DataFrame used by 3+ consumers</td><td><code>.cache()</code> or <code>.persist()</code></td></tr>
+        <tr><td>Repartition</td><td>Large aggregation after filter</td><td><code>.repartition()</code></td></tr>
+        <tr><td>Sequential joins</td><td>Multiple joins in series</td><td>Reorder for efficiency</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- S45 -->
+<section>
+  <h2>DDL + DAB Generation</h2>
+  <div class="cols" style="font-size:0.63em;">
+    <div>
+      <h4>Unity Catalog DDL</h4>
+      <pre><code class="language-bash">a2d convert wf.yxmd -o out/ \
+  --connection-map map.yml --generate-ddl</code></pre>
+      <pre><code class="language-sql">CREATE TABLE IF NOT EXISTS
+  analytics.sales.orders (
+    order_id BIGINT,
+    amount DECIMAL(10,2)
+  ) USING DELTA;</code></pre>
+      <p>Requires <code>--connection-map</code> to resolve Alteryx connections to Unity Catalog locations.</p>
+    </div>
+    <div>
+      <h4>Databricks Asset Bundle</h4>
+      <pre><code class="language-bash">a2d convert wf.yxmd -o out/ --generate-dab</code></pre>
+      <pre><code class="language-yaml">bundle:
+  name: my_workflow
+resources:
+  jobs:
+    main:
+      tasks:
+        - task_key: run
+          notebook_task:
+            notebook_path: ./out.py</code></pre>
+      <p>Produces a <code>databricks.yml</code> bundle config ready for <code>databricks bundle deploy</code>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- S46 -->
+<section>
+  <h2>Enriched Warnings</h2>
+  <p class="subtitle">50+ remediation hints for common conversion issues</p>
+  <div class="surface" style="font-size:0.72em; text-align:left;">
+    <p>Every warning in batch reports includes an <strong>enriched hint</strong> with:</p>
+    <ul>
+      <li><strong>Category</strong> &mdash; expression, connection, unsupported_tool, data_type, etc.</li>
+      <li><strong>Hint</strong> &mdash; actionable recommendation for resolving the issue</li>
+      <li><strong>Example</strong> &mdash; sample fix or Databricks equivalent</li>
+    </ul>
+  </div>
+  <pre><code class="language-json">{
+  "warning": "ODBC connection 'Sales_DSN' not mapped",
+  "category": "connection",
+  "hint": "Add an entry in --connection-map YAML to map this DSN to a Unity Catalog table.",
+  "example": "- alteryx_name: Sales_DSN\n  uc_catalog: analytics\n  uc_schema: sales\n  uc_table: orders"
+}</code></pre>
+  <p class="muted small">Hints are included in HTML and JSON batch reports automatically.</p>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 8: MIGRATION PLAYBOOK (8 slides)                         -->
+<!-- ================================================================ -->
+
+<!-- S47 -->
+<section>
+  <h2>5-Phase Migration</h2>
+  <div class="pipeline" style="font-size:0.75em;">
+    <div class="stage" style="border-color:#FF3621;">1. Assess</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage" style="border-color:#F5A623;">2. Plan</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage" style="border-color:#00A972;">3. Convert</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage" style="border-color:#3B82F6;">4. Validate</div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage" style="border-color:#8B5CF6;">5. Deploy</div>
+  </div>
+  <table style="font-size:0.58em; margin-top:12px;">
+    <thead><tr><th>Phase</th><th>a2d Commands</th><th>Output</th><th>Duration</th></tr></thead>
+    <tbody>
+      <tr><td><span class="accent">1. Assess</span></td><td><code>analyze</code>, <code>list-tools</code></td><td>Readiness report, confidence/complexity scores, effort estimates</td><td>1-2 weeks</td></tr>
+      <tr><td style="color:#F5A623;">2. Plan</td><td><code>analyze --complexity</code>, connection mapping</td><td>YAML mapping, wave grouping, readiness reports</td><td>1 week</td></tr>
+      <tr><td class="green">3. Convert</td><td><code>convert --batch</code> + all flags</td><td>Code, DDL, DAB, expression audit</td><td>2-8 weeks</td></tr>
+      <tr><td style="color:#3B82F6;">4. Validate</td><td><code>validate</code>, manual testing</td><td>Syntax check, row count comparison</td><td>2-4 weeks</td></tr>
+      <tr><td style="color:#8B5CF6;">5. Deploy</td><td>DAB deploy, Lakeflow Jobs</td><td>Production deployment via Workflow JSON</td><td>1-2 weeks</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S48: Day in the life -->
+<section>
+  <h2>Day-in-the-Life Walkthrough</h2>
+  <p class="subtitle">Converting 50 workflows in a week</p>
+  <div style="font-size:0.62em; text-align:left;">
+    <p><strong>Monday:</strong> Assess &mdash; <code>a2d analyze workflows/ -o report/ --format both --complexity</code></p>
+    <p>Review the HTML report. Identify "Low" workflows (quick wins) and "High" workflows (complex). Create connection mapping YAML.</p>
+    <p><strong>Tuesday-Wednesday:</strong> Batch convert &mdash; <code>a2d convert workflows/ -o output/ --batch --report-format html --connection-map map.yml --generate-ddl --generate-dab</code></p>
+    <p>Review batch report. Search output files for <code># TODO</code>. Fill in ODBC connections, Excel paths.</p>
+    <p><strong>Thursday:</strong> Validate &mdash; <code>a2d validate output/*.py</code></p>
+    <p>Upload notebooks to Databricks. Run against sample data. Compare row counts between original and converted.</p>
+    <p><strong>Friday:</strong> Deploy quick wins &mdash; upload Workflow JSON, run as Databricks Job. Or use <code>databricks bundle deploy</code> with the generated DAB config.</p>
+  </div>
+</section>
+
+<!-- S49 -->
+<section>
+  <h2>Reading Reports</h2>
+  <div class="cols" style="font-size:0.68em;">
+    <div class="surface">
+      <h4>Key Metrics</h4>
+      <ul>
+        <li><strong>Confidence</strong> &mdash; <span class="green">80%+</span> run with minor edits, <span class="accent">&lt;50%</span> significant work</li>
+        <li><strong>Complexity</strong> &mdash; maps to effort hours (2h &ndash; 40h)</li>
+        <li><strong>Coverage</strong> &mdash; % of nodes with converters</li>
+        <li><strong>Warning count</strong> &mdash; fewer is better; check enriched hints</li>
+      </ul>
+    </div>
+    <div class="surface">
+      <h4>Report Formats</h4>
+      <ul>
+        <li><strong>HTML</strong> &mdash; visual, shareable, confidence column, recommendations section</li>
+        <li><strong>JSON</strong> &mdash; programmatic, includes <code>enriched_warnings</code> with hint/category per warning</li>
+        <li><strong>JSONL</strong> &mdash; one record per line for log ingestion</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- S50 -->
+<section>
+  <h2>Tips &amp; Tricks</h2>
+  <div class="cols" style="font-size:0.62em;">
+    <div>
+      <ol>
+        <li>Search output for <code># TODO</code> and <code># WARNING</code> first</li>
+        <li>Check confidence &mdash; <span class="green">80%+</span> means minimal manual work</li>
+        <li>Use <code>--expression-audit</code> to find failed translations instantly</li>
+        <li>Use <code>--performance-hints</code> for Spark-specific optimizations</li>
+        <li>Run <code>a2d validate</code> before uploading to Databricks</li>
+        <li>Map connections first with <code>--connection-map</code> to reduce TODOs</li>
+      </ol>
+    </div>
+    <div>
+      <ol start="7">
+        <li>Start with high-confidence workflows for quick wins</li>
+        <li>Use <code>--generate-ddl</code> + <code>--connection-map</code> to reduce manual TODO count</li>
+        <li>Use <code>--generate-dab</code> for Databricks Asset Bundle deployment</li>
+        <li>Use <code>--comments</code> for team review &mdash; every step is documented</li>
+        <li>Run <code>a2d analyze --complexity</code> first for large portfolios &mdash; prioritize by effort</li>
+        <li>Check enriched warnings in batch HTML reports for actionable hints</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- S51: Honest limitations -->
+<section>
+  <h2>What a2d Does NOT Do</h2>
+  <p class="subtitle">Honest limitations</p>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Limitation</th><th>Why</th><th>Workaround</th></tr></thead>
+    <tbody>
+      <tr><td>Spatial analysis</td><td>No PySpark equivalent for spatial primitives</td><td>Use Sedona / Mosaic / H3; a2d emits TODO stubs</td></tr>
+      <tr><td>ML model training</td><td>Alteryx predictive tools use R/Python ML under the hood</td><td>Rebuild with MLflow + scikit-learn</td></tr>
+      <tr><td>Iterative macros</td><td>Require loop semantics not expressible in a DAG walk</td><td>Rewrite as Lakeflow Jobs with loops</td></tr>
+      <tr><td>Semantic equivalence</td><td>a2d validates syntax, not business logic</td><td>Compare row counts manually in Databricks</td></tr>
+      <tr><td>Custom third-party tools</td><td>Unknown XML schema</td><td>Add a custom converter (see Extending a2d)</td></tr>
+      <tr><td>Data type inference</td><td>Alteryx types don't always map 1:1 to Spark</td><td>Review generated schema, add explicit casts</td></tr>
+      <tr><td>Runtime testing</td><td>a2d doesn't execute the generated code</td><td>Run in Databricks, validate with test scaffold</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S52 -->
+<section>
+  <h2>Extending a2d</h2>
+  <div class="cols" style="font-size:0.65em;">
+    <div>
+      <h4>Adding a New Converter</h4>
+      <ol style="font-size:0.9em;">
+        <li>Create file in <code>converters/&lt;category&gt;/</code></li>
+        <li>Add IR node in <code>ir/nodes.py</code></li>
+        <li>Implement with <code>@ConverterRegistry.register</code></li>
+        <li>Add plugin mapping in <code>schema.py</code></li>
+        <li>Add visitor in generators (Lakeflow inherits SQL)</li>
+        <li>Add unit test</li>
+      </ol>
+    </div>
+    <div>
+      <h4>Adding an Expression Function</h4>
+      <pre><code class="language-python"># In expressions/functions.py:
+FUNCTION_REGISTRY["MyFunc"] = (
+    lambda args: f"my_udf({args[0]})",
+    1,  # expected arg count
+)</code></pre>
+      <p>141 functions already supported. Add new ones to <code>FUNCTION_REGISTRY</code> with a PySpark translation lambda.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================================================================ -->
+<!-- SECTION 9: REFERENCE (4 slides)                                  -->
+<!-- ================================================================ -->
+
+<!-- S53 -->
+<section>
+  <h2>Troubleshooting</h2>
+  <table style="font-size:0.58em;">
+    <thead><tr><th>Issue</th><th>Solution</th></tr></thead>
+    <tbody>
+      <tr><td><code>ModuleNotFoundError: a2d</code></td><td><code>pip install "."</code> or <code>PYTHONPATH=src</code></td></tr>
+      <tr><td>Syntax errors in output</td><td><code>a2d validate file.py</code> &mdash; check expression TODOs</td></tr>
+      <tr><td>Low confidence (&lt;50%)</td><td><code>a2d list-tools</code> to check unsupported tools; use <code>--expression-audit</code> for details</td></tr>
+      <tr><td>WebSocket not connecting</td><td>Check <code>A2D_CORS_ORIGINS</code> env var</td></tr>
+      <tr><td>Excel path placeholders</td><td>Upload <code>.xlsx</code> to DBFS/Volume, update path</td></tr>
+      <tr><td>Network path warnings</td><td>Upload files to cloud storage first</td></tr>
+      <tr><td>Empty expression errors</td><td>Blank formula fields in original workflow</td></tr>
+      <tr><td>Missing join keys</td><td>Look for <code># TODO: join keys</code> in output</td></tr>
+      <tr><td>Server won't start</td><td><code>PYTHONPATH=src:. uvicorn server.main:app</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- S54 -->
+<section>
+  <h2>Quick Reference Cheat Sheet</h2>
+  <div class="cols" style="font-size:0.58em;">
+    <div>
+      <h4>Convert</h4>
+      <pre><code class="language-bash">a2d convert wf.yxmd -o out/
+a2d convert wf.yxmd -o out/ -f dlt
+a2d convert wf.yxmd -o out/ -f lakeflow
+a2d convert dir/ -o out/ --batch</code></pre>
+      <h4>Analyze</h4>
+      <pre><code class="language-bash">a2d analyze dir/ -o report/
+a2d analyze dir/ -o report/ --complexity</code></pre>
+    </div>
+    <div>
+      <h4>Validate</h4>
+      <pre><code class="language-bash">a2d validate out/wf.py</code></pre>
+      <h4>Info</h4>
+      <pre><code class="language-bash">a2d list-tools --supported
+a2d version</code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- S55 -->
+<section>
+  <h2>Project Structure</h2>
+  <pre style="font-size:0.45em;"><code class="language-text">src/a2d/
+  cli.py                    # 5 CLI commands (convert, analyze, validate, list-tools, version)
+  pipeline.py               # Parse → Convert → Generate orchestration
+  config.py                 # Configuration dataclasses
+  connections.py            # YAML connection mapping (Alteryx → Unity Catalog)
+  parser/                   # .yxmd XML parsing, PLUGIN_NAME_MAP (157 entries)
+  ir/                       # 60 typed IR nodes + WorkflowDAG (NetworkX)
+  converters/               # 62 converters handling 112 tool types across 8 categories
+  expressions/              # Tokenizer → Parser → AST → Translator (141 functions)
+  generators/               # PySpark, DLT, SQL, Lakeflow, DDL, DAB, Workflow JSON
+  analyzer/                 # Complexity, coverage, readiness
+  observability/            # Confidence scoring, enriched hints, expression audit, performance hints
+
+server/                     # FastAPI + WebSocket (13 endpoints, 6 routers)
+frontend/                   # React 19 + TypeScript + Tailwind 4 (9 pages)
+tests/                      # 1006 tests, 82%+ coverage (unit + integration + smoke)
+docs/                       # Architecture, expression reference, migration playbook, this guide
+  </code></pre>
+</section>
+
+<!-- S56 -->
+<section>
+  <p class="section-header">Thank You</p>
+  <h1>a2d</h1>
+  <p style="color:#A0A8B0; font-size:0.85em;">Alteryx to Databricks Migration Accelerator</p>
+  <div class="stat-grid" style="margin-top:24px;">
+    <div class="stat-box"><span class="num">112</span><span class="label">Tool Types</span></div>
+    <div class="stat-box"><span class="num">141</span><span class="label">Functions</span></div>
+    <div class="stat-box"><span class="num">4</span><span class="label">Formats</span></div>
+    <div class="stat-box"><span class="num">5</span><span class="label">Commands</span></div>
+    <div class="stat-box"><span class="num">1006</span><span class="label">Tests</span></div>
+  </div>
+  <p style="margin-top:24px; font-size:0.7em;">
+    <code>pip install "."</code> &nbsp;&middot;&nbsp;
+    <code>a2d convert workflow.yxmd -o output/</code>
+  </p>
+  <p class="muted small">Databricks License</p>
+</section>
+
+</div><!-- /slides -->
+</div><!-- /reveal -->
+
+<div class="footer">a2d &mdash; Alteryx to Databricks Migration Accelerator</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/markdown/markdown.js"></script>
+<script>
+Reveal.initialize({
+  hash: true,
+  slideNumber: 'c/t',
+  width: 1200,
+  height: 700,
+  margin: 0.06,
+  transition: 'slide',
+  backgroundTransition: 'fade',
+  plugins: [RevealHighlight, RevealMarkdown],
+  highlight: { highlightOnLoad: true }
+});
+</script>
+</body>
+</html>

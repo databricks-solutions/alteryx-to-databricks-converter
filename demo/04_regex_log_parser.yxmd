@@ -1,0 +1,132 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="5"/>
+          <Fields>
+            <Field name="RawLog" type="V_WString" size="500"/>
+          </Fields>
+          <Data>
+            <r><c>2024-03-15 10:23:45 INFO  user=sarah.chen action=LOGIN ip=192.168.1.50 duration=2.3s</c></r>
+            <r><c>2024-03-15 10:24:12 ERROR user=james.wilson action=TRANSFER ip=10.0.0.22 duration=0.8s amount=5000</c></r>
+            <r><c>2024-03-15 10:25:01 WARN  user=sarah.chen action=PASSWORD_CHANGE ip=192.168.1.50 duration=1.1s</c></r>
+            <r><c>2024-03-15 10:26:33 INFO  user=maria.garcia action=LOGOUT ip=172.16.0.100 duration=0.2s</c></r>
+            <r><c>2024-03-15 10:27:55 ERROR user=david.kim action=TRANSFER ip=10.0.0.45 duration=5.2s amount=125000</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Raw Audit Logs</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.RegEx.RegEx">
+        <Position x="250" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Expression>(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (\w+)\s+user=(\S+) action=(\S+) ip=(\S+) duration=(\S+)</Expression>
+          <Field>RawLog</Field>
+          <CaseInsensitive>False</CaseInsensitive>
+          <OutputMethod>ParseSimple</OutputMethod>
+          <NumGroups>6</NumGroups>
+          <ParseGroups>
+            <Group name="Timestamp" type="V_WString" size="20"/>
+            <Group name="Level" type="V_WString" size="10"/>
+            <Group name="Username" type="V_WString" size="50"/>
+            <Group name="Action" type="V_WString" size="30"/>
+            <Group name="IPAddress" type="V_WString" size="20"/>
+            <Group name="Duration" type="V_WString" size="10"/>
+          </ParseGroups>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Parse Log Fields with RegEx</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="450" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="ToNumber(REGEX_Replace([Duration], 's', ''))" field="DurationSec" size="8" type="Double"/>
+            <FormulaField expression="IF [Level] = 'ERROR' THEN 'Critical' ELSEIF [Level] = 'WARN' THEN 'Warning' ELSE 'Normal' ENDIF" field="Severity" size="20" type="V_WString"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Parse Duration &amp; Classify Severity</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Filter.Filter">
+        <Position x="650" y="200"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Expression>[Level] = "ERROR"</Expression>
+          <Mode>Simple</Mode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Errors Only</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="850" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="error_alerts.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Error Alerts Output</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Summarize.Summarize">
+        <Position x="650" y="400"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="Username" action="GroupBy" rename="Username"/>
+            <SummarizeField field="Action" action="GroupBy" rename="Action"/>
+            <SummarizeField field="RawLog" action="Count" rename="EventCount"/>
+            <SummarizeField field="DurationSec" action="Avg" rename="AvgDuration"/>
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Summarize by User+Action</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="850" y="400"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="user_activity_summary.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Activity Summary Output</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="2" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="True"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="6" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="6" Connection="Output"/><Destination ToolID="7" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>regex_log_parser</Name>
+      <Description>Parses raw audit log entries using RegEx, classifies severity, splits errors from activity summary</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

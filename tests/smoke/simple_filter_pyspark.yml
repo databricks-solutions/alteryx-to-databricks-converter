@@ -1,0 +1,11 @@
+name: "simple_filter_pyspark"
+input: "tests/fixtures/workflows/simple_filter.yxmd"
+format: pyspark
+expect:
+  min_confidence: 80
+  max_warnings: 10
+  must_contain:
+    - "F.col"
+  must_not_contain:
+    - "ERROR"
+  min_nodes: 2

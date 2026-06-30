@@ -1,0 +1,25 @@
+command:
+  - "python"
+  - "-c"
+  - "import os; import uvicorn; uvicorn.run('server.main:app', host='0.0.0.0', port=int(os.environ.get('PORT', '8000')))"
+env:
+  - name: "A2D_CORS_ORIGINS"
+    value: '["*"]'
+  - name: "PYTHONPATH"
+    value: "src:."
+  - name: "A2D_DB_BACKEND"
+    value: "lakebase"
+  # NOTE — Lakebase env vars are intentionally NOT declared here.
+  #
+  # When the app is deployed via `databricks bundle deploy` with the
+  # databricks.yml in this repo:
+  #   * PGHOST / PGPORT / PGDATABASE / PGUSER / PGSSLMODE are auto-injected
+  #     by the Databricks Apps runtime because `apps.resources:` declares a
+  #     `database` resource binding.
+  #   * A2D_LAKEBASE_ENDPOINT is injected by `config.env` in databricks.yml
+  #     (it cannot be auto-derived — the endpoint name is a2d-specific).
+  #
+  # If you deploy this app *without* the bundle (e.g. via `databricks apps
+  # deploy` against a hand-rolled workspace), set those env vars yourself.
+  # server/settings.py reads PGHOST/PGUSER/etc natively and falls back to
+  # the legacy A2D_PG_* names for backward compatibility with older deploys.

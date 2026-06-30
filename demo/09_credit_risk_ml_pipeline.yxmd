@@ -1,0 +1,209 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="10"/>
+          <Fields>
+            <Field name="ApplicantID" type="Int32" size="4"/>
+            <Field name="AnnualIncome" type="Double" size="8"/>
+            <Field name="DebtToIncomeRatio" type="Double" size="8"/>
+            <Field name="CreditScore" type="Int32" size="4"/>
+            <Field name="LoanAmount" type="Double" size="8"/>
+            <Field name="EmploymentYears" type="Int32" size="4"/>
+            <Field name="NumOpenAccounts" type="Int32" size="4"/>
+            <Field name="Defaulted" type="Int32" size="4"/>
+          </Fields>
+          <Data>
+            <r><c>1001</c><c>85000</c><c>0.32</c><c>720</c><c>25000</c><c>8</c><c>4</c><c>0</c></r>
+            <r><c>1002</c><c>42000</c><c>0.58</c><c>580</c><c>15000</c><c>2</c><c>7</c><c>1</c></r>
+            <r><c>1003</c><c>120000</c><c>0.15</c><c>780</c><c>45000</c><c>15</c><c>3</c><c>0</c></r>
+            <r><c>1004</c><c>55000</c><c>0.45</c><c>650</c><c>20000</c><c>5</c><c>5</c><c>1</c></r>
+            <r><c>1005</c><c>95000</c><c>0.22</c><c>740</c><c>30000</c><c>10</c><c>2</c><c>0</c></r>
+            <r><c>1006</c><c>38000</c><c>0.62</c><c>540</c><c>12000</c><c>1</c><c>8</c><c>1</c></r>
+            <r><c>1007</c><c>72000</c><c>0.35</c><c>690</c><c>22000</c><c>6</c><c>4</c><c>0</c></r>
+            <r><c>1008</c><c>48000</c><c>0.51</c><c>610</c><c>18000</c><c>3</c><c>6</c><c>1</c></r>
+            <r><c>1009</c><c>110000</c><c>0.18</c><c>760</c><c>40000</c><c>12</c><c>3</c><c>0</c></r>
+            <r><c>1010</c><c>62000</c><c>0.41</c><c>670</c><c>28000</c><c>4</c><c>5</c><c>0</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Historical Loan Applicants (Training)</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="50" y="500"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="5"/>
+          <Fields>
+            <Field name="ApplicantID" type="Int32" size="4"/>
+            <Field name="AnnualIncome" type="Double" size="8"/>
+            <Field name="DebtToIncomeRatio" type="Double" size="8"/>
+            <Field name="CreditScore" type="Int32" size="4"/>
+            <Field name="LoanAmount" type="Double" size="8"/>
+            <Field name="EmploymentYears" type="Int32" size="4"/>
+            <Field name="NumOpenAccounts" type="Int32" size="4"/>
+          </Fields>
+          <Data>
+            <r><c>2001</c><c>78000</c><c>0.28</c><c>710</c><c>22000</c><c>7</c><c>3</c></r>
+            <r><c>2002</c><c>45000</c><c>0.55</c><c>590</c><c>16000</c><c>2</c><c>6</c></r>
+            <r><c>2003</c><c>130000</c><c>0.12</c><c>800</c><c>50000</c><c>18</c><c>2</c></r>
+            <r><c>2004</c><c>52000</c><c>0.48</c><c>640</c><c>19000</c><c>3</c><c>7</c></r>
+            <r><c>2005</c><c>88000</c><c>0.30</c><c>725</c><c>35000</c><c>9</c><c>4</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>New Loan Applications (Scoring)</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="250" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="[LoanAmount] / [AnnualIncome]" field="LoanToIncomeRatio" size="8" type="Double"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Feature: Loan-to-Income Ratio</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.AlteryxSelect.AlteryxSelect">
+        <Position x="450" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <OrderChanged Value="True"/>
+          <SelectFields>
+            <SelectField field="ApplicantID" selected="True" type="Int32" size="4"/>
+            <SelectField field="AnnualIncome" selected="True" type="Double" size="8"/>
+            <SelectField field="DebtToIncomeRatio" selected="True" type="Double" size="8"/>
+            <SelectField field="CreditScore" selected="True" type="Int32" size="4"/>
+            <SelectField field="LoanAmount" selected="True" type="Double" size="8"/>
+            <SelectField field="EmploymentYears" selected="True" type="Int32" size="4"/>
+            <SelectField field="NumOpenAccounts" selected="True" type="Int32" size="4"/>
+            <SelectField field="LoanToIncomeRatio" selected="True" type="Double" size="8"/>
+            <SelectField field="Defaulted" selected="True" type="Int32" size="4"/>
+          </SelectFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Select Training Features</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.LogisticRegression.LogisticRegression">
+        <Position x="650" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <TargetField>Defaulted</TargetField>
+          <FeatureFields>AnnualIncome,DebtToIncomeRatio,CreditScore,LoanAmount,EmploymentYears,NumOpenAccounts,LoanToIncomeRatio</FeatureFields>
+          <Regularization>0.01</Regularization>
+          <MaxIterations>200</MaxIterations>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Train Logistic Regression (Default Risk)</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="250" y="500"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="[LoanAmount] / [AnnualIncome]" field="LoanToIncomeRatio" size="8" type="Double"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Feature: Loan-to-Income Ratio (New Apps)</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxPredictivePluginsGui.ScoreModel.ScoreModel">
+        <Position x="650" y="400"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <ModelReference>node_5_logistic_regression</ModelReference>
+          <FeatureFields>AnnualIncome,DebtToIncomeRatio,CreditScore,LoanAmount,EmploymentYears,NumOpenAccounts,LoanToIncomeRatio</FeatureFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Score New Applications</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="8">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Filter.Filter">
+        <Position x="850" y="400"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Expression>[DebtToIncomeRatio] &gt; 0.40 OR [CreditScore] &lt; 650</Expression>
+          <Mode>Simple</Mode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Flag High-Risk Applications</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="9">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="1050" y="300"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortFields>
+            <SortField field="CreditScore" order="Ascending"/>
+          </SortFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Sort High-Risk by Credit Score</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="10">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1250" y="300"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="high_risk_applicants.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>High-Risk Applicants</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="11">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1050" y="550"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="approved_applicants.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Approved Applicants</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection><Origin ToolID="1" Connection="Output"/><Destination ToolID="3" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="3" Connection="Output"/><Destination ToolID="4" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="4" Connection="Output"/><Destination ToolID="5" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="2" Connection="Output"/><Destination ToolID="6" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="5" Connection="Output"/><Destination ToolID="7" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="6" Connection="Output"/><Destination ToolID="7" Connection="Source"/></Connection>
+    <Connection><Origin ToolID="7" Connection="Output"/><Destination ToolID="8" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="8" Connection="True"/><Destination ToolID="9" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="9" Connection="Output"/><Destination ToolID="10" Connection="Input"/></Connection>
+    <Connection><Origin ToolID="8" Connection="False"/><Destination ToolID="11" Connection="Input"/></Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/><GlobalRecordLimit Value="0"/><TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <MetaInfo>
+      <Name>credit_risk_ml_pipeline</Name>
+      <Description>ML credit risk pipeline: trains LogisticRegression on historical loan data, scores new applications, filters high-risk vs approved</Description>
+      <Author>a2d Demo</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

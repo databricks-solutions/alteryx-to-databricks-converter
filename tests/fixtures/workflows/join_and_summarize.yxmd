@@ -1,0 +1,154 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="100" y="150"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="3"/>
+          <Fields>
+            <Field name="ID" type="Int32" size="4"/>
+            <Field name="Name" type="V_WString" size="100"/>
+            <Field name="Region" type="V_WString" size="50"/>
+          </Fields>
+          <Data>
+            <r><c>1</c><c>Alice</c><c>East</c></r>
+            <r><c>2</c><c>Bob</c><c>West</c></r>
+            <r><c>3</c><c>Charlie</c><c>East</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Customers</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="100" y="350"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="4"/>
+          <Fields>
+            <Field name="CustomerID" type="Int32" size="4"/>
+            <Field name="Amount" type="Double" size="8"/>
+            <Field name="Date" type="Date" size="10"/>
+          </Fields>
+          <Data>
+            <r><c>1</c><c>100.50</c><c>2024-01-15</c></r>
+            <r><c>2</c><c>200.00</c><c>2024-01-16</c></r>
+            <r><c>1</c><c>150.75</c><c>2024-02-01</c></r>
+            <r><c>3</c><c>300.25</c><c>2024-02-10</c></r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Orders</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Join.Join">
+        <Position x="300" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <JoinByRecordPos Value="False"/>
+          <JoinFields>
+            <JoinField LeftField="ID" RightField="CustomerID"/>
+          </JoinFields>
+          <SelectConfiguration>
+            <Configuration outputConnection="Join">
+              <OrderChanged Value="False"/>
+              <SelectFields>
+                <SelectField field="Right_CustomerID" selected="False"/>
+                <SelectField field="*Unknown" selected="True"/>
+              </SelectFields>
+            </Configuration>
+          </SelectConfiguration>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Join on ID = CustomerID</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Summarize.Summarize">
+        <Position x="500" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="Region" action="GroupBy" rename="Region"/>
+            <SummarizeField field="Amount" action="Sum" rename="Total_Amount"/>
+            <SummarizeField field="Amount" action="Count" rename="Order_Count"/>
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Summarize by Region</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="700" y="250"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="19" FilePath="region_summary.csv"/>
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Output Summary</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection>
+      <Origin ToolID="1" Connection="Output"/>
+      <Destination ToolID="3" Connection="Left"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="2" Connection="Output"/>
+      <Destination ToolID="3" Connection="Right"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="3" Connection="Join"/>
+      <Destination ToolID="4" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="4" Connection="Output"/>
+      <Destination ToolID="5" Connection="Input"/>
+    </Connection>
+  </Connections>
+  <Properties>
+    <Memory Default="True"/>
+    <GlobalRecordLimit Value="0"/>
+    <TempFiles Default="True"/>
+    <Annotation on="True" includeToolName="False"/>
+    <ConvErrorLimit Value="10"/>
+    <ConvErrorLimit_Stop Value="False"/>
+    <CancelOnError Value="False"/>
+    <DisableBrowse Value="False"/>
+    <EnablePerformanceProfiling Value="False"/>
+    <RunWithE2 Value="True"/>
+    <PredictiveToolsCodePage Value="65001"/>
+    <DisableAllOutput Value="False"/>
+    <ShowAllMacroMessages Value="False"/>
+    <ShowConnectionErrors Value="True"/>
+    <ShowConversionErrors Value="True"/>
+    <ShowFieldConversionErrors Value="True"/>
+    <Layout>
+      <ViewInfo MaximizeCanvasWidth="True" MaximizeCanvasHeight="True"/>
+    </Layout>
+    <MetaInfo>
+      <NameIsFileName Value="True"/>
+      <Name>join_and_summarize</Name>
+      <Description>Two inputs joined and summarized by region</Description>
+      <Url/>
+      <Author>Test</Author>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

@@ -1,0 +1,196 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <!-- Tool 1: TextInput - Sales data -->
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="100" y="200" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="6" />
+          <Fields>
+            <Field name="Product" />
+            <Field name="Region" />
+            <Field name="Amount" />
+            <Field name="Date" />
+            <Field name="Status" />
+          </Fields>
+          <Data>
+            <r>
+              <c>Widget A</c><c>East</c><c>250.00</c><c>2024-01-15</c><c>Active</c>
+            </r>
+            <r>
+              <c>Widget B</c><c>West</c><c>75.00</c><c>2024-01-20</c><c>Active</c>
+            </r>
+            <r>
+              <c>Widget A</c><c>East</c><c>500.00</c><c>2024-02-10</c><c>Active</c>
+            </r>
+            <r>
+              <c>Widget C</c><c>Central</c><c>150.00</c><c>2024-02-15</c><c>Inactive</c>
+            </r>
+            <r>
+              <c>Widget B</c><c>West</c><c>300.00</c><c>2024-03-01</c><c>Active</c>
+            </r>
+            <r>
+              <c>Widget A</c><c>Central</c><c>50.00</c><c>2024-03-10</c><c>Active</c>
+            </r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Sales Data</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+
+    <!-- Tool 2: Formula - Calculate TaxAmount -->
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="250" y="200" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField field="TaxAmount" expression="[Amount] * 0.13" type="Double" size="8" />
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Calculate Tax</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+
+    <!-- Tool 3: Filter - Amount > 100 -->
+    <Node ToolID="3">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Filter.Filter">
+        <Position x="400" y="200" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Mode>Custom</Mode>
+          <Expression>[Amount] &gt; 100</Expression>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>High Value Only</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+
+    <!-- Tool 4: Select - Rename and drop columns -->
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.AlteryxSelect.AlteryxSelect">
+        <Position x="550" y="200" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <OrderChanged value="True" />
+          <SelectFields>
+            <SelectField field="Product" selected="True" />
+            <SelectField field="Region" selected="True" rename="SalesRegion" />
+            <SelectField field="Amount" selected="True" rename="SalesAmount" />
+            <SelectField field="TaxAmount" selected="True" />
+            <SelectField field="Date" selected="True" rename="SaleDate" />
+            <SelectField field="Status" selected="False" />
+          </SelectFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Rename Columns</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+
+    <!-- Tool 5: Sort - By Region asc, Amount desc -->
+    <Node ToolID="5">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Sort.Sort">
+        <Position x="700" y="200" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SortInfo>
+            <Field field="SalesRegion" order="Ascending" />
+            <Field field="SalesAmount" order="Descending" />
+          </SortInfo>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Sort by Region and Amount</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+
+    <!-- Tool 6: Summarize - GroupBy Region, Sum Amount, Count -->
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Summarize.Summarize">
+        <Position x="850" y="200" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="SalesRegion" action="GroupBy" />
+            <SummarizeField field="SalesAmount" action="Sum" rename="TotalSales" />
+            <SummarizeField field="SalesAmount" action="Count" rename="TransactionCount" />
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Summary by Region</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+
+    <!-- Tool 7: Output -->
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DbFileOutput.DbFileOutput">
+        <Position x="1000" y="200" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <File FileFormat="csv" OutputFileName="regional_summary.csv" />
+          <WriteMode>Overwrite</WriteMode>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>Save Results</Name>
+        </Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+
+  <Connections>
+    <Connection>
+      <Origin ToolID="1" Connection="Output" />
+      <Destination ToolID="2" Connection="Input" />
+    </Connection>
+    <Connection>
+      <Origin ToolID="2" Connection="Output" />
+      <Destination ToolID="3" Connection="Input" />
+    </Connection>
+    <Connection name="True">
+      <Origin ToolID="3" Connection="True" />
+      <Destination ToolID="4" Connection="Input" />
+    </Connection>
+    <Connection>
+      <Origin ToolID="4" Connection="Output" />
+      <Destination ToolID="5" Connection="Input" />
+    </Connection>
+    <Connection>
+      <Origin ToolID="5" Connection="Output" />
+      <Destination ToolID="6" Connection="Input" />
+    </Connection>
+    <Connection>
+      <Origin ToolID="6" Connection="Output" />
+      <Destination ToolID="7" Connection="Input" />
+    </Connection>
+  </Connections>
+
+  <Properties>
+    <Memory default="True" />
+    <GlobalRecordLimit value="0" />
+    <TempFiles default="True" />
+    <Annotation on="True" includeToolName="False" />
+    <ConveyorSettings />
+    <MetaInfo>
+      <NameIsFileName value="True" />
+      <Name>sample_workflow</Name>
+      <Description>Sample sales workflow demonstrating TextInput, Formula, Filter, Select, Sort, Summarize, and Output tools.</Description>
+      <ToolVersion value="1.0" />
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>

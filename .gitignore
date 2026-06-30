@@ -1,0 +1,87 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+/dist/
+/build/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing / Coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Type checking / Linting
+.mypy_cache/
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / Frontend
+node_modules/
+# frontend/dist/ — keep built assets for Databricks App deployment
+frontend/.vite/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Databricks
+.databricks/
+
+# Internal-only docs — never publish to the public repo
+*Internal Guide*.pdf
+
+# Local AI-assistant / editor settings (per-contributor, never commit)
+.claude/
+.local-notes/
+
+# External reference projects (not part of this repo)
+/lakebridge-main/
+/alteryx-dbx-converter-main/
+
+# Output directories
+/a2d-output/
+/a2d-report/
+
+# Database files
+*.db
+*.sqlite
+
+# Spreadsheets (may contain customer data)
+*.xlsx
+*.xls
+
+# Customer/private workflow fixtures — never commit. Allow only repo-managed test fixtures.
+*.yxmd
+!tests/fixtures/**/*.yxmd
+!examples/**/*.yxmd
+!demo/**/*.yxmd
+
+# Local notes / scratch — drop workspace IDs, deploy URLs, customer-specific
+# config here. Anything under these paths is local-only and never tracked.
+/.local/
+/.local-notes/
+/notes.local.md
+/deploy.local.md
+/scratch/

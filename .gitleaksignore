@@ -1,0 +1,4 @@
+# False positives: Shiki WASM syntax highlighting bundles contain
+# base64-encoded binary data that matches AWS access token patterns.
+# These are NOT real credentials.
+frontend/dist/assets/wasm-*.js

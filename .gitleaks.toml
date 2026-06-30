@@ -1,0 +1,14 @@
+[allowlist]
+description = """
+Verified false positives — NOT real credentials:
+  1. Shiki WASM syntax-highlighting bundles (frontend/dist/assets/wasm-*.js)
+     embed base64 binary data that matches AWS access-token patterns.
+  2. MIT-licensed Packt test fixtures (tests/fixtures/packt/*.yxmd) embed
+     base64-encoded SQLite blobs inside <SerializedData> elements (the data
+     decodes to "SQLite format 3 ..."). These are third-party files
+     redistributed verbatim and are never edited.
+"""
+paths = [
+    '''frontend/dist/assets/wasm-.*\.js''',
+    '''tests/fixtures/packt/.*\.yxmd''',
+]

@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check src/ tests/ server/
+      - run: ruff format --check src/ tests/ server/
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: mypy src/a2d/ && mypy server/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[all]"
+      - run: pytest tests/ -v --tb=short --cov=a2d --cov-report=term-missing
+
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[all]" pip-audit
+      - run: pip-audit --skip-editable
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - working-directory: frontend
+        run: npm run typecheck
+      - working-directory: frontend
+        run: npm run build
+
+  bundle-yaml:
+    # `databricks bundle validate` requires a real DATABRICKS_HOST + token
+    # because it calls `/api/2.0/preview/scim/v2/Me` even just to validate
+    # YAML — it cannot run in CI without live workspace creds. Instead we
+    # do the things we CAN do without auth: parse `databricks.yml` and
+    # `app.yaml` as valid YAML, and check that key required keys exist.
+    # Real semantic validation happens at deploy time via
+    # `make deploy-dev` / `make deploy-prod`, which run against the
+    # operator's actual DATABRICKS_HOST.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: Validate databricks.yml + app.yaml structure
+        run: |
+          python - <<'PY'
+          import sys, yaml, pathlib
+          ok = True
+          for f, required in [
+              ("databricks.yml", ["bundle", "resources", "targets"]),
+              ("app.yaml", ["env"]),
+          ]:
+              p = pathlib.Path(f)
+              if not p.exists():
+                  print(f"::error file={f}::missing"); ok = False; continue
+              try:
+                  data = yaml.safe_load(p.read_text())
+              except Exception as e:
+                  print(f"::error file={f}::not valid YAML: {e}"); ok = False; continue
+              for key in required:
+                  if not isinstance(data, dict) or key not in data:
+                      print(f"::error file={f}::missing required key '{key}'"); ok = False
+              print(f"  ✓ {f}: {len(data) if isinstance(data, dict) else 0} top-level keys")
+          sys.exit(0 if ok else 1)
+          PY
