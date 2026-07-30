@@ -547,12 +547,40 @@ def analyze(
 
 @app.command()
 def validate(
-    generated_code: Path = typer.Argument(..., help="Generated .py file to validate"),
+    generated_code: Path = typer.Argument(..., help="Generated .py or .designer.ipynb file to validate"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
 ) -> None:
-    """Validate generated code syntax."""
+    """Validate a generated artifact.
+
+    For ``.py`` files this checks Python syntax. For ``.designer.ipynb`` files it
+    runs the Lakeflow Designer *structural* validation (valid ipynb JSON, required
+    metadata + unique nuids, parseable YAML annotation and Python body per cell,
+    and input wiring that resolves) — the offline half of Designer round-trip
+    validation.
+    """
     setup_logging(quiet=quiet, debug=debug)
+
+    if not generated_code.exists():
+        console.print(f"[bold red]Invalid[/bold red]: {generated_code} not found")
+        raise typer.Exit(code=1)
+
+    # Route Designer notebooks to the structural validator.
+    if generated_code.name.endswith(".designer.ipynb"):
+        from a2d.generators.designer_validation import validate_designer_notebook
+
+        result = validate_designer_notebook(generated_code.read_text())
+        if result.is_valid:
+            console.print(
+                f"[bold green]Valid[/bold green]: {generated_code} "
+                f"({result.cell_count} Designer cells)"
+            )
+        else:
+            console.print(f"[bold red]Invalid[/bold red]: {generated_code}")
+            for error in result.errors:
+                console.print(f"  - {error}")
+            raise typer.Exit(code=1)
+        return
 
     from a2d.validation.syntax_validator import SyntaxValidator
 

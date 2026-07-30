@@ -644,6 +644,27 @@ class TestValidateCommand:
         # Should not crash; exit non-zero or report invalid.
         assert result.exit_code != 0 or "Invalid" in result.output
 
+    def test_validate_designer_notebook(self, tmp_path):
+        # Convert to produce a .designer.ipynb, then structurally validate it.
+        out = tmp_path / "out"
+        result = runner.invoke(
+            app, ["convert", str(SIMPLE_FIXTURE), "--output-dir", str(out), "--format", "designer"]
+        )
+        assert result.exit_code == 0, result.output
+        ipynbs = list((out / "designer").rglob("*.designer.ipynb"))
+        assert ipynbs, "no .designer.ipynb produced"
+        result2 = runner.invoke(app, ["validate", str(ipynbs[0])])
+        assert result2.exit_code == 0, result2.output
+        assert "Valid" in result2.output
+        assert "Designer cells" in result2.output
+
+    def test_validate_fails_on_broken_designer_notebook(self, tmp_path):
+        broken = tmp_path / "broken.designer.ipynb"
+        broken.write_text("{ not valid json")
+        result = runner.invoke(app, ["validate", str(broken)])
+        assert result.exit_code != 0
+        assert "Invalid" in result.output
+
 
 # ── H. Internal helpers ───────────────────────────────────────────────
 

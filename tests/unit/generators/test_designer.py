@@ -532,18 +532,14 @@ class TestRobustnessAgainstHostileInput:
     able to corrupt the annotation docstring, the YAML, or the Python body."""
 
     def _all_cells_parse(self, nb: dict) -> None:
-        import ast
+        import json
 
-        import yaml
+        from a2d.generators.designer_validation import validate_designer_notebook
 
-        for cell in nb["cells"]:
-            src = "".join(cell["source"])
-            # Whole cell must be valid Python (annotation docstring + body).
-            ast.parse(src)
-            # Annotation must be valid, complete YAML (has the wiring keys).
-            ann = _annotation(cell)
-            parsed = yaml.safe_load(ann)
-            assert "input" in parsed, f"annotation lost 'input' key: {ann!r}"
+        # Dogfood the structural validator (valid JSON, YAML annotations, Python
+        # bodies, unique nuids, resolvable wiring) as the single source of truth.
+        result = validate_designer_notebook(json.dumps(nb))
+        assert result.is_valid, result.errors
 
     def test_python_tool_with_docstring(self, generator: DesignerGenerator):
         # A triple-quote inside a value must not terminate the annotation early.
