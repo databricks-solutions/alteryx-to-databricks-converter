@@ -2,7 +2,7 @@
 
 Bypasses ``BatchOrchestrator`` for the server path: per-file calls into
 ``ConversionPipeline.convert_all_formats`` are made directly so each file's
-result contains ``formats: {pyspark, dlt, sql, lakeflow}``. The CLI continues
+result contains ``formats: {pyspark, dlt, sql, lakeflow, designer}``. The CLI continues
 to use ``BatchOrchestrator`` for its single-format workflow.
 """
 

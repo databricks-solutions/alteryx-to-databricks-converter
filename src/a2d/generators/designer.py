@@ -1,0 +1,751 @@
+"""Lakeflow Designer (``.designer.ipynb``) generator.
+
+Emits a **native Lakeflow Designer visual-ETL file** — a Jupyter notebook where
+each IR node becomes one operator *cell* that Designer rehydrates into a
+draggable node on its drag-and-drop canvas. This is distinct from the
+``lakeflow`` format, which emits Lakeflow Declarative Pipelines (LDP) SQL text.
+
+The file contract (documented in ``docs/lakeflow-designer-generator-design.md``):
+
+* A ``.designer.ipynb`` is a standard Jupyter notebook (``nbformat: 4``). Each
+  operator is one **code cell** whose ``source`` begins with a triple-quoted
+  **YAML docstring** ("annotation") that Designer parses to build the canvas.
+* The annotation carries ``id``, ``template``, ``templateVersion``, ``name``,
+  ``position:{x,y}``, ``description``, ``config`` and ``input[]`` wiring.
+* Notebook- and cell-level Databricks metadata keys are **required** or the DAG
+  fails to render on import; each cell needs a unique ``nuid``.
+* ``previewCodeHash`` / ``description.hash`` are Designer-internal content
+  hashes whose algorithm is not public. They are emitted **empty** — Designer
+  recomputes them on open (matches the ``brickify`` field-eng assembler).
+
+Determinism: unlike the existing LLM-based Alteryx→Designer tools, this
+generator is a pure function of the IR DAG (same input → same output). Clean
+Alteryx tools map to **native** Designer operators; everything else falls back
+to a ``sql`` or ``python`` operator cell (reusing the tested
+:class:`~a2d.generators.sql.SQLGenerator` bodies), mirroring the field-eng
+operator-mapping playbook.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import uuid
+
+from a2d.config import ConversionConfig
+from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput
+from a2d.generators.sql import SQLGenerator, _cte_name
+from a2d.ir.graph import WorkflowDAG
+from a2d.ir.nodes import (
+    AggAction,
+    AutoFieldNode,
+    BrowseNode,
+    CommentNode,
+    CountRecordsNode,
+    CrossTabNode,
+    DataCleansingNode,
+    FieldAction,
+    FilterNode,
+    FormulaNode,
+    IRNode,
+    JoinNode,
+    PythonToolNode,
+    ReadNode,
+    SampleNode,
+    SelectNode,
+    SortNode,
+    SummarizeNode,
+    UnionNode,
+    UnsupportedNode,
+    WriteNode,
+)
+
+logger = logging.getLogger("a2d.generators.designer")
+
+# ── Operator template version pins ──────────────────────────────────────────
+# Exactly one (prod-latest) version per operator, matching the field-eng
+# ``brickify`` catalog. Version bumps that change *ports* are the hazard
+# (filter@2 adds ``excluded_data``; combine@2 uses a variadic ``data`` port),
+# so these are pinned deliberately. Hand-maintained until Databricks ships a
+# served catalog — see docs/lakeflow-designer-generator-design.md §3.4.
+OPERATOR_VERSIONS: dict[str, str] = {
+    "source": "2.0.0",
+    "output": "1.0.0",
+    "transform": "2.0.0",
+    "ai_function": "3.0.0",
+    "filter": "2.0.0",
+    "sort": "1.0.0",
+    "limit": "1.0.0",
+    "aggregate": "2.0.0",
+    "prepare": "1.0.0",
+    "combine": "2.0.0",
+    "join": "1.0.0",
+    "pivot": "1.0.0",
+    "python": "1.0.0",
+    "sql": "1.0.0",
+    "markdown": "1.0.0",
+}
+
+# Canvas layout stepping (Designer convention): tiers left→right, lanes top→bottom.
+_X_STEP = 260
+_Y_STEP = 145
+
+# YAML scalars containing any of these characters (or leading/trailing space,
+# or that look like booleans/null) must be double-quoted, else Designer's YAML
+# parser mis-reads the annotation and silently drops the cell from the graph.
+_QUOTE_TRIGGERS = re.compile(r"""[":#{}\[\],&*!|>%@`]|^\s|\s$""")
+_YAML_BOOLISH = frozenset({"true", "false", "null", "yes", "no", "~", ""})
+
+
+def _designer_id(node: IRNode) -> str:
+    """Stable, unique cell id derived from the IR node (reuses SQL naming)."""
+    return _cte_name(node)
+
+
+class DesignerCell:
+    """One Lakeflow Designer operator cell (annotation + Python body)."""
+
+    def __init__(
+        self,
+        *,
+        cell_id: str,
+        template: str,
+        name: str,
+        position: tuple[int, int],
+        config: dict | None = None,
+        inputs: list[dict] | None = None,
+        description: str = "",
+        body: str = "",
+    ) -> None:
+        self.cell_id = cell_id
+        self.template = template
+        self.name = name
+        self.position = position
+        self.config = config or {}
+        self.inputs = inputs or []
+        self.description = description
+        self.body = body
+
+
+class DesignerGenerator(CodeGenerator):
+    """Generate a native Lakeflow Designer ``.designer.ipynb`` visual-ETL file."""
+
+    # Pure passthrough types: no operator cell, forward the predecessor's id.
+    _PASSTHROUGH_TYPES = (AutoFieldNode, BrowseNode)
+    # Node groups routed to a single operator builder (tuple form for isinstance).
+    _AGGREGATE_TYPES = (SummarizeNode, CountRecordsNode)
+    _TRANSFORM_TYPES = (SelectNode, FormulaNode, DataCleansingNode)
+
+    def __init__(self, config: ConversionConfig) -> None:
+        super().__init__(config)
+        # Reuse the tested SQL generator for fallback (sql/python) operator bodies.
+        self._sql = SQLGenerator(config)
+
+    # ── Entry point ─────────────────────────────────────────────────────────
+
+    def generate(self, dag: WorkflowDAG, workflow_name: str = "workflow") -> GeneratedOutput:
+        ordered = dag.topological_order()
+        warnings: list[str] = []
+        id_map: dict[int, str] = {}  # node_id -> designer cell id (or forwarded id)
+        # Filter fan-out: (filter_node_id, successor_node_id) -> output port name
+        fanout_ports: dict[int, str] = {}
+        cells: list[DesignerCell] = []
+        tiers = self._compute_tiers(dag, ordered)
+        lane_counter: dict[int, int] = {}
+
+        node_count = 0
+        native_count = 0
+        unsupported_count = 0
+
+        for node in ordered:
+            if isinstance(node, CommentNode):
+                cell = self._markdown_cell(node, self._position(node, tiers, lane_counter))
+                cells.append(cell)
+                id_map[node.node_id] = cell.cell_id
+                node_count += 1
+                continue
+
+            if isinstance(node, self._PASSTHROUGH_TYPES):
+                inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+                if inputs:
+                    # Forward the single upstream id so downstream wiring skips this node.
+                    id_map[node.node_id] = inputs[0]["node"]
+                    node_count += 1
+                    continue
+
+            cell, step_warnings, is_native = self._build_cell(
+                node, dag, id_map, fanout_ports, tiers, lane_counter
+            )
+            warnings.extend(step_warnings)
+            cells.append(cell)
+            id_map[node.node_id] = cell.cell_id
+            node_count += 1
+            if is_native:
+                native_count += 1
+            if isinstance(node, UnsupportedNode):
+                unsupported_count += 1
+
+        self.metadata["stats"] = {
+            "total_nodes": node_count,
+            "supported_nodes": node_count - unsupported_count,
+            "unsupported_nodes": unsupported_count,
+            "warnings": len(warnings),
+        }
+
+        notebook_json = self._assemble_notebook(cells, workflow_name)
+
+        files = [
+            GeneratedFile(
+                filename=f"{workflow_name}.designer.ipynb",
+                content=notebook_json,
+                file_type="ipynb",
+            )
+        ]
+
+        stats = {
+            "total_nodes": node_count,
+            "supported_nodes": node_count - unsupported_count,
+            "unsupported_nodes": unsupported_count,
+            "native_operators": native_count,
+            "total_cells": len(cells),
+            "warnings": len(warnings),
+        }
+        return GeneratedOutput(files=files, warnings=warnings, stats=stats)
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+
+    def _compute_tiers(self, dag: WorkflowDAG, ordered: list[IRNode]) -> dict[int, int]:
+        """Longest-path depth per node → x tier. Deterministic from topo order."""
+        tiers: dict[int, int] = {}
+        for node in ordered:
+            preds = dag.get_predecessors(node.node_id)
+            tiers[node.node_id] = 0 if not preds else 1 + max(tiers.get(p.node_id, 0) for p in preds)
+        return tiers
+
+    def _position(
+        self, node: IRNode, tiers: dict[int, int], lane_counter: dict[int, int]
+    ) -> tuple[int, int]:
+        tier = tiers.get(node.node_id, 0)
+        lane = lane_counter.get(tier, 0)
+        lane_counter[tier] = lane + 1
+        return (tier * _X_STEP, lane * _Y_STEP)
+
+    # ── Wiring ──────────────────────────────────────────────────────────────
+
+    def _resolve_inputs(
+        self,
+        node_id: int,
+        dag: WorkflowDAG,
+        id_map: dict[int, str],
+        fanout_ports: dict[int, str],
+        *,
+        port_for_anchor: dict[str, str] | None = None,
+    ) -> list[dict]:
+        """Build the ``input[]`` list: {node, input_port, output_port} per edge.
+
+        ``port_for_anchor`` maps this node's *destination* anchor (e.g. "Left")
+        to the Designer input-port name ("left"); defaults to "data".
+        """
+        result: list[dict] = []
+        for pred in dag.get_predecessors(node_id):
+            upstream_id = id_map.get(pred.node_id, _cte_name(pred))
+            edge = dag.get_edge_info(pred.node_id, node_id)
+            in_port = (port_for_anchor or {}).get(edge.destination_anchor, "data")
+            # Upstream output port: filter fan-out picks filtered/excluded.
+            out_port = self._output_port(pred, edge, fanout_ports)
+            result.append({"node": upstream_id, "input_port": in_port, "output_port": out_port})
+        return result
+
+    @staticmethod
+    def _output_port(pred: IRNode, edge, fanout_ports: dict[int, str]) -> str:
+        """Designer output-port name for an upstream node given the edge anchor."""
+        origin = edge.origin_anchor
+        if isinstance(pred, FilterNode):
+            if origin == "False":
+                return "excluded_data"
+            return "filtered_data"
+        if isinstance(pred, JoinNode):
+            # join@1 is single-output; L/R unmatched streams aren't represented.
+            return "joined_data"
+        return "data"
+
+    # ── Cell construction / operator selection ──────────────────────────────
+
+    def _build_cell(
+        self,
+        node: IRNode,
+        dag: WorkflowDAG,
+        id_map: dict[int, str],
+        fanout_ports: dict[int, str],
+        tiers: dict[int, int],
+        lane_counter: dict[int, int],
+    ) -> tuple[DesignerCell, list[str], bool]:
+        """Return (cell, warnings, is_native). Native = clean visual operator."""
+        pos = self._position(node, tiers, lane_counter)
+        cell_id = _designer_id(node)
+        name = node.annotation or node.original_tool_type or type(node).__name__.replace("Node", "")
+
+        # ---- Native operators (business users see real visual nodes) ----
+        if isinstance(node, ReadNode):
+            return self._source_cell(node, cell_id, name, pos), [], True
+        if isinstance(node, WriteNode):
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            return self._output_cell(node, cell_id, name, pos, inputs), [], True
+        if isinstance(node, FilterNode):
+            return self._filter_cell(node, cell_id, name, pos, dag, id_map, fanout_ports)
+        if isinstance(node, SortNode):
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            return self._sort_cell(node, cell_id, name, pos, inputs), [], True
+        if isinstance(node, SampleNode) and node.n_records and node.sample_method == "first":
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            return self._limit_cell(node, cell_id, name, pos, inputs), [], True
+        if isinstance(node, JoinNode):
+            return self._join_cell(node, cell_id, name, pos, dag, id_map, fanout_ports)
+        if isinstance(node, UnionNode):
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            return self._combine_cell(node, cell_id, name, pos, inputs), [], True
+        if isinstance(node, self._AGGREGATE_TYPES):
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            return self._aggregate_cell(node, cell_id, name, pos, inputs), [], True
+        if isinstance(node, CrossTabNode):
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            cell, w = self._pivot_cell(node, cell_id, name, pos, inputs)
+            return cell, w, True
+        if isinstance(node, self._TRANSFORM_TYPES):
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            cell, w = self._transform_cell(node, cell_id, name, pos, inputs)
+            return cell, w, True
+        if isinstance(node, PythonToolNode):
+            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            return self._python_cell(node, cell_id, name, pos, inputs, code=node.code), [], True
+
+        # ---- Fallback: sql/python operator via the tested SQL generator ----
+        return self._fallback_cell(node, cell_id, name, pos, dag, id_map, fanout_ports)
+
+    # -- Native operator builders --------------------------------------------
+
+    def _source_cell(self, node: ReadNode, cell_id: str, name: str, pos: tuple[int, int]) -> DesignerCell:
+        if node.source_type == "database" and node.table_name:
+            config = {"source_type": "table", "table": node.table_name}
+            body = f'result = spark.read.table("{node.table_name}")'
+        else:
+            fmt = (node.file_format or "csv").lower()
+            path = node.file_path or "UNKNOWN_PATH"
+            config = {"source_type": "file", "path": path, "format": fmt}
+            body = f'result = spark.read.format("{fmt}").load("{path}")'
+        return DesignerCell(
+            cell_id=cell_id, template="source", name=name, position=pos, config=config, body=body,
+            description=f"Source: {node.file_path or node.table_name}",
+        )
+
+    def _output_cell(
+        self, node: WriteNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
+    ) -> DesignerCell:
+        target = node.table_name or node.file_path or "output_table"
+        config = {"target": target, "mode": node.write_mode or "overwrite"}
+        body = f'inputs["data"].write.mode("{node.write_mode or "overwrite"}").saveAsTable("{target}")'
+        return DesignerCell(
+            cell_id=cell_id, template="output", name=name, position=pos, config=config,
+            inputs=inputs, body=body, description=f"Output: {target}",
+        )
+
+    def _filter_cell(
+        self, node: FilterNode, cell_id: str, name: str, pos: tuple[int, int],
+        dag: WorkflowDAG, id_map: dict[int, str], fanout_ports: dict[int, str],
+    ) -> tuple[DesignerCell, list[str], bool]:
+        warnings: list[str] = []
+        inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+        if not node.expression or not node.expression.strip():
+            warnings.append(f"Filter node {node.node_id} has no expression — passing all rows")
+            condition = "true"
+        else:
+            try:
+                condition = self._sql._translator.translate_string(node.expression)
+            except Exception:
+                condition = node.expression
+                warnings.append(f"Designer filter expression fallback for node {node.node_id}")
+        # filter@2 emits both filtered_data and excluded_data output ports.
+        config = {"condition": condition}
+        body = (
+            f'filtered = inputs["data"].filter("{condition}")\n'
+            f'result = {{"filtered_data": filtered, '
+            f'"excluded_data": inputs["data"].subtract(filtered)}}'
+        )
+        return (
+            DesignerCell(
+                cell_id=cell_id, template="filter", name=name, position=pos,
+                config=config, inputs=inputs, body=body, description=f"Filter: {node.expression}",
+            ),
+            warnings,
+            True,
+        )
+
+    def _sort_cell(
+        self, node: SortNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
+    ) -> DesignerCell:
+        order = [{"field": sf.field_name, "direction": "asc" if sf.ascending else "desc"} for sf in node.sort_fields]
+        exprs = ", ".join(
+            f'F.col("{sf.field_name}").{"asc" if sf.ascending else "desc"}()' for sf in node.sort_fields
+        )
+        body = f'result = inputs["data"].orderBy({exprs})' if exprs else 'result = inputs["data"]'
+        return DesignerCell(
+            cell_id=cell_id, template="sort", name=name, position=pos,
+            config={"order_by": order}, inputs=inputs, body=body,
+        )
+
+    def _limit_cell(
+        self, node: SampleNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
+    ) -> DesignerCell:
+        n = node.n_records or 100
+        return DesignerCell(
+            cell_id=cell_id, template="limit", name=name, position=pos,
+            config={"limit": n}, inputs=inputs, body=f'result = inputs["data"].limit({n})',
+        )
+
+    def _join_cell(
+        self, node: JoinNode, cell_id: str, name: str, pos: tuple[int, int],
+        dag: WorkflowDAG, id_map: dict[int, str], fanout_ports: dict[int, str],
+    ) -> tuple[DesignerCell, list[str], bool]:
+        warnings: list[str] = []
+        inputs = self._resolve_inputs(
+            node.node_id, dag, id_map, fanout_ports,
+            port_for_anchor={"Left": "left", "Right": "right", "Input": "left"},
+        )
+        jtype = (node.join_type or "inner").lower()
+        keys = [{"left": jk.left_field, "right": jk.right_field} for jk in node.join_keys]
+        if node.join_keys:
+            on = " & ".join(
+                f'(F.col("l.{jk.left_field}") == F.col("r.{jk.right_field}"))' for jk in node.join_keys
+            )
+            cond = f"[{on}]" if len(node.join_keys) == 1 else on
+        else:
+            cond = '"1=1"'
+            warnings.append(f"Join node {node.node_id} has no keys — emitting cross/cartesian join")
+        body = (
+            f'result = inputs["left"].alias("l").join('
+            f'inputs["right"].alias("r"), {cond}, "{jtype}")'
+        )
+        return (
+            DesignerCell(
+                cell_id=cell_id, template="join", name=name, position=pos,
+                config={"join_type": jtype, "keys": keys}, inputs=inputs, body=body,
+            ),
+            warnings,
+            True,
+        )
+
+    def _combine_cell(
+        self, node: UnionNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
+    ) -> DesignerCell:
+        # combine@2 uses a single variadic ``data`` port; all upstreams wire to it.
+        for inp in inputs:
+            inp["input_port"] = "data"
+        body = 'from functools import reduce\nresult = reduce(lambda a, b: a.unionByName(b, allowMissingColumns=True), inputs["data"])'
+        return DesignerCell(
+            cell_id=cell_id, template="combine", name=name, position=pos,
+            config={"operation": "union"}, inputs=inputs, body=body,
+        )
+
+    def _aggregate_cell(
+        self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
+    ) -> DesignerCell:
+        if isinstance(node, CountRecordsNode):
+            body = f'result = inputs["data"].agg(F.count(F.lit(1)).alias("{node.output_field}"))'
+            return DesignerCell(
+                cell_id=cell_id, template="aggregate", name=name, position=pos,
+                config={"group_by": [], "aggregations": [{"op": "count", "output": node.output_field}]},
+                inputs=inputs, body=body,
+            )
+        assert isinstance(node, SummarizeNode)
+        group_by: list[str] = []
+        aggs: list[dict] = []
+        agg_exprs: list[str] = []
+        func_map = {
+            AggAction.SUM: "sum", AggAction.COUNT: "count", AggAction.MIN: "min",
+            AggAction.MAX: "max", AggAction.AVG: "avg", AggAction.FIRST: "first",
+            AggAction.LAST: "last", AggAction.COUNT_DISTINCT: "countDistinct",
+        }
+        for a in node.aggregations:
+            if a.action == AggAction.GROUP_BY:
+                group_by.append(a.field_name)
+                continue
+            func = func_map.get(a.action, "count")
+            alias = a.output_field_name or f"{a.action.value}_{a.field_name}"
+            aggs.append({"field": a.field_name, "op": func, "output": alias})
+            agg_exprs.append(f'F.{func}("{a.field_name}").alias("{alias}")')
+        if not agg_exprs:
+            agg_exprs.append('F.count(F.lit(1)).alias("count")')
+        gb = ", ".join(f'"{g}"' for g in group_by)
+        body = f'result = inputs["data"].groupBy({gb}).agg({", ".join(agg_exprs)})'
+        return DesignerCell(
+            cell_id=cell_id, template="aggregate", name=name, position=pos,
+            config={"group_by": group_by, "aggregations": aggs}, inputs=inputs, body=body,
+        )
+
+    def _pivot_cell(
+        self, node: CrossTabNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
+    ) -> tuple[DesignerCell, list[str]]:
+        warnings = [
+            f"CrossTab (node {node.node_id}): Designer pivot needs the distinct header "
+            f"values of `{node.header_field}` — review the generated pivot."
+        ]
+        gb = ", ".join(f'"{g}"' for g in node.group_fields)
+        agg = (node.aggregation or "sum").lower()
+        body = (
+            f'result = inputs["data"].groupBy({gb})'
+            f'.pivot("{node.header_field}").{agg}("{node.value_field}")'
+        )
+        return (
+            DesignerCell(
+                cell_id=cell_id, template="pivot", name=name, position=pos,
+                config={
+                    "group_by": node.group_fields,
+                    "pivot_column": node.header_field,
+                    "value_column": node.value_field,
+                    "aggregation": agg,
+                },
+                inputs=inputs, body=body,
+            ),
+            warnings,
+        )
+
+    def _transform_cell(
+        self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
+    ) -> tuple[DesignerCell, list[str]]:
+        """Select / Formula / DataCleansing → Designer ``transform`` (prepare-style)."""
+        warnings: list[str] = []
+        steps: list[dict] = []
+        lines: list[str] = ['df = inputs["data"]']
+
+        if isinstance(node, SelectNode):
+            drops = [
+                op.field_name for op in node.field_operations
+                if not op.selected or op.action == FieldAction.DESELECT
+            ]
+            renames = [
+                (op.field_name, op.rename_to) for op in node.field_operations
+                if op.action == FieldAction.RENAME and op.rename_to
+            ]
+            for d in drops:
+                steps.append({"op": "drop", "field": d})
+                lines.append(f'df = df.drop("{d}")')
+            for src, dst in renames:
+                steps.append({"op": "rename", "field": src, "to": dst})
+                lines.append(f'df = df.withColumnRenamed("{src}", "{dst}")')
+        elif isinstance(node, FormulaNode):
+            for f in node.formulas:
+                try:
+                    expr = self._sql._translator.translate_string(f.expression)
+                except Exception:
+                    expr = "NULL"
+                    warnings.append(f"Designer formula fallback: {f.output_field}")
+                steps.append({"op": "formula", "output": f.output_field, "expression": f.expression})
+                lines.append(f'df = df.withColumn("{f.output_field}", F.expr("{expr}"))')
+        elif isinstance(node, DataCleansingNode):
+            for fld in node.fields:
+                expr = f"`{fld}`"
+                if node.trim_whitespace:
+                    expr = f"trim({expr})"
+                if node.modify_case == "upper":
+                    expr = f"upper({expr})"
+                elif node.modify_case == "lower":
+                    expr = f"lower({expr})"
+                elif node.modify_case == "title":
+                    expr = f"initcap({expr})"
+                steps.append({"op": "clean", "field": fld})
+                lines.append(f'df = df.withColumn("{fld}", F.expr("{expr}"))')
+
+        lines.append("result = df")
+        return (
+            DesignerCell(
+                cell_id=cell_id, template="transform", name=name, position=pos,
+                config={"steps": steps}, inputs=inputs, body="\n".join(lines),
+            ),
+            warnings,
+        )
+
+    def _python_cell(
+        self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int],
+        inputs: list[dict], code: str,
+    ) -> DesignerCell:
+        # python operator: single variadic ``data`` input port (list of upstreams).
+        for inp in inputs:
+            inp["input_port"] = "data"
+        body = code.strip() or 'result = inputs["data"][0] if inputs.get("data") else None'
+        return DesignerCell(
+            cell_id=cell_id, template="python", name=name, position=pos,
+            config={"code": body}, inputs=inputs, body=body,
+        )
+
+    def _markdown_cell(self, node: CommentNode, pos: tuple[int, int]) -> DesignerCell:
+        text = node.comment_text or ""
+        return DesignerCell(
+            cell_id=_designer_id(node), template="markdown", name="Note", position=pos,
+            config={"md": text}, body="",
+        )
+
+    def _fallback_cell(
+        self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int],
+        dag: WorkflowDAG, id_map: dict[int, str], fanout_ports: dict[int, str],
+    ) -> tuple[DesignerCell, list[str], bool]:
+        """Anything without a native operator → a ``sql`` operator cell.
+
+        Reuses :meth:`SQLGenerator._generate_cte_body` (covers all 59 IR node
+        types) to produce a SELECT, then references upstreams by their cell id
+        so the Designer sql operator resolves inputs by name.
+        """
+        # Build a name→id CTE map so the SQL body references upstream cell ids.
+        cte_map = {p.node_id: id_map.get(p.node_id, _cte_name(p)) for p in dag.get_predecessors(node.node_id)}
+        input_ctes = self._sql._resolve_input_ctes(node.node_id, dag, cte_map)
+        sql_body, warnings = self._sql._generate_cte_body(node, input_ctes)
+        inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+        return (
+            DesignerCell(
+                cell_id=cell_id, template="sql", name=name, position=pos,
+                config={"query": sql_body}, inputs=inputs, body=f"# SQL operator\n# {sql_body}",
+            ),
+            warnings,
+            False,
+        )
+
+    # ── Notebook assembly ────────────────────────────────────────────────────
+
+    def _assemble_notebook(self, cells: list[DesignerCell], workflow_name: str) -> str:
+        nb_cells = [self._to_ipynb_cell(c) for c in cells]
+        notebook = {
+            "cells": nb_cells,
+            "metadata": {
+                "application/vnd.databricks.v1+notebook": {
+                    "computePreferences": None,
+                    "dashboards": [],
+                    "environmentMetadata": None,
+                    "inputWidgetPreferences": None,
+                    "language": "python",
+                    "notebookMetadata": {"pythonIndentUnit": 4},
+                    "notebookName": workflow_name,
+                    "widgets": {},
+                },
+                "kernelspec": {
+                    "display_name": "Python 3",
+                    "language": "python",
+                    "name": "python3",
+                },
+                "language_info": {"name": "python"},
+            },
+            "nbformat": 4,
+            "nbformat_minor": 0,
+        }
+        return json.dumps(notebook, indent=1) + "\n"
+
+    def _to_ipynb_cell(self, cell: DesignerCell) -> dict:
+        source = self._render_source(cell)
+        return {
+            "cell_type": "code",
+            "source": source.splitlines(keepends=True),
+            "metadata": {
+                "application/vnd.databricks.v1+cell": {
+                    "cellMetadata": {},
+                    "inputWidgets": {},
+                    "nuid": str(uuid.uuid4()),
+                    "showTitle": False,
+                    "tableResultSettingsMap": {},
+                    "title": "",
+                }
+            },
+            "outputs": [],
+            "execution_count": 0,
+        }
+
+    def _render_source(self, cell: DesignerCell) -> str:
+        annotation = self._render_annotation(cell)
+        parts = [f'"""\n{annotation}"""']
+        if cell.body:
+            parts.append(cell.body)
+        return "\n".join(parts) + "\n"
+
+    def _render_annotation(self, cell: DesignerCell) -> str:
+        version = OPERATOR_VERSIONS.get(cell.template, "1.0.0")
+        lines: list[str] = [
+            f"id: {cell.cell_id}",
+            f"template: {cell.template}",
+            f"templateVersion: {version}",
+            f"name: {self._yaml_scalar(cell.name)}",
+            "position:",
+            f"  x: {cell.position[0]}",
+            f"  y: {cell.position[1]}",
+            "description:",
+            f"  text: {self._yaml_scalar(cell.description)}",
+            '  hash: ""',
+            'previewCodeHash: ""',
+            'previewMode: "1000"',
+        ]
+        lines.extend(self._render_config(cell.config))
+        lines.extend(self._render_inputs(cell.inputs))
+        return "\n".join(lines) + "\n"
+
+    def _render_config(self, config: dict) -> list[str]:
+        if not config:
+            return ["config: {}"]
+        lines = ["config:"]
+        lines.extend(self._render_yaml_value(config, indent=1))
+        return lines
+
+    def _render_inputs(self, inputs: list[dict]) -> list[str]:
+        if not inputs:
+            return ["input: []"]
+        lines = ["input:"]
+        for inp in inputs:
+            lines.append(f"  - node: {self._yaml_scalar(inp['node'])}")
+            lines.append(f"    input_port: {self._yaml_scalar(inp['input_port'])}")
+            lines.append(f"    output_port: {self._yaml_scalar(inp['output_port'])}")
+        return lines
+
+    def _render_yaml_value(self, value, indent: int) -> list[str]:
+        """Render a nested dict/list/scalar as indented YAML lines."""
+        pad = "  " * indent
+        lines: list[str] = []
+        if isinstance(value, dict):
+            if not value:
+                return [f"{pad}{{}}"]
+            for k, v in value.items():
+                if (isinstance(v, dict) and v) or (isinstance(v, list) and v):
+                    lines.append(f"{pad}{k}:")
+                    lines.extend(self._render_yaml_value(v, indent + 1))
+                elif isinstance(v, (dict | list)):
+                    lines.append(f"{pad}{k}: {'{}' if isinstance(v, dict) else '[]'}")
+                elif isinstance(v, str) and ("\n" in v or len(v) > 120):
+                    # Block literal scalar for multi-line / long code & queries.
+                    lines.append(f"{pad}{k}: |")
+                    for bl in v.split("\n"):
+                        lines.append(f"{pad}  {bl}")
+                else:
+                    lines.append(f"{pad}{k}: {self._yaml_scalar(v)}")
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    # Inline first key with the dash, remaining keys indented.
+                    items = list(item.items())
+                    first_k, first_v = items[0]
+                    lines.append(f"{pad}- {first_k}: {self._yaml_scalar(first_v)}")
+                    for k, v in items[1:]:
+                        lines.append(f"{pad}  {k}: {self._yaml_scalar(v)}")
+                else:
+                    lines.append(f"{pad}- {self._yaml_scalar(item)}")
+        else:
+            lines.append(f"{pad}{self._yaml_scalar(value)}")
+        return lines
+
+    @staticmethod
+    def _yaml_scalar(value) -> str:
+        """Quote a scalar per Designer's YAML rules to avoid silent cell drops."""
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int | float)):
+            return str(value)
+        s = "" if value is None else str(value)
+        if s.lower() in _YAML_BOOLISH or _QUOTE_TRIGGERS.search(s):
+            escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+            escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+            return f'"{escaped}"'
+        return s

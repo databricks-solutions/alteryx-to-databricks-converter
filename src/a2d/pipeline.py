@@ -11,6 +11,7 @@ from a2d.config import ConversionConfig, OutputFormat
 from a2d.converters.registry import ConverterRegistry
 from a2d.exceptions import A2dError
 from a2d.generators.base import CodeGenerator, GeneratedOutput
+from a2d.generators.designer import DesignerGenerator
 from a2d.generators.dlt import DLTGenerator
 from a2d.generators.lakeflow import LakeflowGenerator
 from a2d.generators.pyspark import PySparkGenerator
@@ -72,7 +73,7 @@ class MultiFormatConversionResult:
 _SKIP_TYPES = frozenset({"ToolContainer", "Tab"})
 
 # Tiebreak ordering for best_format selection (highest priority first)
-_FORMAT_PRIORITY: tuple[str, ...] = ("pyspark", "dlt", "sql", "lakeflow")
+_FORMAT_PRIORITY: tuple[str, ...] = ("pyspark", "dlt", "sql", "lakeflow", "designer")
 
 # Generator class registry — used by both convert() and convert_all_formats()
 _GENERATOR_CLASSES: dict[OutputFormat, type[CodeGenerator]] = {
@@ -80,6 +81,7 @@ _GENERATOR_CLASSES: dict[OutputFormat, type[CodeGenerator]] = {
     OutputFormat.DLT: DLTGenerator,
     OutputFormat.SQL: SQLGenerator,
     OutputFormat.LAKEFLOW: LakeflowGenerator,
+    OutputFormat.DESIGNER: DesignerGenerator,
 }
 
 
@@ -217,7 +219,7 @@ class ConversionPipeline:
         return gen_class(self.config)
 
     def convert_all_formats(self, path: Path) -> MultiFormatConversionResult:
-        """Convert a single .yxmd file into all four output formats.
+        """Convert a single .yxmd file into all output formats.
 
         Parses + builds DAG + validates ONCE, then runs each generator.
         Per-format failures are isolated: one failure does not abort the others.
@@ -244,7 +246,7 @@ class ConversionPipeline:
 
         # 5. Run each generator independently, capturing failures
         format_results: dict[str, FormatConversionResult] = {}
-        for fmt in (OutputFormat.PYSPARK, OutputFormat.DLT, OutputFormat.SQL, OutputFormat.LAKEFLOW):
+        for fmt in _GENERATOR_CLASSES:
             fmt_key = fmt.value
             t_fmt = time.monotonic()
             try:

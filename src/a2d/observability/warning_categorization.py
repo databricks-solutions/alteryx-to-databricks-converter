@@ -32,7 +32,8 @@ FORMAT_LABELS: dict[str, str] = {
     "pyspark": "PySpark",
     "dlt": "Spark Declarative Pipelines",
     "sql": "Spark SQL",
-    "lakeflow": "Lakeflow Designer",
+    "lakeflow": "Lakeflow Declarative Pipelines (SQL)",
+    "designer": "Lakeflow Designer",
 }
 
 

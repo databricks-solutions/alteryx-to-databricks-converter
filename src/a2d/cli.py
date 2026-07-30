@@ -25,7 +25,8 @@ _FORMAT_LABELS: dict[str, str] = {
     "pyspark": "PySpark",
     "dlt": "Spark Declarative Pipelines",
     "sql": "Spark SQL",
-    "lakeflow": "Lakeflow Designer",
+    "lakeflow": "Lakeflow Declarative Pipelines (SQL)",
+    "designer": "Lakeflow Designer",
 }
 
 
@@ -86,9 +87,10 @@ def convert(
         "--format",
         "-f",
         help=(
-            "Comma-separated formats: 'all' (default — emits all 4), or any of "
-            "pyspark,dlt,sql,lakeflow "
-            "(dlt = Spark Declarative Pipelines, lakeflow = Lakeflow Designer)"
+            "Comma-separated formats: 'all' (default — emits all 5), or any of "
+            "pyspark,dlt,sql,lakeflow,designer "
+            "(dlt = Spark Declarative Pipelines, lakeflow = Lakeflow Declarative "
+            "Pipelines SQL, designer = Lakeflow Designer .designer.ipynb)"
         ),
         rich_help_panel="Core Options",
     ),
@@ -160,9 +162,9 @@ def convert(
 ) -> None:
     """Convert Alteryx workflows to Databricks code.
 
-    By default emits ALL four output formats (pyspark, dlt, sql, lakeflow) into
-    per-format subdirectories. Use --format to restrict to a subset, e.g.
-    --format pyspark or --format pyspark,sql.
+    By default emits ALL five output formats (pyspark, dlt, sql, lakeflow,
+    designer) into per-format subdirectories. Use --format to restrict to a
+    subset, e.g. --format pyspark or --format pyspark,sql.
 
     After conversion the CLI prints (mirroring the web UI's Convert page):
 
@@ -615,6 +617,7 @@ _FILE_DESCRIPTIONS: dict[str, str] = {
     "_workflow.json": "Databricks workflow definition",
     "_expression_audit.csv": "Expression transformation audit",
     "_lakeflow_pipeline.json": "Lakeflow pipeline config",
+    ".designer.ipynb": "Lakeflow Designer visual-ETL file",
     ".py": "PySpark notebook",
     ".sql": "SQL script",
 }
@@ -959,12 +962,13 @@ def _print_multi_batch_summary(result, output_dir: Path) -> None:
     file_table.add_column("DLT", justify="center")
     file_table.add_column("SQL", justify="center")
     file_table.add_column("Lakeflow", justify="center")
+    file_table.add_column("Designer", justify="center")
     file_table.add_column("Best", justify="left")
     file_table.add_column("Coverage", justify="right")
     file_table.add_column("Duration", justify="right")
     for fr in result.file_results:
         cells: list[str] = []
-        for fmt_key in ("pyspark", "dlt", "sql", "lakeflow"):
+        for fmt_key in ("pyspark", "dlt", "sql", "lakeflow", "designer"):
             status = fr.format_status(fmt_key)
             if status == "success":
                 cells.append("[green]OK[/green]")
@@ -984,7 +988,7 @@ def _print_multi_batch_summary(result, output_dir: Path) -> None:
 
     counts_line = " · ".join(
         f"[bold]{fmt}[/bold] {per_fmt_counts.get(fmt, 0)}/{bm.total_files}"
-        for fmt in ("pyspark", "dlt", "sql", "lakeflow")
+        for fmt in ("pyspark", "dlt", "sql", "lakeflow", "designer")
     )
     console.print(f"  {counts_line}")
     console.print(f"\n[bold green]Output written to {output_dir}[/bold green]")

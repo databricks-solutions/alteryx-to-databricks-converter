@@ -260,7 +260,7 @@ class TestBatchOrchestratorMultiFormat:
     runs all 4 generators in a single pass)."""
 
     def test_convert_batch_multi_format_with_fixtures(self):
-        """Real fixtures: every file should produce all 4 format outcomes."""
+        """Real fixtures: every file should produce all format outcomes."""
         if not FIXTURES_DIR.exists():
             return
         fixture_files = sorted(FIXTURES_DIR.glob("*.yxmd"))
@@ -276,7 +276,9 @@ class TestBatchOrchestratorMultiFormat:
             # Either parse_error (None) + multi_result, or parse_error + None
             if fr.parse_error is None:
                 assert fr.multi_result is not None
-                assert set(fr.multi_result.formats.keys()) == {"pyspark", "dlt", "sql", "lakeflow"}
+                assert set(fr.multi_result.formats.keys()) == {
+                    "pyspark", "dlt", "sql", "lakeflow", "designer",
+                }
             else:
                 assert fr.multi_result is None
 

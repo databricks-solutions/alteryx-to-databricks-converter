@@ -42,8 +42,8 @@ def _assert_multi_format_shape(data: dict) -> None:
     assert "best_format" in data
     assert "node_count" in data
     assert "warnings" in data
-    # All four expected format keys present
-    for fmt in ("pyspark", "dlt", "sql", "lakeflow"):
+    # All expected format keys present
+    for fmt in ("pyspark", "dlt", "sql", "lakeflow", "designer"):
         assert fmt in data["formats"], f"missing format {fmt}"
         fr = data["formats"][fmt]
         assert "status" in fr
