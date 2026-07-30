@@ -50,6 +50,14 @@ lakebase = [
 validation = [
     "datacompy>=0.12",
 ]
+verify = [
+    # Semantic equivalence harness (`a2d verify`): the pandas reference executor
+    # + parity engine. pyspark is optional and only used when a JVM is present
+    # (Databricks/CI) for the cross-check; the harness degrades gracefully
+    # without it.
+    "pandas>=2.0",
+    "pyspark>=3.5",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -63,7 +71,7 @@ dev = [
     "pre-commit>=3.7",
 ]
 all = [
-    "alteryx2databricks[server,validation,dev]",
+    "alteryx2databricks[server,validation,verify,dev]",
 ]
 
 [project.urls]
@@ -121,6 +129,10 @@ ignore = ["E501", "E741", "E402", "SIM102", "SIM108", "RUF001"]
 # to AST/IR-class-named visitor patterns.
 "src/a2d/expressions/*.py" = ["N802"]
 "src/a2d/generators/*.py" = ["N802"]
+# The reference executor/evaluator use AST-class-named visitor methods
+# (`_eval_FieldRef`, …) like the translators (N802), and the Spark backend
+# uses the canonical `from pyspark.sql import functions as F` idiom (N812).
+"src/a2d/verification/*.py" = ["N802", "N812"]
 # Typer's documented pattern is `arg: T = typer.Option(...)` in defaults;
 # FastAPI's documented pattern is `dep = Depends(get_dep)` in defaults.
 # Both are flagged B008 ("function call in argument default") but are

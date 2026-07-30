@@ -596,6 +596,176 @@ def validate(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def verify(
+    input_path: Path = typer.Argument(..., help="Path to the .yxmd/.yxmc workflow to verify"),
+    inp: list[str] = typer.Option(
+        [],
+        "--input",
+        "-i",
+        help=(
+            "Sample input data for a source, as KEY=PATH.csv (repeatable). KEY is the "
+            "source table name, file path, or ReadNode id. e.g. -i sales=sales.csv"
+        ),
+    ),
+    expected: Path | None = typer.Option(
+        None,
+        "--expected",
+        "-e",
+        help="Golden expected-output CSV exported from Alteryx (enables true equivalence check)",
+    ),
+    no_spark: bool = typer.Option(
+        False, "--no-spark", help="Skip the Spark cross-check even if a JVM is available"
+    ),
+    json_out: Path | None = typer.Option(
+        None, "--json", help="Write the full verification report as JSON to this path"
+    ),
+    abs_tol: float = typer.Option(1e-9, "--abs-tol", help="Absolute tolerance for numeric comparison"),
+    rel_tol: float = typer.Option(1e-6, "--rel-tol", help="Relative tolerance for numeric comparison"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Verify a converted workflow produces semantically equivalent results.
+
+    Runs the workflow through an independent pandas reference executor over your
+    sample input data, and — when a JVM is present — cross-checks against a Spark
+    execution. If you supply a golden output CSV (exported from Alteryx) with
+    ``--expected``, it checks the reference result against that ground truth.
+
+    Modes (chosen automatically by what you supply):
+
+      - golden          : compare reference result to --expected  (true equivalence)
+      - cross_check     : compare pandas vs Spark results          (needs a JVM)
+      - reference_only  : produce the reference result, nothing to diff against
+
+    Exit code is non-zero only when a comparison actually FAILS; an inconclusive
+    run (no ground truth available) exits 0.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    import json as _json
+
+    try:
+        from a2d.verification.runner import load_csv_inputs, verify_workflow
+    except ImportError as exc:  # pandas is an optional dependency
+        console.print(
+            "[red]The 'verify' command requires the verification extra.[/red] "
+            "Install it with: [cyan]pip install 'alteryx2databricks[verify]'[/cyan]"
+        )
+        raise typer.Exit(code=1) from exc
+
+    if not input_path.exists():
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+
+    # Parse -i KEY=PATH pairs.
+    mapping: dict[str, Path] = {}
+    for item in inp:
+        if "=" not in item:
+            console.print(f"[red]Invalid --input {item!r}: expected KEY=PATH.csv[/red]")
+            raise typer.Exit(code=1)
+        key, _, path_str = item.partition("=")
+        p = Path(path_str)
+        if not p.exists():
+            console.print(f"[red]Input file not found: {p}[/red]")
+            raise typer.Exit(code=1)
+        mapping[key.strip()] = p
+
+    if not mapping:
+        # Not fatal: workflows whose sources are embedded TextInput/literal data
+        # need no external input. If an external source (file/DB) needs data, the
+        # reference executor reports it as a skipped node in the report below.
+        console.print(
+            "[dim]No --input data supplied — using any data embedded in the workflow. "
+            "For file/database sources, pass sample data with -i KEY=PATH.csv.[/dim]"
+        )
+
+    try:
+        source_data = load_csv_inputs(mapping)
+    except Exception as exc:
+        console.print(f"[red]Failed to load input CSVs: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    expected_df = None
+    if expected is not None:
+        if not expected.exists():
+            console.print(f"[red]Expected-output file not found: {expected}[/red]")
+            raise typer.Exit(code=1)
+        import pandas as pd
+
+        expected_df = pd.read_csv(expected)
+
+    result = verify_workflow(
+        input_path,
+        source_data=source_data,
+        expected_output=expected_df,
+        use_spark=not no_spark,
+        abs_tol=abs_tol,
+        rel_tol=rel_tol,
+    )
+
+    _print_verify_report(result)
+
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(_json.dumps(result.to_dict(), indent=2, default=str))
+        console.print(f"[dim]JSON report written to {json_out}[/dim]")
+
+    if result.status == "fail" or result.status == "error":
+        raise typer.Exit(code=1)
+
+
+def _print_verify_report(result) -> None:
+    """Render an ``a2d verify`` result to the console."""
+    status_style = {
+        "pass": "bold green",
+        "fail": "bold red",
+        "inconclusive": "bold yellow",
+        "error": "bold red",
+    }.get(result.status, "white")
+    mode_desc = {
+        "golden": "compared reference result vs. your --expected golden output",
+        "cross_check": "cross-checked pandas reference vs. Spark execution",
+        "reference_only": "produced reference result only (no ground truth to compare)",
+    }.get(result.mode, result.mode)
+
+    console.print(f"\n[bold]Equivalence verification: {result.workflow}[/bold]")
+    console.print(f"  Status: [{status_style}]{result.status.upper()}[/{status_style}]  ({mode_desc})")
+
+    if result.error:
+        console.print(f"  [red]Error:[/red] {result.error}")
+        return
+
+    if result.parity is not None:
+        p = result.parity
+        console.print(f"  Parity: {p.summary()}")
+        if p.missing_columns:
+            console.print(f"    [red]Missing columns:[/red] {', '.join(p.missing_columns)}")
+        if p.extra_columns:
+            console.print(f"    [yellow]Extra columns:[/yellow] {', '.join(p.extra_columns)}")
+        for cp in p.column_parities:
+            if cp.present_in_both and cp.mismatch_count:
+                sample = "; ".join(f"expected {e!r} got {a!r}" for e, a in cp.sample_mismatches[:3])
+                console.print(
+                    f"    [red]Column '{cp.column}':[/red] {cp.mismatch_count}/{cp.total_compared} "
+                    f"value mismatches — {sample}"
+                )
+
+    if result.skipped_nodes:
+        console.print(
+            f"  [yellow]Reference executor skipped {len(result.skipped_nodes)} node(s)[/yellow] "
+            "(verified subset only):"
+        )
+        for nid, reason in result.skipped_nodes[:6]:
+            console.print(f"    - node {nid}: {reason}")
+
+    if result.spark is not None and not result.spark.available:
+        console.print(f"  [dim]Spark cross-check skipped: {result.spark.reason}[/dim]")
+
+    for note in result.notes:
+        console.print(f"  [dim]{note}[/dim]")
+
+
 @app.command(name="list-tools")
 def list_tools(
     supported_only: bool = typer.Option(False, "--supported", "-s", help="Show only supported tools"),
