@@ -766,6 +766,72 @@ def _print_verify_report(result) -> None:
         console.print(f"  [dim]{note}[/dim]")
 
 
+@app.command()
+def profile(
+    input_csv: Path = typer.Argument(..., help="Path to a sample-data CSV file to profile"),
+    json_out: Path | None = typer.Option(
+        None, "--json", help="Write the full profile as JSON to this path"
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Profile a sample-data CSV: infer per-column type, null rate, and range.
+
+    Produces a deterministic schema (Spark DDL) plus per-column statistics —
+    useful for pinning source read schemas and for giving ``a2d verify`` a typed
+    baseline instead of relying on incidental CSV dtype inference.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    import json as _json
+
+    try:
+        from a2d.verification.profiling import profile_csv
+    except ImportError as exc:  # pandas is an optional dependency
+        console.print(
+            "[red]The 'profile' command requires the verification extra.[/red] "
+            "Install it with: [cyan]pip install 'alteryx2databricks[verify]'[/cyan]"
+        )
+        raise typer.Exit(code=1) from exc
+
+    if not input_csv.exists():
+        console.print(f"[red]Error: {input_csv} not found[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        data_profile = profile_csv(str(input_csv))
+    except Exception as exc:
+        console.print(f"[red]Failed to profile {input_csv}: {exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"\n[bold]Data profile: {input_csv.name}[/bold]  ({data_profile.row_count} rows)")
+    table = Table(show_header=True)
+    table.add_column("Column", style="cyan")
+    table.add_column("Type", style="green")
+    table.add_column("Spark", style="blue")
+    table.add_column("Null %", justify="right")
+    table.add_column("Distinct", justify="right")
+    table.add_column("Min", justify="right", max_width=20)
+    table.add_column("Max", justify="right", max_width=20)
+    for c in data_profile.columns:
+        table.add_row(
+            c.name,
+            c.logical_type,
+            c.spark_type,
+            f"{c.null_rate * 100:.0f}%",
+            str(c.distinct_count),
+            "" if c.min_value is None else str(c.min_value),
+            "" if c.max_value is None else str(c.max_value),
+        )
+    console.print(table)
+    console.print(f"\n[dim]Spark schema:[/dim] {data_profile.spark_schema_ddl()}")
+
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(_json.dumps(data_profile.to_dict(), indent=2, default=str))
+        console.print(f"[dim]JSON profile written to {json_out}[/dim]")
+
+
 @app.command(name="list-tools")
 def list_tools(
     supported_only: bool = typer.Option(False, "--supported", "-s", help="Show only supported tools"),

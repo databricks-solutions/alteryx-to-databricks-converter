@@ -25,18 +25,28 @@ gracefully on a laptop.
 from __future__ import annotations
 
 from a2d.verification.parity import ColumnParity, ParityReport, compare_frames
+from a2d.verification.profiling import (
+    ColumnProfile,
+    DataProfile,
+    profile_csv,
+    profile_dataframe,
+)
 from a2d.verification.reference import ReferenceExecutor, ReferenceResult
 from a2d.verification.runner import VerificationResult, verify_workflow
 from a2d.verification.spark_backend import SparkBackend, spark_available
 
 __all__ = [
     "ColumnParity",
+    "ColumnProfile",
+    "DataProfile",
     "ParityReport",
     "ReferenceExecutor",
     "ReferenceResult",
     "SparkBackend",
     "VerificationResult",
     "compare_frames",
+    "profile_csv",
+    "profile_dataframe",
     "spark_available",
     "verify_workflow",
 ]

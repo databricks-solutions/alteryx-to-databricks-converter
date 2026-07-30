@@ -1,6 +1,6 @@
 """Tests for the CLI entry point.
 
-Covers all 6 commands (version, list-tools, convert, analyze, validate, verify),
+Covers all 7 commands (version, list-tools, convert, analyze, validate, verify, profile),
 plus internal helpers (_parse_formats, _describe_file). All tests are hermetic:
 they use ``tmp_path`` for output dirs and bundled fixtures for input.
 """
@@ -50,7 +50,7 @@ class TestHelpAndDiscovery:
     def test_top_level_help_lists_all_commands(self):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        for cmd in ("convert", "analyze", "validate", "verify", "list-tools", "version"):
+        for cmd in ("convert", "analyze", "validate", "verify", "profile", "list-tools", "version"):
             assert cmd in result.output, f"command {cmd!r} missing from help"
 
     def test_version_flag_long(self):
@@ -63,7 +63,7 @@ class TestHelpAndDiscovery:
         assert result.exit_code == 0
         assert __version__ in result.output
 
-    @pytest.mark.parametrize("cmd", ["convert", "analyze", "validate", "verify", "list-tools", "version"])
+    @pytest.mark.parametrize("cmd", ["convert", "analyze", "validate", "verify", "profile", "list-tools", "version"])
     def test_each_command_has_help(self, cmd):
         result = runner.invoke(app, [cmd, "--help"])
         assert result.exit_code == 0
@@ -782,3 +782,42 @@ class TestVerifyCommand:
         data = json.loads(out_json.read_text())
         assert data["status"] == "pass"
         assert data["mode"] == "golden"
+
+
+# ── J. profile command ────────────────────────────────────────────────
+
+
+class TestProfileCommand:
+    def test_profile_help(self):
+        result = runner.invoke(app, ["profile", "--help"])
+        assert result.exit_code == 0
+        assert "profile" in result.output.lower()
+
+    def test_profile_missing_file(self):
+        result = runner.invoke(app, ["profile", "no_such.csv"])
+        assert result.exit_code == 1
+
+    def test_profile_infers_types(self, tmp_path):
+        csv = tmp_path / "data.csv"
+        csv.write_text("id,amount,name\n1,100.5,Alice\n2,200.0,Bob\n")
+        result = runner.invoke(app, ["profile", str(csv)])
+        assert result.exit_code == 0, result.output
+        # Collapse rich table wrapping to check inferred Spark types are shown.
+        collapsed = " ".join(result.output.replace("│", " ").split())
+        assert "BIGINT" in collapsed  # id
+        assert "DOUBLE" in collapsed  # amount
+        assert "STRING" in collapsed  # name
+
+    def test_profile_json_output(self, tmp_path):
+        csv = tmp_path / "data.csv"
+        csv.write_text("id,name\n1,Alice\n2,Bob\n")
+        out_json = tmp_path / "profile.json"
+        result = runner.invoke(app, ["profile", str(csv), "--json", str(out_json)])
+        assert result.exit_code == 0
+        assert out_json.exists()
+        import json
+
+        data = json.loads(out_json.read_text())
+        assert data["row_count"] == 2
+        assert "spark_schema_ddl" in data
+        assert len(data["columns"]) == 2
