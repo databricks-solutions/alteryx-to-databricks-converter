@@ -148,8 +148,6 @@ class DesignerGenerator(CodeGenerator):
         ordered = dag.topological_order()
         warnings: list[str] = []
         id_map: dict[int, str] = {}  # node_id -> designer cell id (or forwarded id)
-        # Filter fan-out: (filter_node_id, successor_node_id) -> output port name
-        fanout_ports: dict[int, str] = {}
         cells: list[DesignerCell] = []
         tiers = self._compute_tiers(dag, ordered)
         lane_counter: dict[int, int] = {}
@@ -167,7 +165,7 @@ class DesignerGenerator(CodeGenerator):
                 continue
 
             if isinstance(node, self._PASSTHROUGH_TYPES):
-                inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+                inputs = self._resolve_inputs(node.node_id, dag, id_map)
                 if inputs:
                     # Forward the single upstream id so downstream wiring skips this node.
                     id_map[node.node_id] = inputs[0]["node"]
@@ -175,7 +173,7 @@ class DesignerGenerator(CodeGenerator):
                     continue
 
             cell, step_warnings, is_native = self._build_cell(
-                node, dag, id_map, fanout_ports, tiers, lane_counter
+                node, dag, id_map, tiers, lane_counter
             )
             warnings.extend(step_warnings)
             cells.append(cell)
@@ -238,7 +236,6 @@ class DesignerGenerator(CodeGenerator):
         node_id: int,
         dag: WorkflowDAG,
         id_map: dict[int, str],
-        fanout_ports: dict[int, str],
         *,
         port_for_anchor: dict[str, str] | None = None,
     ) -> list[dict]:
@@ -253,12 +250,12 @@ class DesignerGenerator(CodeGenerator):
             edge = dag.get_edge_info(pred.node_id, node_id)
             in_port = (port_for_anchor or {}).get(edge.destination_anchor, "data")
             # Upstream output port: filter fan-out picks filtered/excluded.
-            out_port = self._output_port(pred, edge, fanout_ports)
+            out_port = self._output_port(pred, edge)
             result.append({"node": upstream_id, "input_port": in_port, "output_port": out_port})
         return result
 
     @staticmethod
-    def _output_port(pred: IRNode, edge, fanout_ports: dict[int, str]) -> str:
+    def _output_port(pred: IRNode, edge) -> str:
         """Designer output-port name for an upstream node given the edge anchor."""
         origin = edge.origin_anchor
         if isinstance(pred, FilterNode):
@@ -277,7 +274,6 @@ class DesignerGenerator(CodeGenerator):
         node: IRNode,
         dag: WorkflowDAG,
         id_map: dict[int, str],
-        fanout_ports: dict[int, str],
         tiers: dict[int, int],
         lane_counter: dict[int, int],
     ) -> tuple[DesignerCell, list[str], bool]:
@@ -290,50 +286,59 @@ class DesignerGenerator(CodeGenerator):
         if isinstance(node, ReadNode):
             return self._source_cell(node, cell_id, name, pos), [], True
         if isinstance(node, WriteNode):
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             return self._output_cell(node, cell_id, name, pos, inputs), [], True
         if isinstance(node, FilterNode):
-            return self._filter_cell(node, cell_id, name, pos, dag, id_map, fanout_ports)
+            return self._filter_cell(node, cell_id, name, pos, dag, id_map)
         if isinstance(node, SortNode):
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             return self._sort_cell(node, cell_id, name, pos, inputs), [], True
         if isinstance(node, SampleNode) and node.n_records and node.sample_method == "first":
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             return self._limit_cell(node, cell_id, name, pos, inputs), [], True
         if isinstance(node, JoinNode):
-            return self._join_cell(node, cell_id, name, pos, dag, id_map, fanout_ports)
+            return self._join_cell(node, cell_id, name, pos, dag, id_map)
         if isinstance(node, UnionNode):
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             return self._combine_cell(node, cell_id, name, pos, inputs), [], True
         if isinstance(node, self._AGGREGATE_TYPES):
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             return self._aggregate_cell(node, cell_id, name, pos, inputs), [], True
         if isinstance(node, CrossTabNode):
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             cell, w = self._pivot_cell(node, cell_id, name, pos, inputs)
             return cell, w, True
         if isinstance(node, self._TRANSFORM_TYPES):
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             cell, w = self._transform_cell(node, cell_id, name, pos, inputs)
             return cell, w, True
         if isinstance(node, PythonToolNode):
-            inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+            inputs = self._resolve_inputs(node.node_id, dag, id_map)
             return self._python_cell(node, cell_id, name, pos, inputs, code=node.code), [], True
 
         # ---- Fallback: sql/python operator via the tested SQL generator ----
-        return self._fallback_cell(node, cell_id, name, pos, dag, id_map, fanout_ports)
+        return self._fallback_cell(node, cell_id, name, pos, dag, id_map)
 
     # -- Native operator builders --------------------------------------------
+
+    @staticmethod
+    def _py(value: str) -> str:
+        """Render a Python string literal safely (escapes quotes, backslashes,
+        newlines). Used for interpolating user values — file paths (e.g.
+        ``C:\\temp``), table names, expressions — into generated cell bodies.
+        ``json.dumps`` produces a valid double-quoted Python string literal.
+        """
+        return json.dumps(value)
 
     def _source_cell(self, node: ReadNode, cell_id: str, name: str, pos: tuple[int, int]) -> DesignerCell:
         if node.source_type == "database" and node.table_name:
             config = {"source_type": "table", "table": node.table_name}
-            body = f'result = spark.read.table("{node.table_name}")'
+            body = f"result = spark.read.table({self._py(node.table_name)})"
         else:
             fmt = (node.file_format or "csv").lower()
             path = node.file_path or "UNKNOWN_PATH"
             config = {"source_type": "file", "path": path, "format": fmt}
-            body = f'result = spark.read.format("{fmt}").load("{path}")'
+            body = f"result = spark.read.format({self._py(fmt)}).load({self._py(path)})"
         return DesignerCell(
             cell_id=cell_id, template="source", name=name, position=pos, config=config, body=body,
             description=f"Source: {node.file_path or node.table_name}",
@@ -343,8 +348,9 @@ class DesignerGenerator(CodeGenerator):
         self, node: WriteNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
     ) -> DesignerCell:
         target = node.table_name or node.file_path or "output_table"
-        config = {"target": target, "mode": node.write_mode or "overwrite"}
-        body = f'inputs["data"].write.mode("{node.write_mode or "overwrite"}").saveAsTable("{target}")'
+        mode = node.write_mode or "overwrite"
+        config = {"target": target, "mode": mode}
+        body = f'inputs["data"].write.mode({self._py(mode)}).saveAsTable({self._py(target)})'
         return DesignerCell(
             cell_id=cell_id, template="output", name=name, position=pos, config=config,
             inputs=inputs, body=body, description=f"Output: {target}",
@@ -352,10 +358,10 @@ class DesignerGenerator(CodeGenerator):
 
     def _filter_cell(
         self, node: FilterNode, cell_id: str, name: str, pos: tuple[int, int],
-        dag: WorkflowDAG, id_map: dict[int, str], fanout_ports: dict[int, str],
+        dag: WorkflowDAG, id_map: dict[int, str],
     ) -> tuple[DesignerCell, list[str], bool]:
         warnings: list[str] = []
-        inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+        inputs = self._resolve_inputs(node.node_id, dag, id_map)
         if not node.expression or not node.expression.strip():
             warnings.append(f"Filter node {node.node_id} has no expression — passing all rows")
             condition = "true"
@@ -368,7 +374,7 @@ class DesignerGenerator(CodeGenerator):
         # filter@2 emits both filtered_data and excluded_data output ports.
         config = {"condition": condition}
         body = (
-            f'filtered = inputs["data"].filter("{condition}")\n'
+            f'filtered = inputs["data"].filter({self._py(condition)})\n'
             f'result = {{"filtered_data": filtered, '
             f'"excluded_data": inputs["data"].subtract(filtered)}}'
         )
@@ -386,7 +392,7 @@ class DesignerGenerator(CodeGenerator):
     ) -> DesignerCell:
         order = [{"field": sf.field_name, "direction": "asc" if sf.ascending else "desc"} for sf in node.sort_fields]
         exprs = ", ".join(
-            f'F.col("{sf.field_name}").{"asc" if sf.ascending else "desc"}()' for sf in node.sort_fields
+            f'F.col({self._py(sf.field_name)}).{"asc" if sf.ascending else "desc"}()' for sf in node.sort_fields
         )
         body = f'result = inputs["data"].orderBy({exprs})' if exprs else 'result = inputs["data"]'
         return DesignerCell(
@@ -405,18 +411,36 @@ class DesignerGenerator(CodeGenerator):
 
     def _join_cell(
         self, node: JoinNode, cell_id: str, name: str, pos: tuple[int, int],
-        dag: WorkflowDAG, id_map: dict[int, str], fanout_ports: dict[int, str],
+        dag: WorkflowDAG, id_map: dict[int, str],
     ) -> tuple[DesignerCell, list[str], bool]:
         warnings: list[str] = []
+        # Map only the explicit Left/Right anchors; everything else is assigned
+        # positionally below (avoids the ambiguity where a generic "Input" anchor
+        # would otherwise be forced to "left" and collide with a real Left edge).
         inputs = self._resolve_inputs(
-            node.node_id, dag, id_map, fanout_ports,
-            port_for_anchor={"Left": "left", "Right": "right", "Input": "left"},
+            node.node_id, dag, id_map,
+            port_for_anchor={"Left": "left", "Right": "right"},
         )
+        # Assign the two join sides: honour explicit left/right, then fill the
+        # remaining free slot(s) in connection order for any other anchors. The
+        # body reads inputs["left"]/inputs["right"], so every input must land on
+        # one of those two ports.
+        taken = {inp["input_port"] for inp in inputs if inp["input_port"] in ("left", "right")}
+        free_slots = [s for s in ("left", "right") if s not in taken]
+        needs_assignment = [inp for inp in inputs if inp["input_port"] not in ("left", "right")]
+        if needs_assignment:
+            warnings.append(
+                f"Join node {node.node_id}: input(s) on non-Left/Right anchors — "
+                "assigning join sides by connection order; verify left vs. right."
+            )
+        for inp, slot in zip(needs_assignment, free_slots, strict=False):
+            inp["input_port"] = slot
         jtype = (node.join_type or "inner").lower()
         keys = [{"left": jk.left_field, "right": jk.right_field} for jk in node.join_keys]
         if node.join_keys:
             on = " & ".join(
-                f'(F.col("l.{jk.left_field}") == F.col("r.{jk.right_field}"))' for jk in node.join_keys
+                f'(F.col({self._py("l." + jk.left_field)}) == F.col({self._py("r." + jk.right_field)}))'
+                for jk in node.join_keys
             )
             cond = f"[{on}]" if len(node.join_keys) == 1 else on
         else:
@@ -424,7 +448,7 @@ class DesignerGenerator(CodeGenerator):
             warnings.append(f"Join node {node.node_id} has no keys — emitting cross/cartesian join")
         body = (
             f'result = inputs["left"].alias("l").join('
-            f'inputs["right"].alias("r"), {cond}, "{jtype}")'
+            f'inputs["right"].alias("r"), {cond}, {self._py(jtype)})'
         )
         return (
             DesignerCell(
@@ -451,7 +475,7 @@ class DesignerGenerator(CodeGenerator):
         self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
     ) -> DesignerCell:
         if isinstance(node, CountRecordsNode):
-            body = f'result = inputs["data"].agg(F.count(F.lit(1)).alias("{node.output_field}"))'
+            body = f'result = inputs["data"].agg(F.count(F.lit(1)).alias({self._py(node.output_field)}))'
             return DesignerCell(
                 cell_id=cell_id, template="aggregate", name=name, position=pos,
                 config={"group_by": [], "aggregations": [{"op": "count", "output": node.output_field}]},
@@ -473,10 +497,10 @@ class DesignerGenerator(CodeGenerator):
             func = func_map.get(a.action, "count")
             alias = a.output_field_name or f"{a.action.value}_{a.field_name}"
             aggs.append({"field": a.field_name, "op": func, "output": alias})
-            agg_exprs.append(f'F.{func}("{a.field_name}").alias("{alias}")')
+            agg_exprs.append(f"F.{func}({self._py(a.field_name)}).alias({self._py(alias)})")
         if not agg_exprs:
             agg_exprs.append('F.count(F.lit(1)).alias("count")')
-        gb = ", ".join(f'"{g}"' for g in group_by)
+        gb = ", ".join(self._py(g) for g in group_by)
         body = f'result = inputs["data"].groupBy({gb}).agg({", ".join(agg_exprs)})'
         return DesignerCell(
             cell_id=cell_id, template="aggregate", name=name, position=pos,
@@ -490,11 +514,11 @@ class DesignerGenerator(CodeGenerator):
             f"CrossTab (node {node.node_id}): Designer pivot needs the distinct header "
             f"values of `{node.header_field}` — review the generated pivot."
         ]
-        gb = ", ".join(f'"{g}"' for g in node.group_fields)
+        gb = ", ".join(self._py(g) for g in node.group_fields)
         agg = (node.aggregation or "sum").lower()
         body = (
             f'result = inputs["data"].groupBy({gb})'
-            f'.pivot("{node.header_field}").{agg}("{node.value_field}")'
+            f".pivot({self._py(node.header_field)}).{agg}({self._py(node.value_field)})"
         )
         return (
             DesignerCell(
@@ -529,10 +553,10 @@ class DesignerGenerator(CodeGenerator):
             ]
             for d in drops:
                 steps.append({"op": "drop", "field": d})
-                lines.append(f'df = df.drop("{d}")')
+                lines.append(f"df = df.drop({self._py(d)})")
             for src, dst in renames:
                 steps.append({"op": "rename", "field": src, "to": dst})
-                lines.append(f'df = df.withColumnRenamed("{src}", "{dst}")')
+                lines.append(f"df = df.withColumnRenamed({self._py(src)}, {self._py(dst)})")
         elif isinstance(node, FormulaNode):
             for f in node.formulas:
                 try:
@@ -541,7 +565,7 @@ class DesignerGenerator(CodeGenerator):
                     expr = "NULL"
                     warnings.append(f"Designer formula fallback: {f.output_field}")
                 steps.append({"op": "formula", "output": f.output_field, "expression": f.expression})
-                lines.append(f'df = df.withColumn("{f.output_field}", F.expr("{expr}"))')
+                lines.append(f"df = df.withColumn({self._py(f.output_field)}, F.expr({self._py(expr)}))")
         elif isinstance(node, DataCleansingNode):
             for fld in node.fields:
                 expr = f"`{fld}`"
@@ -554,7 +578,7 @@ class DesignerGenerator(CodeGenerator):
                 elif node.modify_case == "title":
                     expr = f"initcap({expr})"
                 steps.append({"op": "clean", "field": fld})
-                lines.append(f'df = df.withColumn("{fld}", F.expr("{expr}"))')
+                lines.append(f"df = df.withColumn({self._py(fld)}, F.expr({self._py(expr)}))")
 
         lines.append("result = df")
         return (
@@ -587,7 +611,7 @@ class DesignerGenerator(CodeGenerator):
 
     def _fallback_cell(
         self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int],
-        dag: WorkflowDAG, id_map: dict[int, str], fanout_ports: dict[int, str],
+        dag: WorkflowDAG, id_map: dict[int, str],
     ) -> tuple[DesignerCell, list[str], bool]:
         """Anything without a native operator → a ``sql`` operator cell.
 
@@ -599,7 +623,7 @@ class DesignerGenerator(CodeGenerator):
         cte_map = {p.node_id: id_map.get(p.node_id, _cte_name(p)) for p in dag.get_predecessors(node.node_id)}
         input_ctes = self._sql._resolve_input_ctes(node.node_id, dag, cte_map)
         sql_body, warnings = self._sql._generate_cte_body(node, input_ctes)
-        inputs = self._resolve_inputs(node.node_id, dag, id_map, fanout_ports)
+        inputs = self._resolve_inputs(node.node_id, dag, id_map)
         return (
             DesignerCell(
                 cell_id=cell_id, template="sql", name=name, position=pos,
@@ -714,12 +738,11 @@ class DesignerGenerator(CodeGenerator):
                     lines.extend(self._render_yaml_value(v, indent + 1))
                 elif isinstance(v, (dict | list)):
                     lines.append(f"{pad}{k}: {'{}' if isinstance(v, dict) else '[]'}")
-                elif isinstance(v, str) and ("\n" in v or len(v) > 120):
-                    # Block literal scalar for multi-line / long code & queries.
-                    lines.append(f"{pad}{k}: |")
-                    for bl in v.split("\n"):
-                        lines.append(f"{pad}  {bl}")
                 else:
+                    # All scalars — including multi-line code/query strings — go
+                    # through _yaml_scalar, which emits a safely-escaped
+                    # double-quoted scalar (see its docstring for why we avoid
+                    # YAML block literals here).
                     lines.append(f"{pad}{k}: {self._yaml_scalar(v)}")
         elif isinstance(value, list):
             for item in value:
@@ -738,13 +761,25 @@ class DesignerGenerator(CodeGenerator):
 
     @staticmethod
     def _yaml_scalar(value) -> str:
-        """Quote a scalar per Designer's YAML rules to avoid silent cell drops."""
+        """Quote a scalar per Designer's YAML rules to avoid silent cell drops.
+
+        Multi-line values are emitted as a double-quoted scalar with escaped
+        newlines rather than a YAML block literal (``|``): a block literal is
+        fragile (a leading-whitespace or under-indented content line makes the
+        whole annotation unparseable) and, because the annotation itself lives
+        inside a Python ``\"\"\"`` docstring, any embedded ``\"\"\"`` in a raw
+        block would also terminate the docstring early. A double-quoted,
+        fully-escaped scalar round-trips safely on both counts.
+        """
         if isinstance(value, bool):
             return "true" if value else "false"
         if isinstance(value, (int | float)):
             return str(value)
         s = "" if value is None else str(value)
-        if s.lower() in _YAML_BOOLISH or _QUOTE_TRIGGERS.search(s):
+        # Force-quote when the value contains control chars (newline/tab/CR) —
+        # these don't match the printable-char trigger set but must be escaped.
+        has_control = any(c in s for c in ("\n", "\r", "\t"))
+        if s.lower() in _YAML_BOOLISH or has_control or _QUOTE_TRIGGERS.search(s):
             escaped = s.replace("\\", "\\\\").replace('"', '\\"')
             escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
             return f'"{escaped}"'

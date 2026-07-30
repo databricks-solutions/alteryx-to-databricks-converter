@@ -465,16 +465,28 @@ class TestYamlQuoting:
         ann = _annotation(nb["cells"][0])
         assert 'md: "Hello: world, [test] {x}"' in ann
 
-    def test_multiline_config_uses_block_literal(self, generator: DesignerGenerator):
-        # Multi-line config values (e.g. a Note body) must use a YAML block
-        # literal (|), never a double-quoted scalar (which folds newlines).
+    def test_multiline_config_is_escaped_double_quoted_scalar(self, generator: DesignerGenerator):
+        # Multi-line config values must be emitted as a safely-escaped
+        # double-quoted scalar (NOT a YAML block literal, which is fragile with
+        # leading whitespace and can't live inside the outer """ docstring).
         dag = WorkflowDAG()
         dag.add_node(CommentNode(node_id=1, comment_text="line1\nline2"))
         nb = _notebook(generator.generate(dag, "wf"))
         ann = _annotation(nb["cells"][0])
-        assert "md: |" in ann
-        assert "    line1" in ann
-        assert "    line2" in ann
+        assert 'md: "line1\\nline2"' in ann
+        assert "md: |" not in ann
+
+    def test_multiline_config_with_leading_whitespace_round_trips(self, generator: DesignerGenerator):
+        # Regression: a leading-whitespace first line previously produced an
+        # unparseable YAML block literal that silently dropped the cell.
+        import yaml
+
+        dag = WorkflowDAG()
+        dag.add_node(CommentNode(node_id=1, comment_text="   Step 1: load\nthen clean"))
+        nb = _notebook(generator.generate(dag, "wf"))
+        ann = _annotation(nb["cells"][0])
+        parsed = yaml.safe_load(ann)  # must not raise
+        assert parsed["config"]["md"] == "   Step 1: load\nthen clean"
 
     def test_inline_newline_escaped_in_scalar(self, generator: DesignerGenerator):
         # A short (inline) scalar with a newline is escaped, not emitted raw.
@@ -507,3 +519,87 @@ class TestCoverageStats:
         nb = _notebook(out)
         assert nb["cells"] == []
         assert out.stats["total_nodes"] == 0
+
+
+def _cell_body(cell: dict) -> str:
+    """Return the executable body of a cell (everything after the annotation)."""
+    src = "".join(cell["source"])
+    return src.split('"""', 2)[2] if src.count('"""') >= 2 else src
+
+
+class TestRobustnessAgainstHostileInput:
+    """Regression tests for the code-review findings: user strings must not be
+    able to corrupt the annotation docstring, the YAML, or the Python body."""
+
+    def _all_cells_parse(self, nb: dict) -> None:
+        import ast
+
+        import yaml
+
+        for cell in nb["cells"]:
+            src = "".join(cell["source"])
+            # Whole cell must be valid Python (annotation docstring + body).
+            ast.parse(src)
+            # Annotation must be valid, complete YAML (has the wiring keys).
+            ann = _annotation(cell)
+            parsed = yaml.safe_load(ann)
+            assert "input" in parsed, f"annotation lost 'input' key: {ann!r}"
+
+    def test_python_tool_with_docstring(self, generator: DesignerGenerator):
+        # A triple-quote inside a value must not terminate the annotation early.
+        dag = WorkflowDAG()
+        r = ReadNode(node_id=1, original_tool_type="Input Data", table_name="t", source_type="database")
+        py = PythonToolNode(node_id=2, code='"""docstring in user code."""\nresult = inputs["data"]')
+        dag.add_node(r)
+        dag.add_node(py)
+        dag.add_edge(1, 2)
+        self._all_cells_parse(_notebook(generator.generate(dag, "wf")))
+
+    def test_windows_path_source(self, generator: DesignerGenerator):
+        # Backslashes in a Windows path must not corrupt the body's string literal.
+        import ast
+
+        win_path = r"C:\temp\new\input.csv"
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, file_path=win_path, file_format="csv"))
+        nb = _notebook(generator.generate(dag, "wf"))
+        self._all_cells_parse(nb)
+        # The emitted string literal must EVALUATE back to the original path
+        # (json.dumps escapes the backslashes correctly).
+        body = _cell_body(nb["cells"][0])
+        literal = body.split(".load(")[1].split(")")[0]
+        assert ast.literal_eval(literal) == win_path
+
+    def test_quote_in_filter_expression_fallback(self, generator: DesignerGenerator):
+        # An untranslatable expression containing a double quote falls back to
+        # the raw text; the body must still be valid Python.
+        dag = WorkflowDAG()
+        r = ReadNode(node_id=1, table_name="t", source_type="database")
+        flt = FilterNode(node_id=2, expression='[name] = "O\'Brien" AND (')
+        dag.add_node(r)
+        dag.add_node(flt)
+        dag.add_edge(1, 2)
+        self._all_cells_parse(_notebook(generator.generate(dag, "wf")))
+
+    def test_special_chars_in_table_name(self, generator: DesignerGenerator):
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, table_name='cat.`weird "name"`', source_type="database"))
+        self._all_cells_parse(_notebook(generator.generate(dag, "wf")))
+
+    def test_join_with_unrecognized_anchors_warns(self, generator: DesignerGenerator):
+        dag = WorkflowDAG()
+        a = ReadNode(node_id=1, table_name="a", source_type="database")
+        b = ReadNode(node_id=2, table_name="b", source_type="database")
+        jn = JoinNode(node_id=3, join_type="inner", join_keys=[JoinKey("id", "id")])
+        for n in (a, b, jn):
+            dag.add_node(n)
+        # Non-Left/Right anchors (e.g. plain "Output"/"Input").
+        dag.add_edge(1, 3, destination_anchor="Input")
+        dag.add_edge(2, 3, destination_anchor="Input2")
+        out = generator.generate(dag, "wf")
+        assert any("non-Left/Right" in w for w in out.warnings)
+        nb = _notebook(out)
+        ann = _annotation(_cell_by_template(nb, "join"))
+        # Both sides got assigned left/right (no dangling "data" port).
+        assert "input_port: left" in ann
+        assert "input_port: right" in ann
