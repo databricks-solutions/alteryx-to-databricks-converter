@@ -212,6 +212,55 @@ class TestSummarize:
         )
         assert out["total"].tolist() == [6]
 
+    def test_alias_collision_is_skipped_not_silently_overwritten(self):
+        # Regression: two aggregations resolving to the same output name must be
+        # reported (skipped), not silently collapse to one column.
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, table_name="t"))
+        dag.add_node(
+            SummarizeNode(
+                node_id=2,
+                aggregations=[
+                    AggregationField("g", AggAction.GROUP_BY),
+                    AggregationField("v", AggAction.SUM, "result"),
+                    AggregationField("v", AggAction.MAX, "result"),  # collides
+                ],
+            )
+        )
+        dag.add_edge(1, 2)
+        res = ReferenceExecutor({"t": pd.DataFrame({"g": ["a"], "v": [1]})}).execute(dag)
+        assert not res.fully_supported
+        assert res.skipped and "colliding" in res.skipped[0][1]
+
+
+class TestJoinColumnContract:
+    """The pandas reference defines the post-join column contract that the Spark
+    backend must match (equal key names collapse to one column; colliding
+    non-key columns get a ``_right`` suffix). These lock that contract."""
+
+    def _join(self, left, right, jtype="inner"):
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, table_name="l"))
+        dag.add_node(ReadNode(node_id=2, table_name="r"))
+        dag.add_node(JoinNode(node_id=3, join_type=jtype, join_keys=[JoinKey("id", "id")]))
+        dag.add_edge(1, 3, destination_anchor="Left")
+        dag.add_edge(2, 3, destination_anchor="Right")
+        return _sink(ReferenceExecutor({"l": left, "r": right}).execute(dag), 3)
+
+    def test_shared_key_collapses_to_one_column(self):
+        out = self._join(
+            pd.DataFrame({"id": [1, 2], "x": ["a", "b"]}),
+            pd.DataFrame({"id": [1, 2], "y": [10, 20]}),
+        )
+        assert list(out.columns).count("id") == 1
+
+    def test_colliding_nonkey_column_gets_right_suffix(self):
+        out = self._join(
+            pd.DataFrame({"id": [1], "amt": [10]}),
+            pd.DataFrame({"id": [1], "amt": [99]}),
+        )
+        assert "amt" in out.columns and "amt_right" in out.columns
+
 
 class TestFullPipeline:
     def test_read_filter_formula_summarize(self):

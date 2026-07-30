@@ -326,6 +326,16 @@ class ReferenceExecutor:
             if a.action not in pandas_func:
                 raise UnsupportedOperationError(f"Summarize action {a.action.value} not supported in reference")
 
+        # Detect alias collisions rather than silently overwriting a column
+        # (two aggregations resolving to the same output name).
+        aliases = [alias(a) for a in agg_specs]
+        dupes = {n for n in aliases if aliases.count(n) > 1}
+        if dupes:
+            raise UnsupportedOperationError(
+                f"Summarize has colliding output column name(s): {sorted(dupes)} — "
+                "give the aggregations distinct output names"
+            )
+
         if group_cols:
             grouped = df.groupby(group_cols, dropna=False, sort=True)
             out_cols = {}

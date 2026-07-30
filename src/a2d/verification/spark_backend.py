@@ -305,6 +305,27 @@ class SparkBackend:
         )
         from pyspark.sql import functions as F
 
+        # Match the pandas reference's column contract so the two backends agree
+        # in cross_check mode. pandas `merge` with equal left/right key names
+        # collapses the shared key to ONE column and suffixes colliding non-key
+        # columns with "_right"; Spark's join-on-condition form instead keeps both
+        # sides' columns unrenamed (duplicate key + duplicate names). So:
+        #   - when every key pair has identical names, use the key-name join form
+        #     (which collapses the key column like pandas), then apply the same
+        #     "_right" suffix to non-key collisions;
+        #   - otherwise fall back to the condition form.
+        same_name_keys = all(jk.left_field == jk.right_field for jk in node.join_keys)
+        if same_name_keys:
+            key_names = [jk.left_field for jk in node.join_keys]
+            # Rename colliding non-key columns on the RIGHT before joining (matches
+            # pandas' "_right" suffix) so the post-join frame has no ambiguous
+            # duplicate columns and the same column set as the reference executor.
+            left_cols = set(left.columns)
+            right_renamed = right
+            for c in right.columns:
+                if c not in key_names and c in left_cols:
+                    right_renamed = right_renamed.withColumnRenamed(c, f"{c}_right")
+            return left.join(right_renamed, on=key_names, how=how)
         cond = [F.col(f"l.{jk.left_field}") == F.col(f"r.{jk.right_field}") for jk in node.join_keys]
         combined = cond[0]
         for c in cond[1:]:
@@ -316,14 +337,17 @@ class SparkBackend:
 
         group_cols = [a.field_name for a in node.aggregations if a.action == AggAction.GROUP_BY]
         agg_specs = [a for a in node.aggregations if a.action != AggAction.GROUP_BY]
+        # FIRST/LAST use ignoreNulls=True to match the pandas reference, whose
+        # "first"/"last" skip NaN. (Within-group ordering is still engine-defined
+        # for both, so FIRST/LAST are inherently order-sensitive — documented.)
         func_map: dict[AggAction, Callable[[str], Any]] = {
             AggAction.SUM: F.sum,
             AggAction.COUNT: F.count,
             AggAction.MIN: F.min,
             AggAction.MAX: F.max,
             AggAction.AVG: F.avg,
-            AggAction.FIRST: F.first,
-            AggAction.LAST: F.last,
+            AggAction.FIRST: lambda c: F.first(c, ignorenulls=True),
+            AggAction.LAST: lambda c: F.last(c, ignorenulls=True),
             AggAction.COUNT_DISTINCT: F.countDistinct,
         }
 
@@ -335,6 +359,13 @@ class SparkBackend:
         for a in agg_specs:
             if a.action not in func_map:
                 raise UnsupportedSparkOperationError(f"Summarize action {a.action.value} unsupported")
+        # Detect alias collisions rather than silently overwriting a column.
+        aliases = [alias(a) for a in agg_specs]
+        dupes = {n for n in aliases if aliases.count(n) > 1}
+        if dupes:
+            raise UnsupportedSparkOperationError(
+                f"Summarize has colliding output column name(s): {sorted(dupes)}"
+            )
         agg_exprs = [func_map[a.action](a.field_name).alias(alias(a)) for a in agg_specs]
         if group_cols:
             return df.groupBy(*group_cols).agg(*agg_exprs)

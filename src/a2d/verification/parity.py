@@ -132,12 +132,28 @@ def _dtype_family(dtype) -> str:
     return str(dtype)
 
 
-def _values_equal(a: Any, b: Any, abs_tol: float, rel_tol: float) -> bool:
-    """Null-aware, numeric-tolerant scalar equality."""
+def _is_null(v: Any) -> bool:
+    """Scalar null test covering None, float NaN, pd.NaT, and pd.NA.
+
+    Uses ``pd.isna`` (which recognizes ``pd.NA`` from nullable/string dtypes)
+    but guards against array-like inputs, where ``pd.isna`` returns an array
+    and would raise in a boolean context.
+    """
     import pandas as pd
 
-    a_null = a is None or (isinstance(a, float) and math.isnan(a)) or a is pd.NaT
-    b_null = b is None or (isinstance(b, float) and math.isnan(b)) or b is pd.NaT
+    if v is None:
+        return True
+    try:
+        result = pd.isna(v)
+    except (TypeError, ValueError):
+        return False
+    # pd.isna returns an ndarray for array-like input; only a scalar bool means null.
+    return bool(result) if isinstance(result, bool) else False
+
+
+def _values_equal(a: Any, b: Any, abs_tol: float, rel_tol: float) -> bool:
+    """Null-aware, numeric-tolerant scalar equality."""
+    a_null, b_null = _is_null(a), _is_null(b)
     if a_null or b_null:
         return a_null and b_null
 
@@ -146,8 +162,6 @@ def _values_equal(a: Any, b: Any, abs_tol: float, rel_tol: float) -> bool:
         return math.isclose(float(a), float(b), abs_tol=abs_tol, rel_tol=rel_tol)
 
     # Fall back to string-normalized equality (handles "1" vs 1 from CSV reads).
-    if a == b:
-        return True
     return str(a).strip() == str(b).strip()
 
 
@@ -164,10 +178,8 @@ def _normalize_for_rowset(df: pd.DataFrame, *, float_ndigits: int = 6) -> pd.Dat
     float-tolerance-robust. Non-integer floats are quantized to
     ``float_ndigits`` places so values within tolerance collapse to the same key.
     """
-    import pandas as pd
-
     def _norm(v: Any) -> str:
-        if v is None or v is pd.NaT or (isinstance(v, float) and math.isnan(v)):
+        if _is_null(v):
             return "\x00NULL\x00"
         if isinstance(v, float):
             # Quantize consistently so tolerance-equal floats collapse to the
@@ -266,6 +278,7 @@ def compare_frames(
     else:
         e_sorted = a_sorted = None
 
+    cell_comparison_ran = e_sorted is not None and a_sorted is not None
     if e_sorted is not None and a_sorted is not None:
         cp_by_name = {cp.column: cp for cp in column_parities}
         for c in common:
@@ -303,7 +316,22 @@ def compare_frames(
     parity_score = sum(score_parts) / len(score_parts) if score_parts else 0.0
 
     cell_ok = all(cp.mismatch_count == 0 for cp in column_parities if cp.present_in_both)
-    passed = bool(schema_ok and row_count_match and row_set_match and cell_ok)
+    # When the per-cell comparison ran (aligned row counts + sortable columns),
+    # it is the authoritative, tolerance-correct check. The string-quantized
+    # row-set match can spuriously differ for floats near a rounding boundary,
+    # so don't let it alone fail a run whose cells all match within tolerance —
+    # reserve row_set_match as the gate only when per-cell couldn't run.
+    if cell_comparison_ran:
+        rows_ok = row_count_match and cell_ok
+    else:
+        rows_ok = row_count_match and row_set_match
+    passed = bool(schema_ok and rows_ok)
+
+    if cell_comparison_ran and cell_ok and not row_set_match:
+        notes.append(
+            "Row-set key differs only by float-rounding near a boundary; "
+            "per-cell tolerant comparison matched, so treated as equivalent."
+        )
 
     return ParityReport(
         passed=passed,

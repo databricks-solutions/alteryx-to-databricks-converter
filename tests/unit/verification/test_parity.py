@@ -70,6 +70,37 @@ class TestValueParity:
         # within rel_tol default
         assert compare_frames(e, a).passed
 
+    def test_float_rounding_boundary_within_tolerance_passes(self):
+        # Regression: two values within rel_tol that straddle a fixed-decimal
+        # rounding boundary must still PASS (per-cell tolerant compare is
+        # authoritative; the string-quantized row-set key must not fail it).
+        e = pd.DataFrame({"amt": [0.12345649], "id": [1]})
+        a = pd.DataFrame({"amt": [0.12345651], "id": [1]})
+        r = compare_frames(e, a)
+        assert r.passed
+        # per-cell agrees, even though the quantized row-set key differed
+        amt = next(c for c in r.column_parities if c.column == "amt")
+        assert amt.mismatch_count == 0
+
+
+class TestNullHandling:
+    def test_pd_na_string_dtype_does_not_crash_and_matches(self):
+        # Regression: pd.NA (nullable string dtype) previously raised
+        # "boolean value of NA is ambiguous" and aborted the comparison.
+        e = pd.DataFrame({"name": pd.array(["a", pd.NA, "c"], dtype="string")})
+        a = pd.DataFrame({"name": pd.array(["a", pd.NA, "c"], dtype="string")})
+        assert compare_frames(e, a).passed
+
+    def test_pd_na_nullable_int_matches(self):
+        e = pd.DataFrame({"v": pd.array([1, pd.NA, 3], dtype="Int64")})
+        a = pd.DataFrame({"v": pd.array([1, pd.NA, 3], dtype="Int64")})
+        assert compare_frames(e, a).passed
+
+    def test_null_vs_value_fails(self):
+        e = pd.DataFrame({"v": pd.array([1, pd.NA], dtype="Int64")})
+        a = pd.DataFrame({"v": pd.array([1, 2], dtype="Int64")})
+        assert not compare_frames(e, a).passed
+
     def test_value_mismatch_reported(self):
         e = pd.DataFrame({"id": [1, 2, 3], "amt": [10.0, 20.0, 30.0]})
         a = pd.DataFrame({"id": [1, 2, 3], "amt": [10.0, 20.0, 99.0]})
