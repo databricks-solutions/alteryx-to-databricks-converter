@@ -331,13 +331,15 @@ class DesignerGenerator(CodeGenerator):
         return json.dumps(value)
 
     def _source_cell(self, node: ReadNode, cell_id: str, name: str, pos: tuple[int, int]) -> DesignerCell:
+        # Real Designer `source` config nests under table_source / file_source.
+        config: dict[str, dict[str, object]]
         if node.source_type == "database" and node.table_name:
-            config = {"source_type": "table", "table": node.table_name}
+            config = {"table_source": {"tableName": node.table_name}}
             body = f"result = spark.read.table({self._py(node.table_name)})"
         else:
             fmt = (node.file_format or "csv").lower()
             path = node.file_path or "UNKNOWN_PATH"
-            config = {"source_type": "file", "path": path, "format": fmt}
+            config = {"file_source": {"path": path, "format": fmt, "header": True, "inferSchema": True}}
             body = f"result = spark.read.format({self._py(fmt)}).load({self._py(path)})"
         return DesignerCell(
             cell_id=cell_id, template="source", name=name, position=pos, config=config, body=body,
@@ -349,12 +351,38 @@ class DesignerGenerator(CodeGenerator):
     ) -> DesignerCell:
         target = node.table_name or node.file_path or "output_table"
         mode = node.write_mode or "overwrite"
-        config = {"target": target, "mode": mode}
-        body = f'inputs["data"].write.mode({self._py(mode)}).saveAsTable({self._py(target)})'
+        # Real Designer `output` config is {catalog, schema, table_name}. Split a
+        # dotted target (catalog.schema.table); fall back to the configured
+        # catalog/schema for shorter names.
+        catalog, schema, table_name = self._split_target(target)
+        config = {"catalog": catalog, "schema": schema, "table_name": table_name}
+        fq = f"{catalog}.{schema}.{table_name}"
+        body = f'inputs["data"].write.mode({self._py(mode)}).saveAsTable({self._py(fq)})'
         return DesignerCell(
             cell_id=cell_id, template="output", name=name, position=pos, config=config,
             inputs=inputs, body=body, description=f"Output: {target}",
         )
+
+    def _split_target(self, target: str) -> tuple[str, str, str]:
+        """Split a write target into (catalog, schema, table_name).
+
+        Accepts ``catalog.schema.table``, ``schema.table``, or a bare name/file
+        path; missing catalog/schema fall back to the conversion config.
+        """
+        default_catalog = getattr(self.config, "catalog_name", None) or "main"
+        default_schema = getattr(self.config, "schema_name", None) or "default"
+        # Strip a file extension for path-style targets (e.g. region_summary.csv).
+        base = target.rsplit("/", 1)[-1]
+        for ext in (".csv", ".parquet", ".json", ".avro", ".tsv", ".xlsx"):
+            if base.lower().endswith(ext):
+                base = base[: -len(ext)]
+                break
+        parts = base.split(".")
+        if len(parts) >= 3:
+            return parts[0], parts[1], ".".join(parts[2:])
+        if len(parts) == 2:
+            return default_catalog, parts[0], parts[1]
+        return default_catalog, default_schema, parts[0]
 
     def _filter_cell(
         self, node: FilterNode, cell_id: str, name: str, pos: tuple[int, int],
@@ -390,14 +418,20 @@ class DesignerGenerator(CodeGenerator):
     def _sort_cell(
         self, node: SortNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
     ) -> DesignerCell:
-        order = [{"field": sf.field_name, "direction": "asc" if sf.ascending else "desc"} for sf in node.sort_fields]
+        sort_expressions = [
+            {
+                "columnExpr": {"expr": sf.field_name, "type": "expr"},
+                "sortBy": "ASC" if sf.ascending else "DESC",
+            }
+            for sf in node.sort_fields
+        ]
         exprs = ", ".join(
             f'F.col({self._py(sf.field_name)}).{"asc" if sf.ascending else "desc"}()' for sf in node.sort_fields
         )
         body = f'result = inputs["data"].orderBy({exprs})' if exprs else 'result = inputs["data"]'
         return DesignerCell(
             cell_id=cell_id, template="sort", name=name, position=pos,
-            config={"order_by": order}, inputs=inputs, body=body,
+            config={"sort_expressions": sort_expressions}, inputs=inputs, body=body,
         )
 
     def _limit_cell(
@@ -406,7 +440,7 @@ class DesignerGenerator(CodeGenerator):
         n = node.n_records or 100
         return DesignerCell(
             cell_id=cell_id, template="limit", name=name, position=pos,
-            config={"limit": n}, inputs=inputs, body=f'result = inputs["data"].limit({n})',
+            config={"limit": str(n)}, inputs=inputs, body=f'result = inputs["data"].limit({n})',
         )
 
     def _join_cell(
@@ -436,14 +470,19 @@ class DesignerGenerator(CodeGenerator):
         for inp, slot in zip(needs_assignment, free_slots, strict=False):
             inp["input_port"] = slot
         jtype = (node.join_type or "inner").lower()
-        keys = [{"left": jk.left_field, "right": jk.right_field} for jk in node.join_keys]
+        # Real Designer `join` config: join_type + join_conditions (a single SQL
+        # string using left./right. aliases) + optional expressions[].
         if node.join_keys:
+            join_conditions = " AND ".join(
+                f"left.{jk.left_field} = right.{jk.right_field}" for jk in node.join_keys
+            )
             on = " & ".join(
                 f'(F.col({self._py("l." + jk.left_field)}) == F.col({self._py("r." + jk.right_field)}))'
                 for jk in node.join_keys
             )
             cond = f"[{on}]" if len(node.join_keys) == 1 else on
         else:
+            join_conditions = ""
             cond = '"1=1"'
             warnings.append(f"Join node {node.node_id} has no keys — emitting cross/cartesian join")
         body = (
@@ -453,7 +492,8 @@ class DesignerGenerator(CodeGenerator):
         return (
             DesignerCell(
                 cell_id=cell_id, template="join", name=name, position=pos,
-                config={"join_type": jtype, "keys": keys}, inputs=inputs, body=body,
+                config={"join_type": jtype, "join_conditions": join_conditions, "expressions": []},
+                inputs=inputs, body=body,
             ),
             warnings,
             True,
@@ -462,49 +502,73 @@ class DesignerGenerator(CodeGenerator):
     def _combine_cell(
         self, node: UnionNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
     ) -> DesignerCell:
-        # combine@2 uses a single variadic ``data`` port; all upstreams wire to it.
-        for inp in inputs:
-            inp["input_port"] = "data"
-        body = 'from functools import reduce\nresult = reduce(lambda a, b: a.unionByName(b, allowMissingColumns=True), inputs["data"])'
+        # Real Designer `combine` uses positional data_0/data_1 input ports and
+        # config {operator, quantifier}.
+        for i, inp in enumerate(inputs):
+            inp["input_port"] = f"data_{i}"
+        body = (
+            "from functools import reduce\n"
+            'result = reduce(lambda a, b: a.unionByName(b, allowMissingColumns=True), '
+            "[inputs[k] for k in sorted(inputs)])"
+        )
         return DesignerCell(
             cell_id=cell_id, template="combine", name=name, position=pos,
-            config={"operation": "union"}, inputs=inputs, body=body,
+            config={"operator": "UNION", "quantifier": "ALL"}, inputs=inputs, body=body,
         )
 
     def _aggregate_cell(
         self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
     ) -> DesignerCell:
+        # Real Designer `aggregate` config: group_bys[{expr,type}] +
+        # aggregations[{columnExpr:{expr,type}, fn, alias}], fn UPPERCASE.
         if isinstance(node, CountRecordsNode):
             body = f'result = inputs["data"].agg(F.count(F.lit(1)).alias({self._py(node.output_field)}))'
+            config = {
+                "group_bys": [],
+                "aggregations": [
+                    {"columnExpr": {"expr": "1", "type": "expr"}, "fn": "COUNT", "alias": node.output_field}
+                ],
+            }
             return DesignerCell(
                 cell_id=cell_id, template="aggregate", name=name, position=pos,
-                config={"group_by": [], "aggregations": [{"op": "count", "output": node.output_field}]},
-                inputs=inputs, body=body,
+                config=config, inputs=inputs, body=body,
             )
         assert isinstance(node, SummarizeNode)
-        group_by: list[str] = []
-        aggs: list[dict] = []
+        group_bys: list[dict] = []
+        aggregations: list[dict] = []
         agg_exprs: list[str] = []
-        func_map = {
+        # IR AggAction → PySpark fn (body) and Designer fn name (config, uppercase).
+        pyspark_fn = {
             AggAction.SUM: "sum", AggAction.COUNT: "count", AggAction.MIN: "min",
             AggAction.MAX: "max", AggAction.AVG: "avg", AggAction.FIRST: "first",
             AggAction.LAST: "last", AggAction.COUNT_DISTINCT: "countDistinct",
         }
+        designer_fn = {
+            AggAction.SUM: "SUM", AggAction.COUNT: "COUNT", AggAction.MIN: "MIN",
+            AggAction.MAX: "MAX", AggAction.AVG: "AVG", AggAction.FIRST: "FIRST",
+            AggAction.LAST: "LAST", AggAction.COUNT_DISTINCT: "COUNT",
+        }
         for a in node.aggregations:
             if a.action == AggAction.GROUP_BY:
-                group_by.append(a.field_name)
+                group_bys.append({"expr": a.field_name, "type": "expr"})
                 continue
-            func = func_map.get(a.action, "count")
+            func = pyspark_fn.get(a.action, "count")
             alias = a.output_field_name or f"{a.action.value}_{a.field_name}"
-            aggs.append({"field": a.field_name, "op": func, "output": alias})
+            aggregations.append(
+                {
+                    "columnExpr": {"expr": a.field_name, "type": "expr"},
+                    "fn": designer_fn.get(a.action, "COUNT"),
+                    "alias": alias,
+                }
+            )
             agg_exprs.append(f"F.{func}({self._py(a.field_name)}).alias({self._py(alias)})")
         if not agg_exprs:
             agg_exprs.append('F.count(F.lit(1)).alias("count")')
-        gb = ", ".join(self._py(g) for g in group_by)
+        gb = ", ".join(self._py(g["expr"]) for g in group_bys)
         body = f'result = inputs["data"].groupBy({gb}).agg({", ".join(agg_exprs)})'
         return DesignerCell(
             cell_id=cell_id, template="aggregate", name=name, position=pos,
-            config={"group_by": group_by, "aggregations": aggs}, inputs=inputs, body=body,
+            config={"group_bys": group_bys, "aggregations": aggregations}, inputs=inputs, body=body,
         )
 
     def _pivot_cell(
@@ -520,14 +584,23 @@ class DesignerGenerator(CodeGenerator):
             f'result = inputs["data"].groupBy({gb})'
             f".pivot({self._py(node.header_field)}).{agg}({self._py(node.value_field)})"
         )
+        # Real Designer `pivot` config (pivot mode). Group-by columns are the
+        # ones NOT pivoted, expressed via exclude_columns.
+        exclude_columns = [
+            {"expr": node.header_field, "type": "column"},
+            {"expr": node.value_field, "type": "column"},
+        ]
         return (
             DesignerCell(
                 cell_id=cell_id, template="pivot", name=name, position=pos,
                 config={
-                    "group_by": node.group_fields,
+                    "mode": "pivot",
                     "pivot_column": node.header_field,
                     "value_column": node.value_field,
-                    "aggregation": agg,
+                    "agg_fn": (node.aggregation or "sum").upper(),
+                    "null_behavior": "zero",
+                    "unpivot_columns": [],
+                    "exclude_columns": exclude_columns,
                 },
                 inputs=inputs, body=body,
             ),
@@ -537,10 +610,18 @@ class DesignerGenerator(CodeGenerator):
     def _transform_cell(
         self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int], inputs: list[dict]
     ) -> tuple[DesignerCell, list[str]]:
-        """Select / Formula / DataCleansing → Designer ``transform`` (prepare-style)."""
+        """Select / Formula / DataCleansing → Designer ``transform``.
+
+        Real Designer `transform` config is ``expressions``: a list of
+        selectExpr strings (``"*"``, ``"col"``, ``"<expr> AS `alias`"``). We keep
+        the PySpark body in step with that expression list.
+        """
         warnings: list[str] = []
-        steps: list[dict] = []
+        # A drop-only Select rewrites the projection; otherwise start from "*"
+        # (keep all upstream columns) and append computed/renamed columns.
+        expressions: list[str] = []
         lines: list[str] = ['df = inputs["data"]']
+        drop_only = False
 
         if isinstance(node, SelectNode):
             drops = [
@@ -551,22 +632,34 @@ class DesignerGenerator(CodeGenerator):
                 (op.field_name, op.rename_to) for op in node.field_operations
                 if op.action == FieldAction.RENAME and op.rename_to
             ]
-            for d in drops:
-                steps.append({"op": "drop", "field": d})
-                lines.append(f"df = df.drop({self._py(d)})")
-            for src, dst in renames:
-                steps.append({"op": "rename", "field": src, "to": dst})
-                lines.append(f"df = df.withColumnRenamed({self._py(src)}, {self._py(dst)})")
+            if drops and not renames:
+                # Express as an explicit exclusion: * EXCEPT is not portable, so
+                # drop in the body and mirror with a "* minus dropped" note. The
+                # config uses "*" plus body drops (Designer runs the body).
+                drop_only = True
+                expressions.append("*")
+                for d in drops:
+                    lines.append(f"df = df.drop({self._py(d)})")
+            else:
+                if drops:
+                    for d in drops:
+                        lines.append(f"df = df.drop({self._py(d)})")
+                expressions.append("*")
+                for src, dst in renames:
+                    expressions.append(f"`{src}` AS `{dst}`")
+                    lines.append(f"df = df.withColumnRenamed({self._py(src)}, {self._py(dst)})")
         elif isinstance(node, FormulaNode):
+            expressions.append("*")
             for f in node.formulas:
                 try:
                     expr = self._sql._translator.translate_string(f.expression)
                 except Exception:
                     expr = "NULL"
                     warnings.append(f"Designer formula fallback: {f.output_field}")
-                steps.append({"op": "formula", "output": f.output_field, "expression": f.expression})
+                expressions.append(f"{expr} AS `{f.output_field}`")
                 lines.append(f"df = df.withColumn({self._py(f.output_field)}, F.expr({self._py(expr)}))")
         elif isinstance(node, DataCleansingNode):
+            expressions.append("*")
             for fld in node.fields:
                 expr = f"`{fld}`"
                 if node.trim_whitespace:
@@ -577,14 +670,17 @@ class DesignerGenerator(CodeGenerator):
                     expr = f"lower({expr})"
                 elif node.modify_case == "title":
                     expr = f"initcap({expr})"
-                steps.append({"op": "clean", "field": fld})
+                expressions.append(f"{expr} AS `{fld}`")
                 lines.append(f"df = df.withColumn({self._py(fld)}, F.expr({self._py(expr)}))")
 
+        if not expressions:
+            expressions.append("*")
+        _ = drop_only  # (kept for readability of the drop-only branch above)
         lines.append("result = df")
         return (
             DesignerCell(
                 cell_id=cell_id, template="transform", name=name, position=pos,
-                config={"steps": steps}, inputs=inputs, body="\n".join(lines),
+                config={"expressions": expressions}, inputs=inputs, body="\n".join(lines),
             ),
             warnings,
         )
@@ -747,12 +843,15 @@ class DesignerGenerator(CodeGenerator):
         elif isinstance(value, list):
             for item in value:
                 if isinstance(item, dict):
-                    # Inline first key with the dash, remaining keys indented.
-                    items = list(item.items())
-                    first_k, first_v = items[0]
-                    lines.append(f"{pad}- {first_k}: {self._yaml_scalar(first_v)}")
-                    for k, v in items[1:]:
-                        lines.append(f"{pad}  {k}: {self._yaml_scalar(v)}")
+                    # Render the dict at indent+1, then hoist the first line under
+                    # the "- " marker so nested dict/list values stay well-formed.
+                    sub = self._render_yaml_value(item, indent + 1)
+                    if sub:
+                        first = sub[0].lstrip()
+                        lines.append(f"{pad}- {first}")
+                        lines.extend(sub[1:])
+                    else:
+                        lines.append(f"{pad}- {{}}")
                 else:
                     lines.append(f"{pad}- {self._yaml_scalar(item)}")
         else:

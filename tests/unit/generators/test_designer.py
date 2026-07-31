@@ -197,8 +197,9 @@ class TestNativeOperators:
         nb = _notebook(generator.generate(dag, "wf"))
         combine = _cell_by_template(nb, "combine")
         ann = _annotation(combine)
-        # combine@2 variadic port: both inputs wire to "data"
-        assert ann.count("input_port: data") == 2
+        # Real Designer combine uses positional data_0 / data_1 input ports.
+        assert "input_port: data_0" in ann
+        assert "input_port: data_1" in ann
 
     def test_summarize_becomes_aggregate(self, generator: DesignerGenerator):
         dag = WorkflowDAG()
@@ -502,7 +503,7 @@ class TestYamlQuoting:
         dag.add_node(ReadNode(node_id=1, source_type="database", table_name="plaintable"))
         nb = _notebook(generator.generate(dag, "wf"))
         ann = _annotation(nb["cells"][0])
-        assert "table: plaintable" in ann  # no quotes needed
+        assert "tableName: plaintable" in ann  # plain scalar, no quotes needed
 
 
 class TestCoverageStats:

@@ -143,3 +143,25 @@ class TestDetectsCorruption:
         r = validate_designer_notebook(json.dumps(nb))
         assert not r.is_valid
         assert any("undefined node id" in e for e in r.errors)
+
+    def test_unexpected_config_key_rejected(self, generator: DesignerGenerator):
+        # Regression for the live-import finding: Designer enforces
+        # additionalProperties:false, so a config key outside the operator's
+        # allowed set must be caught offline.
+        nb = self._base(generator)
+        # The output cell config gets a rogue key.
+        for cell in nb["cells"]:
+            src = "".join(cell["source"])
+            if "template: output" in src and "config:\n" in cell["source"]:
+                cell["source"] = [
+                    ln.replace("config:\n", "config:\n  target: rogue\n") if ln == "config:\n" else ln
+                    for ln in cell["source"]
+                ]
+        r = validate_designer_notebook(json.dumps(nb))
+        assert not r.is_valid
+        assert any("unexpected key" in e for e in r.errors)
+
+    def test_correct_config_keys_pass(self, generator: DesignerGenerator):
+        # The generator's own output must satisfy the per-operator config schema.
+        nb = self._base(generator)
+        assert validate_designer_notebook(json.dumps(nb)).is_valid

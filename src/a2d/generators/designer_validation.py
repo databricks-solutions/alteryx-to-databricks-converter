@@ -27,6 +27,34 @@ from dataclasses import dataclass, field
 _NOTEBOOK_META_KEY = "application/vnd.databricks.v1+notebook"
 _CELL_META_KEY = "application/vnd.databricks.v1+cell"
 
+# Allowed config keys per operator template. Designer enforces
+# ``additionalProperties: false`` on each operator's config, so emitting any key
+# not in this set fails import with "config must NOT have additional properties".
+# Sourced from real .designer.ipynb exports (see
+# docs/lakeflow-designer-generator-design.md §3.x). Operators not listed here are
+# not config-checked (unknown templates only get structural checks).
+_OPERATOR_CONFIG_KEYS: dict[str, set[str]] = {
+    "source": {"file_source", "table_source"},
+    "output": {"catalog", "schema", "table_name"},
+    "filter": {"condition"},
+    "join": {"join_type", "join_conditions", "expressions"},
+    "aggregate": {"group_bys", "aggregations"},
+    "sort": {"sort_expressions"},
+    "limit": {"limit"},
+    "combine": {"operator", "quantifier"},
+    "transform": {"expressions"},
+    "pivot": {
+        "mode", "pivot_column", "value_column", "agg_fn", "null_behavior",
+        "unpivot_columns", "exclude_columns", "id_columns", "value_columns",
+        "key_column_name", "value_column_name", "key_name", "value_name",
+    },
+    "python": {"code"},
+    "sql": {"query"},
+    "ai_function": {"expressions"},
+    "markdown": {"md"},
+    "group": set(),
+}
+
 
 @dataclass
 class DesignerValidationResult:
@@ -130,6 +158,20 @@ def validate_designer_notebook(content: str) -> DesignerValidationResult:
         for inp in parsed.get("input", []) or []:
             if isinstance(inp, dict) and "node" in inp:
                 input_refs.append((i, str(inp["node"])))
+
+        # Per-operator config-key check: Designer enforces additionalProperties:
+        # false, so any config key outside the operator's allowed set fails import
+        # ("config must NOT have additional properties"). Catch it offline.
+        template = parsed.get("template")
+        cfg = parsed.get("config")
+        if template in _OPERATOR_CONFIG_KEYS and isinstance(cfg, dict):
+            allowed = _OPERATOR_CONFIG_KEYS[template]
+            unexpected = sorted(set(cfg) - allowed)
+            if unexpected:
+                errors.append(
+                    f"Cell {i}: '{template}' config has unexpected key(s) "
+                    f"{unexpected} — Designer allows only {sorted(allowed)}"
+                )
 
         # Body (if any) must be valid Python.
         if body.strip():
