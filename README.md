@@ -340,19 +340,49 @@ All warnings include remediation hints with 50+ specific recommendations. The JS
 
 ## CLI Reference
 
-a2d provides 5 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
+a2d provides 6 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
 
 | Command | Purpose |
 |---|---|
 | `convert` | Convert workflows — emits PySpark, Spark Declarative Pipelines (DLT), SQL, and Lakeflow code in one run; use `-f` to filter |
 | `analyze` | Generate migration readiness reports (HTML/JSON) |
 | `validate` | Check generated Python syntax |
+| `verify` | Check a workflow produces **semantically equivalent** results on sample data (see below) |
 | `list-tools` | Show supported Alteryx tool matrix |
 | `version` | Show a2d version |
 
 **Example:** `a2d convert workflow.yxmd -o output/ --comments --expression-audit --performance-hints` (all 4 formats)
 **Filter example:** `a2d convert workflow.yxmd -f pyspark,sql -o output/`
 **Cloud target:** `a2d convert workflow.yxmd --cloud azure -o output/` (drives `node_type_id` in Workflow JSON / DAB; `aws|azure|gcp`, default `aws`)
+
+### Semantic equivalence verification (`a2d verify`)
+
+`convert` and `validate` tell you the output *parses*; `verify` tells you it *produces the
+right answer*. It runs the workflow through an independent **pandas reference executor** over
+your sample input data and compares the result — schema, row-set (order-insensitive), and
+per-cell values (numeric tolerance) — against ground truth.
+
+```bash
+# Install the verification extra (adds pandas; pyspark optional)
+pip install "alteryx2databricks[verify]"
+
+# Golden mode — compare to expected output exported from Alteryx (true equivalence)
+a2d verify workflow.yxmd -i sales=sales.csv -e expected.csv
+
+# Reference-only — produce the reference result (no ground truth to diff against)
+a2d verify workflow.yxmd -i sales=sales.csv
+
+# Machine-readable report for CI
+a2d verify workflow.yxmd -i sales=sales.csv -e expected.csv --json report.json
+```
+
+- `-i KEY=PATH.csv` supplies sample input per source (table name, file path, or node id); omit
+  for workflows whose sources are embedded TextInput data.
+- When a JVM is present (Databricks/CI), `verify` also **cross-checks** the pandas result
+  against a real Spark execution; on a laptop without Java it skips that step cleanly.
+- Exit code is non-zero only on an actual **FAIL**; an inconclusive run (no ground truth) exits 0.
+- Workflows containing operators the reference executor doesn't model report a *partial* result
+  (verified subset only) — never a false pass.
 
 ---
 

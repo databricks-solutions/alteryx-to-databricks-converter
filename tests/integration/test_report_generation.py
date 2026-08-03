@@ -121,7 +121,9 @@ class TestAnalyzeBatch:
         files = sorted(WORKFLOWS_DIR.glob("*.yxmd"))
         results = batch_analyzer.analyze_files(files)
 
-        assert len(results) == 3
+        # Count-agnostic: one analysis per fixture (robust to added fixtures).
+        assert len(results) == len(files)
+        assert len(results) >= 3
 
         for analysis in results:
             assert isinstance(analysis, WorkflowAnalysis)
@@ -206,15 +208,15 @@ class TestJsonReportGeneration:
         assert "tool_frequency" in data
         assert "unsupported_tools" in data
 
-        # Validate summary
+        # Validate summary (count-agnostic: one entry per fixture)
         summary = data["summary"]
-        assert summary["total_workflows"] == 3
+        assert summary["total_workflows"] == len(files)
         assert summary["total_nodes"] > 0
         assert 0 <= summary["average_coverage_pct"] <= 100
         assert summary["average_complexity"] >= 0
 
         # Validate workflow entries
-        assert len(data["workflows"]) == 3
+        assert len(data["workflows"]) == len(files)
         for wf in data["workflows"]:
             assert "file_path" in wf
             assert "workflow_name" in wf

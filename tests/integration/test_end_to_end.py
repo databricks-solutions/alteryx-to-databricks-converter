@@ -204,7 +204,10 @@ class TestBatchConvert:
         pipeline = ConversionPipeline(pyspark_config)
         results = pipeline.convert_batch(WORKFLOWS_DIR)
 
-        assert len(results) == 3  # simple_filter, join_and_summarize, complex_pipeline
+        # Count-agnostic: one result per .yxmd fixture (robust to added fixtures).
+        n_fixtures = len(sorted(WORKFLOWS_DIR.glob("*.yxmd")))
+        assert len(results) == n_fixtures
+        assert len(results) >= 3
 
         for result in results:
             assert isinstance(result, ConversionResult)
