@@ -149,6 +149,12 @@ def convert(
     generate_dab: bool = typer.Option(
         False, "--generate-dab", help="Generate Databricks Asset Bundle project", rich_help_panel="Extra Artifacts"
     ),
+    generate_dashboard: bool = typer.Option(
+        False,
+        "--generate-dashboard",
+        help="Generate an AI/BI (Lakeview) dashboard JSON from Chart/Report nodes",
+        rich_help_panel="Extra Artifacts",
+    ),
     # -- Batch mode --
     batch: bool = typer.Option(
         False, "--batch", "-b", help="Enable batch mode with structured error tracking", rich_help_panel="Batch Mode"
@@ -289,6 +295,20 @@ def convert(
                 ddl_extra = ddl_gen.generate_ddl(multi_result.dag)
             except Exception as e:
                 console.print(f"[yellow]DDL generation failed: {e}[/yellow]")
+
+        if generate_dashboard:
+            try:
+                from a2d.bridges.reporting import build_dashboard_spec
+
+                spec = build_dashboard_spec(multi_result.dag, input_path.stem)
+                if spec.widget_count:
+                    dash_path = output_dir / f"{input_path.stem}.lvdash.json"
+                    dash_path.write_text(spec.to_json())
+                    console.print(f"[green]AI/BI dashboard[/green]: {spec.widget_count} widget(s) → {dash_path}")
+                else:
+                    console.print("[dim]No Chart/Report/Browse nodes — no dashboard generated.[/dim]")
+            except Exception as e:
+                console.print(f"[yellow]Dashboard generation failed: {e}[/yellow]")
 
         # Filter to user-requested formats; warn if some requested formats
         # aren't in the result (shouldn't happen — convert_all_formats always
