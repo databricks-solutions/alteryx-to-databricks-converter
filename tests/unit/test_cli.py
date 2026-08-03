@@ -647,9 +647,7 @@ class TestValidateCommand:
     def test_validate_designer_notebook(self, tmp_path):
         # Convert to produce a .designer.ipynb, then structurally validate it.
         out = tmp_path / "out"
-        result = runner.invoke(
-            app, ["convert", str(SIMPLE_FIXTURE), "--output-dir", str(out), "--format", "designer"]
-        )
+        result = runner.invoke(app, ["convert", str(SIMPLE_FIXTURE), "--output-dir", str(out), "--format", "designer"])
         assert result.exit_code == 0, result.output
         ipynbs = list((out / "designer").rglob("*.designer.ipynb"))
         assert ipynbs, "no .designer.ipynb produced"
@@ -772,9 +770,7 @@ class TestVerifyCommand:
         expected = tmp_path / "expected.csv"
         expected.write_text("Region,Total_Amount,Order_Count\nEast,551.5,3\nWest,200.0,1\n")
         out_json = tmp_path / "report.json"
-        result = runner.invoke(
-            app, ["verify", str(JOIN_FIXTURE), "-e", str(expected), "--json", str(out_json)]
-        )
+        result = runner.invoke(app, ["verify", str(JOIN_FIXTURE), "-e", str(expected), "--json", str(out_json)])
         assert result.exit_code == 0
         assert out_json.exists()
         import json

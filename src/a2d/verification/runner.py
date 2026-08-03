@@ -156,10 +156,7 @@ def verify_workflow(
     # A partially-supported workflow can't be a clean pass.
     if ref.skipped and result.status == "pass":
         result.status = "inconclusive"
-        result.notes.append(
-            f"{len(ref.skipped)} node(s) unsupported by the reference executor — "
-            "verified subset only."
-        )
+        result.notes.append(f"{len(ref.skipped)} node(s) unsupported by the reference executor — verified subset only.")
 
     return result
 

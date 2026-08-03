@@ -158,7 +158,12 @@ def _values_equal(a: Any, b: Any, abs_tol: float, rel_tol: float) -> bool:
         return a_null and b_null
 
     # Numeric compare with tolerance (covers int/float cross-type).
-    if isinstance(a, (int | float)) and isinstance(b, (int | float)) and not isinstance(a, bool) and not isinstance(b, bool):
+    if (
+        isinstance(a, (int | float))
+        and isinstance(b, (int | float))
+        and not isinstance(a, bool)
+        and not isinstance(b, bool)
+    ):
         return math.isclose(float(a), float(b), abs_tol=abs_tol, rel_tol=rel_tol)
 
     # Fall back to string-normalized equality (handles "1" vs 1 from CSV reads).
@@ -178,6 +183,7 @@ def _normalize_for_rowset(df: pd.DataFrame, *, float_ndigits: int = 6) -> pd.Dat
     float-tolerance-robust. Non-integer floats are quantized to
     ``float_ndigits`` places so values within tolerance collapse to the same key.
     """
+
     def _norm(v: Any) -> str:
         if _is_null(v):
             return "\x00NULL\x00"

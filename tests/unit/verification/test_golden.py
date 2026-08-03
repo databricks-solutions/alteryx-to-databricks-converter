@@ -55,9 +55,7 @@ class TestGoldenFixtures:
 
     def test_join_summarize_wrong_aggregate_fails(self):
         # Wrong aggregate value must be caught.
-        wrong = pd.DataFrame(
-            {"Region": ["East", "West"], "Total_Amount": [999.0, 200.0], "Order_Count": [3, 1]}
-        )
+        wrong = pd.DataFrame({"Region": ["East", "West"], "Total_Amount": [999.0, 200.0], "Order_Count": [3, 1]})
         result = verify_workflow(
             WORKFLOWS / "join_and_summarize.yxmd",
             source_data={},

@@ -127,7 +127,11 @@ class TestDetectsCorruption:
     def test_body_not_valid_python(self, generator: DesignerGenerator):
         nb = self._base(generator)
         nb["cells"][0]["source"] = [
-            '"""\n', "id: x\n", "template: sql\n", "input: []\n", '"""\n',
+            '"""\n',
+            "id: x\n",
+            "template: sql\n",
+            "input: []\n",
+            '"""\n',
             "result = (unclosed\n",
         ]
         r = validate_designer_notebook(json.dumps(nb))
