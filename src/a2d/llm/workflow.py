@@ -81,6 +81,7 @@ def scan_dag(
             expected_output=node_goldens.get(node.node_id),
             max_candidates=max_candidates,
         )
+        outcome.configuration = request.configuration
         report.outcomes.append(outcome)
 
     return report

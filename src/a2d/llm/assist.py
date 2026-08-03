@@ -54,6 +54,7 @@ class AssistOutcome:
     dag: WorkflowDAG | None = None  # built sub-DAG for an accepted/suggested candidate
     output_node_id: int | None = None  # id of the sub-DAG's output node
     considered: int = 0
+    configuration: dict = field(default_factory=dict)  # original Alteryx config (for feedback keying)
     notes: list[str] = field(default_factory=list)
 
     @property

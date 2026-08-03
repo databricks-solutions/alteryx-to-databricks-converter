@@ -831,6 +831,16 @@ def assist(
         "-g",
         help="Per-node golden output as NODE_ID=PATH.csv (repeatable) — a candidate is only accepted if it reproduces this",
     ),
+    learn: bool = typer.Option(
+        False,
+        "--learn",
+        help="Record verified conversions into the feedback store so future runs reuse them",
+    ),
+    use_learned: bool = typer.Option(
+        True,
+        "--use-learned/--no-use-learned",
+        help="Propose previously-learned mappings first (still re-verified through the gate)",
+    ),
     json_out: Path | None = typer.Option(None, "--json", help="Write the assist report as JSON to this path"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
@@ -845,8 +855,11 @@ def assist(
     golden output exactly; otherwise it is surfaced as an *unverified suggestion*
     for human review. Proposals are never silently merged into the dataflow.
 
-    The default proposer is fully offline (a deterministic knowledge base), so
-    this runs with no model access.
+    With ``--learn``, every verified conversion is captured in a feedback store
+    (``~/.a2d/feedback.json`` by default, or ``$A2D_FEEDBACK_STORE``); later runs
+    propose those learned mappings first (re-verifying them through the same
+    gate). The default proposer is fully offline, so this runs with no model
+    access.
     """
     setup_logging(quiet=quiet, debug=debug)
 
@@ -892,12 +905,39 @@ def assist(
 
     from a2d.llm.workflow import scan_workflow_file
 
+    client = None
+    store = None
+    if use_learned or learn:
+        from a2d.feedback.client import LearnedClient
+        from a2d.feedback.store import FeedbackStore
+
+        store = FeedbackStore().load()
+        if use_learned:
+            client = LearnedClient(store=store)
+
     report = scan_workflow_file(
         input_path,
         source_data=source_data,
         node_goldens=node_goldens,
+        client=client,
     )
     _print_assist_report(report)
+
+    if learn and store is not None:
+        recorded = 0
+        for outcome in report.outcomes:
+            if outcome.accepted and outcome.candidate is not None:
+                store.record(
+                    outcome.tool_type,
+                    outcome.configuration,
+                    outcome.candidate,
+                    source="verified",
+                    save=False,
+                )
+                recorded += 1
+        if recorded:
+            store.save()
+            console.print(f"\n[green]Learned {recorded} verified conversion(s) into {store.path}[/green]")
 
     if json_out is not None:
         payload = {
@@ -966,6 +1006,52 @@ def _print_assist_report(report) -> None:
             f"[yellow]{report.unverified} proposal(s) need review: supply -i/-g sample+golden data "
             f"to verify, or inspect manually.[/yellow]"
         )
+
+
+@app.command()
+def feedback(
+    clear: bool = typer.Option(False, "--clear", help="Delete all learned mappings"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Inspect (or clear) the learned-conversion feedback store.
+
+    Shows the mappings a2d has learned from verified conversions (via
+    ``a2d assist --learn``). The store lives at ``~/.a2d/feedback.json`` by
+    default, or ``$A2D_FEEDBACK_STORE``.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    from a2d.feedback.store import FeedbackStore
+
+    store = FeedbackStore().load()
+
+    if clear:
+        if store.path.exists():
+            store.path.unlink()
+        console.print(f"[green]Cleared feedback store[/green] {store.path}")
+        return
+
+    mappings = store.all_mappings()
+    stats = store.stats()
+    console.print()
+    console.rule("[bold]Learned conversions[/bold]")
+    console.print(f"Store: [dim]{store.path}[/dim]")
+    console.print(f"[bold]{stats.total_mappings}[/bold] mapping(s) · [bold]{stats.total_uses}[/bold] total use(s)")
+
+    if not mappings:
+        console.print("[dim]No learned mappings yet. Run 'a2d assist --learn' to capture verified conversions.[/dim]")
+        return
+
+    table = Table(title="Mappings")
+    table.add_column("Tool", style="cyan")
+    table.add_column("Nodes", justify="right")
+    table.add_column("Uses", justify="right")
+    table.add_column("Source")
+    table.add_column("Signature", style="dim")
+    for m in sorted(mappings, key=lambda x: (-x.uses, x.tool_type)):
+        table.add_row(m.tool_type, str(len(m.candidate_nodes)), str(m.uses), m.source, m.signature)
+    console.print(table)
 
 
 @app.command()
