@@ -82,6 +82,18 @@ Issues = "https://github.com/databricks-solutions/alteryx-to-databricks-converte
 [project.scripts]
 a2d = "a2d.cli:app"
 
+# Plugin discovery groups. Third-party packages extend a2d without editing core
+# by declaring entry points here:
+#   [project.entry-points."a2d.frontends"]
+#   talend = "a2d_talend.frontend:TalendFrontend"
+#   [project.entry-points."a2d.converters"]
+#   mytool = "mypkg.converters:MyToolConverter"
+[project.entry-points."a2d.frontends"]
+# built-in frontends (alteryx, dbt) are registered directly, not via this group
+
+[project.entry-points."a2d.converters"]
+# built-in converters are imported by a2d.converters.__init__
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/a2d"]
 

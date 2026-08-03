@@ -10,6 +10,8 @@ from pathlib import Path
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.converters.registry import ConverterRegistry
 from a2d.exceptions import A2dError
+from a2d.frontends.alteryx import AlteryxFrontend
+from a2d.frontends.base import SourceFrontend
 from a2d.generators.base import CodeGenerator, GeneratedOutput
 from a2d.generators.designer import DesignerGenerator
 from a2d.generators.dlt import DLTGenerator
@@ -22,7 +24,6 @@ from a2d.observability.confidence import ConfidenceScore, ConfidenceScorer
 from a2d.observability.expression_audit import ExpressionAuditEntry
 from a2d.observability.performance_hints import PerformanceHint
 from a2d.parser.schema import ParsedWorkflow
-from a2d.parser.workflow_parser import WorkflowParser
 
 logger = logging.getLogger("a2d.pipeline")
 
@@ -88,14 +89,16 @@ _GENERATOR_CLASSES: dict[OutputFormat, type[CodeGenerator]] = {
 class ConversionPipeline:
     """Main orchestration: Parse -> Convert -> Build DAG -> Generate Code."""
 
-    def __init__(self, config: ConversionConfig) -> None:
+    def __init__(self, config: ConversionConfig, frontend: SourceFrontend | None = None) -> None:
         self.config = config
-        self._parser = WorkflowParser()
+        # A frontend parses a source format into a ParsedWorkflow. Defaults to
+        # Alteryx; pass another (e.g. dbt) or let callers resolve one per file.
+        self._frontend = frontend or AlteryxFrontend()
 
     def convert(self, path: Path) -> ConversionResult:
-        """Convert a single .yxmd file."""
-        # 1. Parse XML
-        parsed = self._parser.parse(path)
+        """Convert a single source file to the configured output format."""
+        # 1. Parse the source into a ParsedWorkflow (frontend-specific).
+        parsed = self._frontend.parse(path)
 
         # 2. Build IR DAG
         dag = self._build_dag(parsed)
@@ -254,8 +257,8 @@ class ConversionPipeline:
         Orchestration JSON (workflow_json) is appended to every successful
         format's files so each download is self-contained.
         """
-        # 1. Parse XML (once)
-        parsed = self._parser.parse(path)
+        # 1. Parse the source once (frontend-specific).
+        parsed = self._frontend.parse(path)
 
         # 2. Build IR DAG (once)
         dag = self._build_dag(parsed)
