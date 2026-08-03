@@ -277,7 +277,11 @@ class TestBatchOrchestratorMultiFormat:
             if fr.parse_error is None:
                 assert fr.multi_result is not None
                 assert set(fr.multi_result.formats.keys()) == {
-                    "pyspark", "dlt", "sql", "lakeflow", "designer",
+                    "pyspark",
+                    "dlt",
+                    "sql",
+                    "lakeflow",
+                    "designer",
                 }
             else:
                 assert fr.multi_result is None

@@ -52,9 +52,7 @@ class TestSources:
 
     def test_literal_data_uses_embedded_rows(self):
         dag = WorkflowDAG()
-        dag.add_node(
-            LiteralDataNode(node_id=1, field_names=["x", "y"], data_rows=[["1", "a"], ["2", "b"]])
-        )
+        dag.add_node(LiteralDataNode(node_id=1, field_names=["x", "y"], data_rows=[["1", "a"], ["2", "b"]]))
         res = ReferenceExecutor({}).execute(dag)
         out = _sink(res, 1)
         assert out["x"].tolist() == [1, 2]  # numeric coercion
@@ -280,9 +278,7 @@ class TestFullPipeline:
         dag.add_edge(1, 2)
         dag.add_edge(2, 3, origin_anchor="True")
         dag.add_edge(3, 4)
-        sales = pd.DataFrame(
-            {"region": ["E", "W", "E", "W", "E"], "amount": [50, 150, 200, 120, 300]}
-        )
+        sales = pd.DataFrame({"region": ["E", "W", "E", "W", "E"], "amount": [50, 150, 200, 120, 300]})
         res = ReferenceExecutor({"sales": sales}).execute(dag)
         assert res.fully_supported
         out = _sink(res, 4)

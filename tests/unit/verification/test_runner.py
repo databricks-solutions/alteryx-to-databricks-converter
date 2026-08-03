@@ -44,18 +44,14 @@ class TestRunnerModes:
         assert res.sink_node_id is not None
 
     def test_golden_pass(self):
-        expected = pd.DataFrame(
-            {"Region": ["East", "West"], "Total_Amount": [551.5, 200.0], "Order_Count": [3, 1]}
-        )
+        expected = pd.DataFrame({"Region": ["East", "West"], "Total_Amount": [551.5, 200.0], "Order_Count": [3, 1]})
         res = verify_workflow(JOIN_SUMMARIZE, source_data={}, expected_output=expected, use_spark=False)
         assert res.status == "pass"
         assert res.mode == "golden"
         assert res.parity is not None and res.parity.passed
 
     def test_golden_fail_reports_mismatch(self):
-        expected = pd.DataFrame(
-            {"Region": ["East", "West"], "Total_Amount": [999.0, 200.0], "Order_Count": [3, 1]}
-        )
+        expected = pd.DataFrame({"Region": ["East", "West"], "Total_Amount": [999.0, 200.0], "Order_Count": [3, 1]})
         res = verify_workflow(JOIN_SUMMARIZE, source_data={}, expected_output=expected, use_spark=False)
         assert res.status == "fail"
         assert res.parity is not None and not res.parity.passed

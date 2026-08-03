@@ -172,9 +172,7 @@ class DesignerGenerator(CodeGenerator):
                     node_count += 1
                     continue
 
-            cell, step_warnings, is_native = self._build_cell(
-                node, dag, id_map, tiers, lane_counter
-            )
+            cell, step_warnings, is_native = self._build_cell(node, dag, id_map, tiers, lane_counter)
             warnings.extend(step_warnings)
             cells.append(cell)
             id_map[node.node_id] = cell.cell_id
@@ -221,9 +219,7 @@ class DesignerGenerator(CodeGenerator):
             tiers[node.node_id] = 0 if not preds else 1 + max(tiers.get(p.node_id, 0) for p in preds)
         return tiers
 
-    def _position(
-        self, node: IRNode, tiers: dict[int, int], lane_counter: dict[int, int]
-    ) -> tuple[int, int]:
+    def _position(self, node: IRNode, tiers: dict[int, int], lane_counter: dict[int, int]) -> tuple[int, int]:
         tier = tiers.get(node.node_id, 0)
         lane = lane_counter.get(tier, 0)
         lane_counter[tier] = lane + 1
@@ -342,7 +338,12 @@ class DesignerGenerator(CodeGenerator):
             config = {"file_source": {"path": path, "format": fmt, "header": True, "inferSchema": True}}
             body = f"result = spark.read.format({self._py(fmt)}).load({self._py(path)})"
         return DesignerCell(
-            cell_id=cell_id, template="source", name=name, position=pos, config=config, body=body,
+            cell_id=cell_id,
+            template="source",
+            name=name,
+            position=pos,
+            config=config,
+            body=body,
             description=f"Source: {node.file_path or node.table_name}",
         )
 
@@ -359,8 +360,14 @@ class DesignerGenerator(CodeGenerator):
         fq = f"{catalog}.{schema}.{table_name}"
         body = f'inputs["data"].write.mode({self._py(mode)}).saveAsTable({self._py(fq)})'
         return DesignerCell(
-            cell_id=cell_id, template="output", name=name, position=pos, config=config,
-            inputs=inputs, body=body, description=f"Output: {target}",
+            cell_id=cell_id,
+            template="output",
+            name=name,
+            position=pos,
+            config=config,
+            inputs=inputs,
+            body=body,
+            description=f"Output: {target}",
         )
 
     def _split_target(self, target: str) -> tuple[str, str, str]:
@@ -385,8 +392,13 @@ class DesignerGenerator(CodeGenerator):
         return default_catalog, default_schema, parts[0]
 
     def _filter_cell(
-        self, node: FilterNode, cell_id: str, name: str, pos: tuple[int, int],
-        dag: WorkflowDAG, id_map: dict[int, str],
+        self,
+        node: FilterNode,
+        cell_id: str,
+        name: str,
+        pos: tuple[int, int],
+        dag: WorkflowDAG,
+        id_map: dict[int, str],
     ) -> tuple[DesignerCell, list[str], bool]:
         warnings: list[str] = []
         inputs = self._resolve_inputs(node.node_id, dag, id_map)
@@ -408,8 +420,14 @@ class DesignerGenerator(CodeGenerator):
         )
         return (
             DesignerCell(
-                cell_id=cell_id, template="filter", name=name, position=pos,
-                config=config, inputs=inputs, body=body, description=f"Filter: {node.expression}",
+                cell_id=cell_id,
+                template="filter",
+                name=name,
+                position=pos,
+                config=config,
+                inputs=inputs,
+                body=body,
+                description=f"Filter: {node.expression}",
             ),
             warnings,
             True,
@@ -426,12 +444,17 @@ class DesignerGenerator(CodeGenerator):
             for sf in node.sort_fields
         ]
         exprs = ", ".join(
-            f'F.col({self._py(sf.field_name)}).{"asc" if sf.ascending else "desc"}()' for sf in node.sort_fields
+            f"F.col({self._py(sf.field_name)}).{'asc' if sf.ascending else 'desc'}()" for sf in node.sort_fields
         )
         body = f'result = inputs["data"].orderBy({exprs})' if exprs else 'result = inputs["data"]'
         return DesignerCell(
-            cell_id=cell_id, template="sort", name=name, position=pos,
-            config={"sort_expressions": sort_expressions}, inputs=inputs, body=body,
+            cell_id=cell_id,
+            template="sort",
+            name=name,
+            position=pos,
+            config={"sort_expressions": sort_expressions},
+            inputs=inputs,
+            body=body,
         )
 
     def _limit_cell(
@@ -439,20 +462,32 @@ class DesignerGenerator(CodeGenerator):
     ) -> DesignerCell:
         n = node.n_records or 100
         return DesignerCell(
-            cell_id=cell_id, template="limit", name=name, position=pos,
-            config={"limit": str(n)}, inputs=inputs, body=f'result = inputs["data"].limit({n})',
+            cell_id=cell_id,
+            template="limit",
+            name=name,
+            position=pos,
+            config={"limit": str(n)},
+            inputs=inputs,
+            body=f'result = inputs["data"].limit({n})',
         )
 
     def _join_cell(
-        self, node: JoinNode, cell_id: str, name: str, pos: tuple[int, int],
-        dag: WorkflowDAG, id_map: dict[int, str],
+        self,
+        node: JoinNode,
+        cell_id: str,
+        name: str,
+        pos: tuple[int, int],
+        dag: WorkflowDAG,
+        id_map: dict[int, str],
     ) -> tuple[DesignerCell, list[str], bool]:
         warnings: list[str] = []
         # Map only the explicit Left/Right anchors; everything else is assigned
         # positionally below (avoids the ambiguity where a generic "Input" anchor
         # would otherwise be forced to "left" and collide with a real Left edge).
         inputs = self._resolve_inputs(
-            node.node_id, dag, id_map,
+            node.node_id,
+            dag,
+            id_map,
             port_for_anchor={"Left": "left", "Right": "right"},
         )
         # Assign the two join sides: honour explicit left/right, then fill the
@@ -473,11 +508,9 @@ class DesignerGenerator(CodeGenerator):
         # Real Designer `join` config: join_type + join_conditions (a single SQL
         # string using left./right. aliases) + optional expressions[].
         if node.join_keys:
-            join_conditions = " AND ".join(
-                f"left.{jk.left_field} = right.{jk.right_field}" for jk in node.join_keys
-            )
+            join_conditions = " AND ".join(f"left.{jk.left_field} = right.{jk.right_field}" for jk in node.join_keys)
             on = " & ".join(
-                f'(F.col({self._py("l." + jk.left_field)}) == F.col({self._py("r." + jk.right_field)}))'
+                f"(F.col({self._py('l.' + jk.left_field)}) == F.col({self._py('r.' + jk.right_field)}))"
                 for jk in node.join_keys
             )
             cond = f"[{on}]" if len(node.join_keys) == 1 else on
@@ -485,15 +518,16 @@ class DesignerGenerator(CodeGenerator):
             join_conditions = ""
             cond = '"1=1"'
             warnings.append(f"Join node {node.node_id} has no keys — emitting cross/cartesian join")
-        body = (
-            f'result = inputs["left"].alias("l").join('
-            f'inputs["right"].alias("r"), {cond}, {self._py(jtype)})'
-        )
+        body = f'result = inputs["left"].alias("l").join(inputs["right"].alias("r"), {cond}, {self._py(jtype)})'
         return (
             DesignerCell(
-                cell_id=cell_id, template="join", name=name, position=pos,
+                cell_id=cell_id,
+                template="join",
+                name=name,
+                position=pos,
                 config={"join_type": jtype, "join_conditions": join_conditions, "expressions": []},
-                inputs=inputs, body=body,
+                inputs=inputs,
+                body=body,
             ),
             warnings,
             True,
@@ -508,12 +542,17 @@ class DesignerGenerator(CodeGenerator):
             inp["input_port"] = f"data_{i}"
         body = (
             "from functools import reduce\n"
-            'result = reduce(lambda a, b: a.unionByName(b, allowMissingColumns=True), '
+            "result = reduce(lambda a, b: a.unionByName(b, allowMissingColumns=True), "
             "[inputs[k] for k in sorted(inputs)])"
         )
         return DesignerCell(
-            cell_id=cell_id, template="combine", name=name, position=pos,
-            config={"operator": "UNION", "quantifier": "ALL"}, inputs=inputs, body=body,
+            cell_id=cell_id,
+            template="combine",
+            name=name,
+            position=pos,
+            config={"operator": "UNION", "quantifier": "ALL"},
+            inputs=inputs,
+            body=body,
         )
 
     def _aggregate_cell(
@@ -530,8 +569,13 @@ class DesignerGenerator(CodeGenerator):
                 ],
             }
             return DesignerCell(
-                cell_id=cell_id, template="aggregate", name=name, position=pos,
-                config=config, inputs=inputs, body=body,
+                cell_id=cell_id,
+                template="aggregate",
+                name=name,
+                position=pos,
+                config=config,
+                inputs=inputs,
+                body=body,
             )
         assert isinstance(node, SummarizeNode)
         group_bys: list[dict] = []
@@ -539,14 +583,24 @@ class DesignerGenerator(CodeGenerator):
         agg_exprs: list[str] = []
         # IR AggAction → PySpark fn (body) and Designer fn name (config, uppercase).
         pyspark_fn = {
-            AggAction.SUM: "sum", AggAction.COUNT: "count", AggAction.MIN: "min",
-            AggAction.MAX: "max", AggAction.AVG: "avg", AggAction.FIRST: "first",
-            AggAction.LAST: "last", AggAction.COUNT_DISTINCT: "countDistinct",
+            AggAction.SUM: "sum",
+            AggAction.COUNT: "count",
+            AggAction.MIN: "min",
+            AggAction.MAX: "max",
+            AggAction.AVG: "avg",
+            AggAction.FIRST: "first",
+            AggAction.LAST: "last",
+            AggAction.COUNT_DISTINCT: "countDistinct",
         }
         designer_fn = {
-            AggAction.SUM: "SUM", AggAction.COUNT: "COUNT", AggAction.MIN: "MIN",
-            AggAction.MAX: "MAX", AggAction.AVG: "AVG", AggAction.FIRST: "FIRST",
-            AggAction.LAST: "LAST", AggAction.COUNT_DISTINCT: "COUNT",
+            AggAction.SUM: "SUM",
+            AggAction.COUNT: "COUNT",
+            AggAction.MIN: "MIN",
+            AggAction.MAX: "MAX",
+            AggAction.AVG: "AVG",
+            AggAction.FIRST: "FIRST",
+            AggAction.LAST: "LAST",
+            AggAction.COUNT_DISTINCT: "COUNT",
         }
         for a in node.aggregations:
             if a.action == AggAction.GROUP_BY:
@@ -567,8 +621,13 @@ class DesignerGenerator(CodeGenerator):
         gb = ", ".join(self._py(g["expr"]) for g in group_bys)
         body = f'result = inputs["data"].groupBy({gb}).agg({", ".join(agg_exprs)})'
         return DesignerCell(
-            cell_id=cell_id, template="aggregate", name=name, position=pos,
-            config={"group_bys": group_bys, "aggregations": aggregations}, inputs=inputs, body=body,
+            cell_id=cell_id,
+            template="aggregate",
+            name=name,
+            position=pos,
+            config={"group_bys": group_bys, "aggregations": aggregations},
+            inputs=inputs,
+            body=body,
         )
 
     def _pivot_cell(
@@ -592,7 +651,10 @@ class DesignerGenerator(CodeGenerator):
         ]
         return (
             DesignerCell(
-                cell_id=cell_id, template="pivot", name=name, position=pos,
+                cell_id=cell_id,
+                template="pivot",
+                name=name,
+                position=pos,
                 config={
                     "mode": "pivot",
                     "pivot_column": node.header_field,
@@ -602,7 +664,8 @@ class DesignerGenerator(CodeGenerator):
                     "unpivot_columns": [],
                     "exclude_columns": exclude_columns,
                 },
-                inputs=inputs, body=body,
+                inputs=inputs,
+                body=body,
             ),
             warnings,
         )
@@ -625,11 +688,11 @@ class DesignerGenerator(CodeGenerator):
 
         if isinstance(node, SelectNode):
             drops = [
-                op.field_name for op in node.field_operations
-                if not op.selected or op.action == FieldAction.DESELECT
+                op.field_name for op in node.field_operations if not op.selected or op.action == FieldAction.DESELECT
             ]
             renames = [
-                (op.field_name, op.rename_to) for op in node.field_operations
+                (op.field_name, op.rename_to)
+                for op in node.field_operations
                 if op.action == FieldAction.RENAME and op.rename_to
             ]
             if drops and not renames:
@@ -679,35 +742,59 @@ class DesignerGenerator(CodeGenerator):
         lines.append("result = df")
         return (
             DesignerCell(
-                cell_id=cell_id, template="transform", name=name, position=pos,
-                config={"expressions": expressions}, inputs=inputs, body="\n".join(lines),
+                cell_id=cell_id,
+                template="transform",
+                name=name,
+                position=pos,
+                config={"expressions": expressions},
+                inputs=inputs,
+                body="\n".join(lines),
             ),
             warnings,
         )
 
     def _python_cell(
-        self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int],
-        inputs: list[dict], code: str,
+        self,
+        node: IRNode,
+        cell_id: str,
+        name: str,
+        pos: tuple[int, int],
+        inputs: list[dict],
+        code: str,
     ) -> DesignerCell:
         # python operator: single variadic ``data`` input port (list of upstreams).
         for inp in inputs:
             inp["input_port"] = "data"
         body = code.strip() or 'result = inputs["data"][0] if inputs.get("data") else None'
         return DesignerCell(
-            cell_id=cell_id, template="python", name=name, position=pos,
-            config={"code": body}, inputs=inputs, body=body,
+            cell_id=cell_id,
+            template="python",
+            name=name,
+            position=pos,
+            config={"code": body},
+            inputs=inputs,
+            body=body,
         )
 
     def _markdown_cell(self, node: CommentNode, pos: tuple[int, int]) -> DesignerCell:
         text = node.comment_text or ""
         return DesignerCell(
-            cell_id=_designer_id(node), template="markdown", name="Note", position=pos,
-            config={"md": text}, body="",
+            cell_id=_designer_id(node),
+            template="markdown",
+            name="Note",
+            position=pos,
+            config={"md": text},
+            body="",
         )
 
     def _fallback_cell(
-        self, node: IRNode, cell_id: str, name: str, pos: tuple[int, int],
-        dag: WorkflowDAG, id_map: dict[int, str],
+        self,
+        node: IRNode,
+        cell_id: str,
+        name: str,
+        pos: tuple[int, int],
+        dag: WorkflowDAG,
+        id_map: dict[int, str],
     ) -> tuple[DesignerCell, list[str], bool]:
         """Anything without a native operator → a ``sql`` operator cell.
 
@@ -722,8 +809,13 @@ class DesignerGenerator(CodeGenerator):
         inputs = self._resolve_inputs(node.node_id, dag, id_map)
         return (
             DesignerCell(
-                cell_id=cell_id, template="sql", name=name, position=pos,
-                config={"query": sql_body}, inputs=inputs, body=f"# SQL operator\n# {sql_body}",
+                cell_id=cell_id,
+                template="sql",
+                name=name,
+                position=pos,
+                config={"query": sql_body},
+                inputs=inputs,
+                body=f"# SQL operator\n# {sql_body}",
             ),
             warnings,
             False,

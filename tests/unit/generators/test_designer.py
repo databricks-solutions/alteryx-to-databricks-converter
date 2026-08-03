@@ -143,7 +143,7 @@ class TestNativeOperators:
         dag.add_node(ReadNode(node_id=1, file_path="/d/x.csv", file_format="csv"))
         nb = _notebook(generator.generate(dag, "wf"))
         src = "".join(_cell_by_template(nb, "source")["source"])
-        assert "spark.read.format(\"csv\")" in src
+        assert 'spark.read.format("csv")' in src
         assert "path: /d/x.csv" in src
 
     def test_db_read_becomes_source_table(self, generator: DesignerGenerator):
@@ -233,7 +233,9 @@ class TestNativeOperators:
     def test_crosstab_becomes_pivot(self, generator: DesignerGenerator):
         dag = WorkflowDAG()
         r = ReadNode(node_id=1, file_path="/d/x.csv", file_format="csv")
-        ct = CrossTabNode(node_id=2, group_fields=["region"], header_field="month", value_field="sales", aggregation="Sum")
+        ct = CrossTabNode(
+            node_id=2, group_fields=["region"], header_field="month", value_field="sales", aggregation="Sum"
+        )
         dag.add_node(r)
         dag.add_node(ct)
         dag.add_edge(1, 2)
@@ -511,7 +513,14 @@ class TestCoverageStats:
         dag = WorkflowDAG()
         dag.add_node(ReadNode(node_id=1, file_path="/d/x.csv", file_format="csv"))
         out = generator.generate(dag, "wf")
-        for key in ("total_nodes", "supported_nodes", "unsupported_nodes", "native_operators", "total_cells", "warnings"):
+        for key in (
+            "total_nodes",
+            "supported_nodes",
+            "unsupported_nodes",
+            "native_operators",
+            "total_cells",
+            "warnings",
+        ):
             assert key in out.stats
 
     def test_empty_dag(self, generator: DesignerGenerator):

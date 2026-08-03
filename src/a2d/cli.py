@@ -571,10 +571,7 @@ def validate(
 
         result = validate_designer_notebook(generated_code.read_text())
         if result.is_valid:
-            console.print(
-                f"[bold green]Valid[/bold green]: {generated_code} "
-                f"({result.cell_count} Designer cells)"
-            )
+            console.print(f"[bold green]Valid[/bold green]: {generated_code} ({result.cell_count} Designer cells)")
         else:
             console.print(f"[bold red]Invalid[/bold red]: {generated_code}")
             for error in result.errors:
@@ -614,9 +611,7 @@ def verify(
         "-e",
         help="Golden expected-output CSV exported from Alteryx (enables true equivalence check)",
     ),
-    no_spark: bool = typer.Option(
-        False, "--no-spark", help="Skip the Spark cross-check even if a JVM is available"
-    ),
+    no_spark: bool = typer.Option(False, "--no-spark", help="Skip the Spark cross-check even if a JVM is available"),
     json_out: Path | None = typer.Option(
         None, "--json", help="Write the full verification report as JSON to this path"
     ),
@@ -753,8 +748,7 @@ def _print_verify_report(result) -> None:
 
     if result.skipped_nodes:
         console.print(
-            f"  [yellow]Reference executor skipped {len(result.skipped_nodes)} node(s)[/yellow] "
-            "(verified subset only):"
+            f"  [yellow]Reference executor skipped {len(result.skipped_nodes)} node(s)[/yellow] (verified subset only):"
         )
         for nid, reason in result.skipped_nodes[:6]:
             console.print(f"    - node {nid}: {reason}")
@@ -769,9 +763,7 @@ def _print_verify_report(result) -> None:
 @app.command()
 def profile(
     input_csv: Path = typer.Argument(..., help="Path to a sample-data CSV file to profile"),
-    json_out: Path | None = typer.Option(
-        None, "--json", help="Write the full profile as JSON to this path"
-    ),
+    json_out: Path | None = typer.Option(None, "--json", help="Write the full profile as JSON to this path"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
 ) -> None:

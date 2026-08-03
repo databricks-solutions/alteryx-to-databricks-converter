@@ -375,7 +375,11 @@ class TestMultiFormatReports:
         for ln in lines:
             if ln["type"] == "file_result":
                 assert set(ln["data"]["format_status"].keys()) == {
-                    "pyspark", "dlt", "sql", "lakeflow", "designer",
+                    "pyspark",
+                    "dlt",
+                    "sql",
+                    "lakeflow",
+                    "designer",
                 }
 
     def test_generate_html_multi(self, tmp_path: Path):

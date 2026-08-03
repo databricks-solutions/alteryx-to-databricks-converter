@@ -75,9 +75,7 @@ def spark_available() -> tuple[bool, str]:
     if not java:
         return False, "no Java runtime found (Spark requires a JVM; run on Databricks/CI or install Java)"
     try:
-        proc = subprocess.run(
-            [java, "-version"], capture_output=True, timeout=15, check=False
-        )
+        proc = subprocess.run([java, "-version"], capture_output=True, timeout=15, check=False)
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"Java runtime not usable: {exc}"
     if proc.returncode != 0:
@@ -227,8 +225,7 @@ class SparkBackend:
             if not node.sort_fields:
                 return df
             cols = [
-                F.col(sf.field_name).asc() if sf.ascending else F.col(sf.field_name).desc()
-                for sf in node.sort_fields
+                F.col(sf.field_name).asc() if sf.ascending else F.col(sf.field_name).desc() for sf in node.sort_fields
             ]
             return df.orderBy(*cols)
         if isinstance(node, SampleNode):
@@ -241,9 +238,7 @@ class SparkBackend:
 
             df = self._single_input(node, dag, frames)
             w = Window.orderBy(F.monotonically_increasing_id())
-            return df.withColumn(
-                node.output_field, (F.row_number().over(w) + (node.starting_value - 1))
-            )
+            return df.withColumn(node.output_field, (F.row_number().over(w) + (node.starting_value - 1)))
         if isinstance(node, CountRecordsNode):
             df = self._single_input(node, dag, frames)
             return df.agg(F.count(F.lit(1)).alias(node.output_field))
@@ -281,10 +276,7 @@ class SparkBackend:
         return self._session().createDataFrame(pdf)
 
     def _select(self, node: SelectNode, df: Any) -> Any:
-        drops = [
-            op.field_name for op in node.field_operations
-            if not op.selected or op.action == FieldAction.DESELECT
-        ]
+        drops = [op.field_name for op in node.field_operations if not op.selected or op.action == FieldAction.DESELECT]
         if drops:
             df = df.drop(*[c for c in drops if c in df.columns])
         for op in node.field_operations:
@@ -363,9 +355,7 @@ class SparkBackend:
         aliases = [alias(a) for a in agg_specs]
         dupes = {n for n in aliases if aliases.count(n) > 1}
         if dupes:
-            raise UnsupportedSparkOperationError(
-                f"Summarize has colliding output column name(s): {sorted(dupes)}"
-            )
+            raise UnsupportedSparkOperationError(f"Summarize has colliding output column name(s): {sorted(dupes)}")
         agg_exprs = [func_map[a.action](a.field_name).alias(alias(a)) for a in agg_specs]
         if group_cols:
             return df.groupBy(*group_cols).agg(*agg_exprs)

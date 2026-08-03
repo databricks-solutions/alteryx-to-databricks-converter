@@ -236,8 +236,7 @@ class ReferenceExecutor:
             if key and key in self.source_data:
                 return self.source_data[key].copy()
         raise UnsupportedOperationError(
-            f"No source data provided for ReadNode {node.node_id} "
-            f"(table={node.table_name!r}, path={node.file_path!r})"
+            f"No source data provided for ReadNode {node.node_id} (table={node.table_name!r}, path={node.file_path!r})"
         )
 
     def _literal(self, node: LiteralDataNode) -> pd.DataFrame:

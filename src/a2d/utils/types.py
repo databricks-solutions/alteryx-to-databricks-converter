@@ -35,7 +35,7 @@ _SQL_CURRENT_TIME_RE = re.compile(r"\bCurrent\s+Time\b", re.IGNORECASE)
 # Double-quoted SQL identifier (no spaces inside, at least one char)
 _SQL_DQUOTE_ID_RE = re.compile(r'"([^"\s][^"]*[^"\s]|[^"\s])"')
 # T-SQL square-bracket identifier: [name] → `name`
-_SQL_BRACKET_ID_RE = re.compile(r'\[([^\[\]]+)\]')
+_SQL_BRACKET_ID_RE = re.compile(r"\[([^\[\]]+)\]")
 
 
 def normalize_sql_for_spark(query: str) -> tuple[str, list[str]]:
