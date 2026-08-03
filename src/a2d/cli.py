@@ -817,6 +817,158 @@ def _print_verify_report(result) -> None:
 
 
 @app.command()
+def assist(
+    input_path: Path = typer.Argument(..., help="Path to the .yxmd/.yxmc workflow to scan"),
+    inp: list[str] = typer.Option(
+        [],
+        "--input",
+        "-i",
+        help="Sample input data for a source, as KEY=PATH.csv (repeatable) — enables the verification gate",
+    ),
+    golden: list[str] = typer.Option(
+        [],
+        "--golden",
+        "-g",
+        help="Per-node golden output as NODE_ID=PATH.csv (repeatable) — a candidate is only accepted if it reproduces this",
+    ),
+    json_out: Path | None = typer.Option(None, "--json", help="Write the assist report as JSON to this path"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Propose conversions for unsupported nodes, gated by the equivalence harness.
+
+    For each Alteryx tool a2d can't convert deterministically, this proposes a
+    candidate built from *supported* IR nodes and — when you supply sample input
+    (``-i``) and a per-node golden output (``-g NODE_ID=expected.csv``) — runs the
+    candidate through the pandas reference executor and parity engine. A
+    candidate is only marked **verified** (safe to adopt) when it reproduces the
+    golden output exactly; otherwise it is surfaced as an *unverified suggestion*
+    for human review. Proposals are never silently merged into the dataflow.
+
+    The default proposer is fully offline (a deterministic knowledge base), so
+    this runs with no model access.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    import json as _json
+
+    if not input_path.exists():
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+
+    source_data = None
+    node_goldens = None
+    if inp:
+        try:
+            from a2d.verification.runner import load_csv_inputs
+        except ImportError as exc:
+            console.print(
+                "[red]Sample-data verification requires the verify extra:[/red] "
+                "[cyan]pip install 'alteryx2databricks[verify]'[/cyan]"
+            )
+            raise typer.Exit(code=1) from exc
+        mapping: dict[str, Path] = {}
+        for item in inp:
+            if "=" not in item:
+                console.print(f"[red]Invalid --input {item!r}: expected KEY=PATH.csv[/red]")
+                raise typer.Exit(code=1)
+            key, _, path_str = item.partition("=")
+            mapping[key] = Path(path_str)
+        source_data = load_csv_inputs(mapping)
+
+        if golden:
+            import pandas as pd
+
+            node_goldens = {}
+            for item in golden:
+                if "=" not in item:
+                    console.print(f"[red]Invalid --golden {item!r}: expected NODE_ID=PATH.csv[/red]")
+                    raise typer.Exit(code=1)
+                nid_str, _, path_str = item.partition("=")
+                if not nid_str.lstrip("-").isdigit():
+                    console.print(f"[red]Invalid --golden node id {nid_str!r}: must be an integer[/red]")
+                    raise typer.Exit(code=1)
+                node_goldens[int(nid_str)] = pd.read_csv(Path(path_str))
+
+    from a2d.llm.workflow import scan_workflow_file
+
+    report = scan_workflow_file(
+        input_path,
+        source_data=source_data,
+        node_goldens=node_goldens,
+    )
+    _print_assist_report(report)
+
+    if json_out is not None:
+        payload = {
+            "workflow": report.workflow_name,
+            "unsupported_total": report.unsupported_total,
+            "proposed": report.proposed,
+            "verified": report.verified,
+            "unverified": report.unverified,
+            "nodes": [
+                {
+                    "node_id": o.node_id,
+                    "tool_type": o.tool_type,
+                    "status": (o.verdict.status if o.verdict else "no_candidate"),
+                    "parity_score": (o.verdict.parity_score if o.verdict else 0.0),
+                    "rationale": (o.candidate.rationale if o.candidate else ""),
+                    "confidence": (o.candidate.confidence if o.candidate else 0.0),
+                }
+                for o in report.outcomes
+            ],
+        }
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(_json.dumps(payload, indent=2) + "\n")
+        console.print(f"\n[dim]Assist report written to {json_out}[/dim]")
+
+
+def _print_assist_report(report) -> None:
+    """Render the LLM-assist report to the console."""
+    console.print()
+    console.rule(f"[bold]LLM-assisted conversion — {report.workflow_name}[/bold]")
+    console.print(
+        f"[bold]{report.unsupported_total}[/bold] unsupported node(s) · "
+        f"[bold]{report.proposed}[/bold] proposed · "
+        f"[green]{report.verified} verified[/green] · "
+        f"[yellow]{report.unverified} unverified[/yellow]"
+    )
+
+    if not report.outcomes:
+        console.print("[dim]No unsupported nodes — nothing to assist.[/dim]")
+        return
+
+    table = Table(title="Proposals")
+    table.add_column("Node", justify="right")
+    table.add_column("Tool", style="cyan")
+    table.add_column("Status")
+    table.add_column("Parity", justify="right")
+    table.add_column("Rationale", style="dim")
+    for o in sorted(report.outcomes, key=lambda x: x.node_id):
+        if o.verdict is None:
+            status = "[dim]no candidate[/dim]"
+            parity = "-"
+            rationale = o.notes[0] if o.notes else ""
+        else:
+            status_color = {"verified": "green", "rejected": "red", "unverified": "yellow"}.get(
+                o.verdict.status, "white"
+            )
+            status = f"[{status_color}]{o.verdict.status}[/{status_color}]"
+            parity = f"{o.verdict.parity_score:.2f}" if o.candidate else "-"
+            rationale = o.candidate.rationale if o.candidate else ""
+        table.add_row(str(o.node_id), o.tool_type, status, parity, rationale)
+    console.print(table)
+
+    if report.verified:
+        console.print(f"\n[green]{report.verified} proposal(s) verified against golden output — safe to adopt.[/green]")
+    if report.unverified:
+        console.print(
+            f"[yellow]{report.unverified} proposal(s) need review: supply -i/-g sample+golden data "
+            f"to verify, or inspect manually.[/yellow]"
+        )
+
+
+@app.command()
 def profile(
     input_csv: Path = typer.Argument(..., help="Path to a sample-data CSV file to profile"),
     json_out: Path | None = typer.Option(None, "--json", help="Write the full profile as JSON to this path"),

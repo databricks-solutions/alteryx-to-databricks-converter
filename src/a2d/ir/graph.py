@@ -129,6 +129,10 @@ class WorkflowDAG:
     # Alias for backward compatibility
     topological_sort = topological_order
 
+    def has_cycle(self) -> bool:
+        """Return True if the graph contains a directed cycle."""
+        return not nx.is_directed_acyclic_graph(self._graph)
+
     def get_source_nodes(self) -> list[IRNode]:
         """Return nodes with no incoming edges (sources / entry points)."""
         return [self._graph.nodes[nid]["ir"] for nid in self._graph.nodes if self._graph.in_degree(nid) == 0]
