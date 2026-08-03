@@ -1089,6 +1089,94 @@ def feedback(
 
 
 @app.command()
+def advise(
+    input_path: Path = typer.Argument(..., help="Path to a workflow (.yxmd/.yxmc) or dbt manifest"),
+    cloud: str = typer.Option("aws", "--cloud", help="Target cloud for node_type_id (aws|azure|gcp)"),
+    frontend: str | None = typer.Option(None, "--frontend", help="Source frontend (auto-detected when omitted)"),
+    json_out: Path | None = typer.Option(None, "--json", help="Write the advisory report as JSON to this path"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Recommend a cluster size and surface Spark optimization hints.
+
+    Analyzes the IR DAG to suggest a starting cluster tier (single-node → small
+    → medium → large) with a relative DBU/hour proxy, cloud ``node_type_id`` and
+    a Photon recommendation, then lists per-node optimization hints (broadcast
+    joins, cross joins, persist/repartition, sequential joins). Deterministic and
+    offline — a planning aid, not a benchmark or a quote.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    import json as _json
+
+    if not input_path.exists():
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+
+    cloud_normalized = (cloud or "").strip().lower()
+    if cloud_normalized not in ("aws", "azure", "gcp"):
+        console.print(f"[red]Invalid --cloud value: {cloud!r}. Valid: aws, azure, gcp[/red]")
+        raise typer.Exit(code=1)
+
+    from a2d.advisor import CostPerformanceAdvisor
+    from a2d.frontends import FrontendRegistry
+    from a2d.pipeline import ConversionPipeline
+
+    cfg = ConversionConfig(cloud=cloud_normalized)  # type: ignore[arg-type]
+    try:
+        source_frontend = FrontendRegistry.resolve(input_path, frontend)
+    except KeyError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    pipeline = ConversionPipeline(cfg, frontend=source_frontend)
+    parsed = source_frontend.parse(input_path)
+    dag = pipeline._build_dag(parsed)
+
+    report = CostPerformanceAdvisor().analyze(dag, cfg, workflow_name=input_path.stem)
+    _print_advisor_report(report)
+
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(_json.dumps(report.to_dict(), indent=2) + "\n")
+        console.print(f"\n[dim]Advisory report written to {json_out}[/dim]")
+
+
+def _print_advisor_report(report) -> None:
+    """Render the cost/performance advisory to the console."""
+    c = report.cluster
+    console.print()
+    console.rule(f"[bold]Cost & performance advisory — {report.workflow_name}[/bold]")
+    console.print(
+        f"[bold]Recommended cluster:[/bold] [cyan]{c.tier}[/cyan] "
+        f"({c.workers} worker(s), {c.node_type_id}) · "
+        f"~{c.relative_dbu_per_hour:g}x relative DBU/hr · "
+        f"Photon: {'[green]yes[/green]' if c.photon_recommended else 'no'}"
+    )
+    for r in c.rationale:
+        console.print(f"  [dim]• {r}[/dim]")
+
+    if not report.hints:
+        console.print("\n[green]No Spark optimization hints — the DAG looks clean.[/green]")
+        return
+
+    table = Table(title=f"Optimization hints ({len(report.hints)})")
+    table.add_column("Node", justify="right")
+    table.add_column("Priority")
+    table.add_column("Type", style="cyan")
+    table.add_column("Suggestion", style="dim")
+    for h in report.hints:
+        color = {"high": "red", "medium": "yellow", "low": "green"}.get(h.priority.value, "white")
+        table.add_row(
+            str(h.node_id),
+            f"[{color}]{h.priority.value}[/{color}]",
+            h.hint_type.value,
+            h.suggestion,
+        )
+    console.print(table)
+
+
+@app.command()
 def profile(
     input_csv: Path = typer.Argument(..., help="Path to a sample-data CSV file to profile"),
     json_out: Path | None = typer.Option(None, "--json", help="Write the full profile as JSON to this path"),
