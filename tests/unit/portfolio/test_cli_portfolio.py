@@ -25,6 +25,21 @@ class TestPortfolioCommand:
         assert (out / "portfolio_report.html").exists()
         assert (out / "portfolio_report.json").exists()
 
+    def test_dashboard_emitted_by_default(self, tmp_path):
+        out = tmp_path / "pf"
+        result = runner.invoke(app, ["portfolio", str(PORTFOLIO_FIXTURES), "-o", str(out), "-q"])
+        assert result.exit_code == 0, result.output
+        assert (out / "executive_dashboard.html").exists()
+
+    def test_no_dashboard_flag(self, tmp_path):
+        out = tmp_path / "pf"
+        result = runner.invoke(
+            app,
+            ["portfolio", str(PORTFOLIO_FIXTURES), "-o", str(out), "--no-dashboard", "-q"],
+        )
+        assert result.exit_code == 0, result.output
+        assert not (out / "executive_dashboard.html").exists()
+
     def test_summary_printed(self, tmp_path):
         result = runner.invoke(
             app,

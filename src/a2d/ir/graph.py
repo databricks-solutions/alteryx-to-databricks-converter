@@ -44,6 +44,15 @@ class WorkflowDAG:
         """Add an IR node to the graph."""
         self._graph.add_node(ir_node.node_id, ir=ir_node)
 
+    def remove_node(self, node_id: int) -> None:
+        """Remove a node and all its incident edges.
+
+        Raises :class:`KeyError` if the node is not present.
+        """
+        if node_id not in self._graph:
+            raise KeyError(f"Node {node_id} not in graph")
+        self._graph.remove_node(node_id)
+
     def add_edge(
         self,
         source_id: int,

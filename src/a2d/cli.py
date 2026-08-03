@@ -550,6 +550,11 @@ def portfolio(
     input_path: Path = typer.Argument(..., help="Directory of .yxmd files to analyze as an estate"),
     output_dir: Path = typer.Option("./a2d-portfolio", "--output-dir", "-o", help="Report output directory"),
     format: str = typer.Option("html", help="Report format: html, json, both"),
+    dashboard: bool = typer.Option(
+        True,
+        "--dashboard/--no-dashboard",
+        help="Also emit the executive estate dashboard (HTML)",
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
 ) -> None:
@@ -558,11 +563,13 @@ def portfolio(
     Builds a cross-workflow dependency graph (producer→consumer via shared
     files/tables), flags macros and sub-flows duplicated across workflows, and
     produces a dependency-ordered migration-wave plan ranked by
-    value x readiness / effort.
+    value x readiness / effort. With --dashboard (default) it also writes an
+    executive HTML dashboard rolling up coverage, effort and risk estate-wide.
     """
     setup_logging(quiet=quiet, debug=debug)
 
     from a2d.portfolio.analyzer import PortfolioAnalyzer
+    from a2d.portfolio.dashboard import generate_dashboard
     from a2d.portfolio.report import generate_html as portfolio_html
     from a2d.portfolio.report import generate_json as portfolio_json
     from a2d.portfolio.report import print_portfolio_summary
@@ -588,6 +595,8 @@ def portfolio(
         portfolio_html(report, output_dir / "portfolio_report.html")
     if format in ("json", "both"):
         portfolio_json(report, output_dir / "portfolio_report.json")
+    if dashboard:
+        generate_dashboard(report, output_dir / "executive_dashboard.html")
 
     console.print(f"\n[bold green]Portfolio report generated[/bold green] at {output_dir}")
 

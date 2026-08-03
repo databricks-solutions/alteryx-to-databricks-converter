@@ -14,6 +14,7 @@ This package operates across *many* Alteryx workflows at once:
 from __future__ import annotations
 
 from a2d.portfolio.analyzer import PortfolioAnalyzer
+from a2d.portfolio.dashboard import EstateRollup, build_rollup, generate_dashboard, risk_tier
 from a2d.portfolio.models import (
     ArtifactDependency,
     DuplicateSubflow,
@@ -29,6 +30,7 @@ from a2d.portfolio.planner import MigrationWavePlanner
 __all__ = [
     "ArtifactDependency",
     "DuplicateSubflow",
+    "EstateRollup",
     "MigrationPlan",
     "MigrationWavePlanner",
     "PortfolioAnalyzer",
@@ -37,4 +39,7 @@ __all__ = [
     "WaveAssignment",
     "WorkflowArtifacts",
     "WorkflowEntry",
+    "build_rollup",
+    "generate_dashboard",
+    "risk_tier",
 ]

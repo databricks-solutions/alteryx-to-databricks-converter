@@ -1,0 +1,72 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2023.1">
+  <Nodes>
+    <Node ToolID="10">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.MacroInput.MacroInput">
+        <Position x="60" y="100"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Name>MacroInput</Name>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Macro input</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="11">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.DataCleansing.DataCleansing">
+        <Position x="220" y="100"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Fields><Field name="Name"/></Fields>
+          <Trim>True</Trim>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Trim whitespace</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="12">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.Formula.Formula">
+        <Position x="380" y="100"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <FormulaFields>
+            <FormulaField expression="Uppercase([Name])" field="Name" type="V_WString" size="255"/>
+          </FormulaFields>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Uppercase name</Name></Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="13">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.MacroOutput.MacroOutput">
+        <Position x="540" y="100"/>
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Name>MacroOutput</Name>
+        </Configuration>
+        <Annotation DisplayMode="0"><Name>Macro output</Name></Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection>
+      <Origin ToolID="10" Connection="Output"/>
+      <Destination ToolID="11" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="11" Connection="Output"/>
+      <Destination ToolID="12" Connection="Input"/>
+    </Connection>
+    <Connection>
+      <Origin ToolID="12" Connection="Output"/>
+      <Destination ToolID="13" Connection="Input"/>
+    </Connection>
+  </Connections>
+  <Properties>
+    <MetaInfo>
+      <Name>StandardCleanse</Name>
+      <Description>Reusable macro: trim + uppercase Name</Description>
+    </MetaInfo>
+  </Properties>
+</AlteryxDocument>
