@@ -9,4 +9,5 @@ FORMAT_MAP: dict[str, OutputFormat] = {
     "dlt": OutputFormat.DLT,
     "sql": OutputFormat.SQL,
     "lakeflow": OutputFormat.LAKEFLOW,
+    "designer": OutputFormat.DESIGNER,
 }

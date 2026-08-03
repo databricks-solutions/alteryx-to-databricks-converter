@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from a2d.utils.types import normalize_sql_for_spark
 
 

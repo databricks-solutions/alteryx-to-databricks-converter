@@ -15,12 +15,13 @@ from a2d.observability.batch import (
 from a2d.observability.errors import ErrorKind, ErrorSeverity
 from a2d.observability.hints import enrich_warnings
 
-_FORMAT_KEYS: tuple[str, ...] = ("pyspark", "dlt", "sql", "lakeflow")
+_FORMAT_KEYS: tuple[str, ...] = ("pyspark", "dlt", "sql", "lakeflow", "designer")
 _FORMAT_LABELS: dict[str, str] = {
     "pyspark": "PySpark",
     "dlt": "Spark Declarative Pipelines",
     "sql": "Spark SQL",
-    "lakeflow": "Lakeflow Designer",
+    "lakeflow": "Lakeflow Declarative Pipelines (SQL)",
+    "designer": "Lakeflow Designer",
 }
 
 
@@ -231,7 +232,7 @@ tr.failure {{ background: #fff0f0; }}
     #
     # The single-format methods above continue to work unchanged. The
     # methods below render a ``MultiFormatBatchResult`` so each file shows
-    # per-format columns (pyspark / dlt / sql / lakeflow). All three
+    # per-format columns (pyspark / dlt / sql / lakeflow / designer). All three
     # report shapes (JSON, JSONL, HTML) are extended.
 
     def generate_json_multi(self, result: MultiFormatBatchResult, output_path: Path) -> None:

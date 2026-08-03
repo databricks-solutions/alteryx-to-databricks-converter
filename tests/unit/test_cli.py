@@ -25,7 +25,7 @@ SIMPLE_FIXTURE = FIXTURES_DIR / "simple_filter.yxmd"
 COMPLEX_FIXTURE = FIXTURES_DIR / "complex_pipeline.yxmd"
 JOIN_FIXTURE = FIXTURES_DIR / "join_and_summarize.yxmd"
 
-ALL_FORMAT_DIRS = ("pyspark", "dlt", "sql", "lakeflow")
+ALL_FORMAT_DIRS = ("pyspark", "dlt", "sql", "lakeflow", "designer")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -83,7 +83,10 @@ class TestHelpAndDiscovery:
         result = runner.invoke(app, ["convert", "--help"])
         assert result.exit_code == 0
         # The CLI documents dlt = "Spark Declarative Pipelines" in the --format help.
-        assert "Spark Declarative Pipelines" in result.output
+        # Strip rich's box-border glyphs and collapse whitespace, since rich wraps
+        # the help text across lines (inserting borders mid-phrase).
+        collapsed = " ".join(result.output.replace("│", " ").split())
+        assert "Spark Declarative Pipelines" in collapsed
 
 
 # ── B. version command ────────────────────────────────────────────────
@@ -134,7 +137,7 @@ class TestListToolsCommand:
 
 
 class TestConvertCommandHappyPath:
-    def test_convert_single_file_emits_all_four_format_subdirs(self, tmp_path):
+    def test_convert_single_file_emits_all_format_subdirs(self, tmp_path):
         out = tmp_path / "out"
         result = runner.invoke(app, ["convert", str(SIMPLE_FIXTURE), "--output-dir", str(out)])
         assert result.exit_code == 0, result.output
@@ -147,9 +150,9 @@ class TestConvertCommandHappyPath:
         assert result.exit_code == 0, result.output
         for fmt in ALL_FORMAT_DIRS:
             files = _output_files(out, fmt)
-            # Each format produces .py and/or .sql artefacts; allow either.
-            has_code = any(p.suffix in (".py", ".sql") for p in files)
-            assert has_code, f"format {fmt} produced no .py/.sql files: {files}"
+            # Each format produces code artefacts: .py/.sql, or .ipynb (Designer).
+            has_code = any(p.suffix in (".py", ".sql", ".ipynb") for p in files)
+            assert has_code, f"format {fmt} produced no code files: {files}"
 
     def test_convert_format_filter_pyspark_only(self, tmp_path):
         out = tmp_path / "out"
@@ -188,7 +191,7 @@ class TestConvertCommandHappyPath:
         for fmt in ("dlt", "lakeflow"):
             assert not (out / fmt).is_dir(), f"unexpected subdir {fmt}/ created"
 
-    def test_convert_format_all_emits_all_four(self, tmp_path):
+    def test_convert_format_all_emits_all(self, tmp_path):
         out = tmp_path / "out"
         result = runner.invoke(
             app,
@@ -641,6 +644,27 @@ class TestValidateCommand:
         # Should not crash; exit non-zero or report invalid.
         assert result.exit_code != 0 or "Invalid" in result.output
 
+    def test_validate_designer_notebook(self, tmp_path):
+        # Convert to produce a .designer.ipynb, then structurally validate it.
+        out = tmp_path / "out"
+        result = runner.invoke(
+            app, ["convert", str(SIMPLE_FIXTURE), "--output-dir", str(out), "--format", "designer"]
+        )
+        assert result.exit_code == 0, result.output
+        ipynbs = list((out / "designer").rglob("*.designer.ipynb"))
+        assert ipynbs, "no .designer.ipynb produced"
+        result2 = runner.invoke(app, ["validate", str(ipynbs[0])])
+        assert result2.exit_code == 0, result2.output
+        assert "Valid" in result2.output
+        assert "Designer cells" in result2.output
+
+    def test_validate_fails_on_broken_designer_notebook(self, tmp_path):
+        broken = tmp_path / "broken.designer.ipynb"
+        broken.write_text("{ not valid json")
+        result = runner.invoke(app, ["validate", str(broken)])
+        assert result.exit_code != 0
+        assert "Invalid" in result.output
+
 
 # ── H. Internal helpers ───────────────────────────────────────────────
 
@@ -649,7 +673,7 @@ class TestParseFormats:
     def test_parse_formats_all(self):
         result = _parse_formats("all")
         assert result == list(OutputFormat)
-        assert len(result) == 4
+        assert len(result) == 5
 
     def test_parse_formats_single(self):
         result = _parse_formats("pyspark")

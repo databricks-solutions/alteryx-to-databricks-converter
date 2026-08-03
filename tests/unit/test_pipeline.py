@@ -33,10 +33,10 @@ def pipeline(tmp_path: Path) -> ConversionPipeline:
 
 
 class TestConvertAllFormats:
-    def test_returns_all_four_formats(self, pipeline: ConversionPipeline) -> None:
+    def test_returns_all_formats(self, pipeline: ConversionPipeline) -> None:
         result = pipeline.convert_all_formats(SIMPLE_FIXTURE)
         assert isinstance(result, MultiFormatConversionResult)
-        assert set(result.formats.keys()) == {"pyspark", "dlt", "sql", "lakeflow"}
+        assert set(result.formats.keys()) == {"pyspark", "dlt", "sql", "lakeflow", "designer"}
 
     def test_per_format_duration_ms_recorded(self, pipeline: ConversionPipeline) -> None:
         result = pipeline.convert_all_formats(SIMPLE_FIXTURE)

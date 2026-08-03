@@ -12,7 +12,8 @@ class ConversionOptions:
     """Shared conversion form parameters for single and batch endpoints.
 
     Note: ``output_format`` was removed in the multi-format refactor — every
-    request now produces all four output formats (pyspark, dlt, sql, lakeflow).
+    request now produces all output formats (pyspark, dlt, sql, lakeflow,
+    designer).
     """
 
     catalog_name: str

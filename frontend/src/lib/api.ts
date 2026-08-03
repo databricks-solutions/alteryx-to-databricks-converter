@@ -204,7 +204,7 @@ export interface ConfidenceScore {
   dimensions: ConfidenceDimension[];
 }
 
-export type FormatId = "pyspark" | "dlt" | "sql" | "lakeflow";
+export type FormatId = "pyspark" | "dlt" | "sql" | "lakeflow" | "designer";
 
 export interface FormatResult {
   format: FormatId;

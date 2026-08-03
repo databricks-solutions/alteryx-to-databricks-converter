@@ -263,6 +263,7 @@ def _make_multi_format_batch_result():
             "dlt": _make_format_result("dlt", "success"),
             "sql": _make_format_result("sql", "success"),
             "lakeflow": _make_format_result("lakeflow", "success"),
+            "designer": _make_format_result("designer", "success"),
         },
         best_format="pyspark",
     )
@@ -295,6 +296,7 @@ def _make_multi_format_batch_result():
             "dlt": _make_format_result("dlt", "failed"),
             "sql": _make_format_result("sql", "success"),
             "lakeflow": _make_format_result("lakeflow", "failed"),
+            "designer": _make_format_result("designer", "success"),
         },
         best_format="pyspark",
     )
@@ -353,7 +355,7 @@ class TestMultiFormatReports:
         assert len(data["file_results"]) == 2
         # Each file has a per-format dict with status + duration_ms.
         for f in data["file_results"]:
-            assert set(f["formats"].keys()) == {"pyspark", "dlt", "sql", "lakeflow"}
+            assert set(f["formats"].keys()) == {"pyspark", "dlt", "sql", "lakeflow", "designer"}
             for fmt_dict in f["formats"].values():
                 assert fmt_dict["status"] in {"success", "failed"}
                 assert "duration_ms" in fmt_dict
@@ -369,10 +371,12 @@ class TestMultiFormatReports:
         assert types.count("file_result") == 2
         # Two formats failed in file "b" (dlt + lakeflow).
         assert types.count("format_error") == 2
-        # The format_status block should expose all 4 keys.
+        # The format_status block should expose all format keys.
         for ln in lines:
             if ln["type"] == "file_result":
-                assert set(ln["data"]["format_status"].keys()) == {"pyspark", "dlt", "sql", "lakeflow"}
+                assert set(ln["data"]["format_status"].keys()) == {
+                    "pyspark", "dlt", "sql", "lakeflow", "designer",
+                }
 
     def test_generate_html_multi(self, tmp_path: Path):
         result = _make_multi_format_batch_result()

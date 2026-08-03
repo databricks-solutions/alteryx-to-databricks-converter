@@ -27,7 +27,7 @@ const quickActions = [
   {
     icon: ArrowRightLeft,
     title: "Convert",
-    description: "Generate PySpark, Spark Declarative Pipelines, SQL, and Lakeflow in one shot — best format auto-flagged",
+    description: "Generate PySpark, Spark Declarative Pipelines, SQL, Lakeflow SQL, and Lakeflow Designer in one shot — best format auto-flagged",
     to: "/convert",
   },
   {

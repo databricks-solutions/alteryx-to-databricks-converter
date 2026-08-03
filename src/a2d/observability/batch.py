@@ -322,7 +322,7 @@ class BatchOrchestrator:
         # ``_compute_top_coverage`` logic — coverage is format-agnostic in
         # practice but we read whichever successful generator we have).
         best_fr: FormatConversionResult | None = None
-        for fmt_key in ("pyspark", "dlt", "sql", "lakeflow"):
+        for fmt_key in ("pyspark", "dlt", "sql", "lakeflow", "designer"):
             fr = multi.formats.get(fmt_key)
             if fr is not None and fr.status == "success" and fr.output is not None:
                 best_fr = fr

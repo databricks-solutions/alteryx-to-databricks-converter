@@ -6,6 +6,7 @@ export const FORMAT_ORDER: ReadonlyArray<FormatId> = [
   "dlt",
   "sql",
   "lakeflow",
+  "designer",
 ];
 
 /** Human-readable labels for output format IDs. */
@@ -13,7 +14,8 @@ export const FORMAT_LABELS: Record<string, string> = {
   pyspark: "PySpark",
   dlt: "Spark Declarative Pipelines",
   sql: "Spark SQL",
-  lakeflow: "Lakeflow Designer",
+  lakeflow: "Lakeflow Declarative Pipelines (SQL)",
+  designer: "Lakeflow Designer",
 };
 
 /** Get the display label for a format, falling back to the raw ID. */

@@ -31,6 +31,7 @@ class OutputFormat(Enum):
     DLT = "dlt"
     SQL = "sql"
     LAKEFLOW = "lakeflow"
+    DESIGNER = "designer"
 
 
 class CatalogMode(Enum):

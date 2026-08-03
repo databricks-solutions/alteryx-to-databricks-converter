@@ -50,7 +50,7 @@ def generate_ddl_dab_files(
 
     if generate_dab:
         ref_output = None
-        for fmt_key in ("pyspark", "dlt", "sql", "lakeflow"):
+        for fmt_key in ("pyspark", "dlt", "sql", "lakeflow", "designer"):
             fr = result.formats.get(fmt_key)
             if fr and fr.status == "success" and fr.output is not None:
                 ref_output = fr.output
@@ -159,7 +159,7 @@ def convert_file(
         file_path.write_bytes(file_bytes)
 
         # OutputFormat.PYSPARK is a placeholder — convert_all_formats does not
-        # consult config.output_format; it iterates over all four formats.
+        # consult config.output_format; it iterates over all formats.
         config = ConversionConfig(
             input_path=file_path,
             output_format=OutputFormat.PYSPARK,

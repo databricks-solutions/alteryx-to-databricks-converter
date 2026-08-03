@@ -124,7 +124,7 @@ export function ConvertPage() {
           <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="animate-pulse">
-              Generating PySpark, Spark Declarative Pipelines, Spark SQL, and Lakeflow Designer code for {files[0]?.name}
+              Generating PySpark, Spark Declarative Pipelines, Spark SQL, Lakeflow SQL, and Lakeflow Designer code for {files[0]?.name}
               {files[0] && ` (${(files[0].size / 1024).toFixed(0)} KB)`}...
             </span>
           </div>
