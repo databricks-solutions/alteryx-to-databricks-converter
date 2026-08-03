@@ -12,6 +12,7 @@ from a2d.config import ConversionConfig
 from a2d.converters.registry import ConverterRegistry
 from a2d.exceptions import A2dError
 from a2d.ir.graph import WorkflowDAG
+from a2d.parser.schema import ParsedWorkflow
 from a2d.parser.workflow_parser import WorkflowParser
 
 logger = logging.getLogger("a2d.analyzer.batch")
@@ -39,12 +40,12 @@ class BatchAnalyzer:
 
         return results
 
-    def _analyze_single(self, path: Path) -> WorkflowAnalysis:
-        """Analyze a single workflow file."""
-        # Parse the workflow
-        parsed = self._parser.parse(path)
+    def build_dag(self, parsed: ParsedWorkflow) -> WorkflowDAG:
+        """Build an IR DAG from a parsed workflow using default config.
 
-        # Build the IR DAG using default config
+        Shared by single-file analysis and the portfolio pass so both walk the
+        same graph without re-parsing.
+        """
         config = ConversionConfig()
         dag = WorkflowDAG()
         for node in parsed.nodes:
@@ -68,6 +69,21 @@ class BatchAnalyzer:
                 conn.origin.anchor_name,
                 conn.destination.anchor_name,
             )
+        return dag
+
+    def analyze_workflow(self, parsed: ParsedWorkflow, dag: WorkflowDAG) -> WorkflowAnalysis:
+        """Run complexity/coverage/readiness on an already-built DAG."""
+        return self._assess(parsed, dag)
+
+    def _analyze_single(self, path: Path) -> WorkflowAnalysis:
+        """Analyze a single workflow file."""
+        parsed = self._parser.parse(path)
+        dag = self.build_dag(parsed)
+        return self._assess(parsed, dag)
+
+    def _assess(self, parsed: ParsedWorkflow, dag: WorkflowDAG) -> WorkflowAnalysis:
+        """Compute the analysis for a parsed workflow and its DAG."""
+        path = Path(parsed.file_path)
 
         # Run analyses
         complexity = self._complexity_analyzer.analyze(dag, parsed.macro_references)
