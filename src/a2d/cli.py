@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.table import Table
 
 from a2d.__about__ import __version__
+from a2d.advisor.llm_client import ENV_ENDPOINT as ENV_FMAPI_ENDPOINT
+from a2d.advisor.llm_client import ENV_TOKEN as ENV_FMAPI_TOKEN
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.utils.logging import setup_logging
 
@@ -978,6 +980,103 @@ def advise(
         json_out.parent.mkdir(parents=True, exist_ok=True)
         json_out.write_text(_json.dumps(report.to_dict(), indent=2) + "\n")
         console.print(f"\n[dim]Advisory report written to {json_out}[/dim]")
+
+
+@app.command()
+def suggest(
+    input_path: Path = typer.Argument(..., help="Path to the .yxmd/.yxmc workflow to analyze"),
+    output_format: str = typer.Option(
+        "pyspark", "--format", "-f", help="Target format to analyze (pyspark|dlt|sql|lakeflow)"
+    ),
+    endpoint: str | None = typer.Option(
+        None, "--endpoint", help=f"FMAPI serving endpoint URL (or set ${ENV_FMAPI_ENDPOINT})"
+    ),
+    token: str | None = typer.Option(
+        None, "--token", help=f"Bearer token for the endpoint (or set ${ENV_FMAPI_TOKEN})"
+    ),
+    output_file: Path | None = typer.Option(
+        None, "--output", "-o", help="Markdown report path (default: <workflow>_suggestions.md)"
+    ),
+    cloud: str = typer.Option("aws", "--cloud", help="Target cloud (aws|azure|gcp)"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Write AI suggestions for what the converter could not convert.
+
+    Produces a **separate Markdown document** describing each gap (unsupported
+    tools, TODO stubs, expression fallbacks, connection issues) with a suggested
+    Databricks implementation. The generated code is never modified — this is
+    advisory reading material for a human.
+
+    AI is opt-in: without ``--endpoint`` (or ``$A2D_FMAPI_ENDPOINT``) the report
+    is still written, containing the deterministic gap list and no suggestions.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    if not input_path.exists():
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+
+    fmt = (output_format or "").strip().lower()
+    valid_formats = {"pyspark", "dlt", "sql", "lakeflow"}
+    if fmt not in valid_formats:
+        console.print(
+            f"[red]Invalid --format value: {output_format!r}. Valid: {', '.join(sorted(valid_formats))}[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    cloud_normalized = (cloud or "").strip().lower()
+    if cloud_normalized not in ("aws", "azure", "gcp"):
+        console.print(f"[red]Invalid --cloud value: {cloud!r}. Valid: aws, azure, gcp[/red]")
+        raise typer.Exit(code=1)
+
+    from a2d.advisor import build_migration_context, render_report, resolve_client
+    from a2d.pipeline import ConversionPipeline
+
+    cfg = ConversionConfig(
+        input_path=input_path,
+        output_format=OutputFormat(fmt),
+        cloud=cloud_normalized,  # type: ignore[arg-type]
+    )
+    try:
+        result = ConversionPipeline(cfg).convert(input_path)
+    except Exception as e:
+        console.print(f"[red]Conversion failed: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    generated_code = "\n".join(f.content for f in result.output.files)
+    ctx = build_migration_context(
+        result.dag,
+        workflow_name=input_path.stem,
+        output_format=fmt,
+        format_warnings=list(result.output.warnings),
+        generated_code=generated_code,
+        coverage=result.output.stats.get("coverage_percentage"),
+        confidence=result.confidence.overall if result.confidence else None,
+    )
+
+    client = resolve_client(endpoint, token)
+    if client is None:
+        console.print(
+            f"[yellow]No FMAPI endpoint configured — writing the deterministic gap list only.[/yellow]\n"
+            f"[dim]Set --endpoint or ${ENV_FMAPI_ENDPOINT} to include AI suggestions.[/dim]"
+        )
+
+    markdown = render_report(ctx, client)
+
+    destination = output_file or input_path.parent / f"{input_path.stem}_suggestions.md"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(markdown)
+
+    console.print()
+    console.rule(f"[bold]Migration suggestions — {ctx.workflow_name}[/bold]")
+    console.print(
+        f"Deploy readiness: [cyan]{ctx.deploy_status}[/cyan] · "
+        f"gaps: [bold]{len(ctx.gaps)}[/bold] ({len(ctx.blocking_gaps)} blocking) · "
+        f"suggestions: {'yes' if client is not None else '[dim]opt-in, skipped[/dim]'}"
+    )
+    console.print(f"\n[green]Report written to {destination}[/green]")
+    console.print("[dim]Advisory only — no generated file was modified.[/dim]")
 
 
 def _print_advisor_report(report) -> None:
