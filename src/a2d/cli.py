@@ -546,6 +546,62 @@ def analyze(
 
 
 @app.command()
+def portfolio(
+    input_path: Path = typer.Argument(..., help="Directory of .yxmd files to analyze as an estate"),
+    output_dir: Path = typer.Option("./a2d-portfolio", "--output-dir", "-o", help="Report output directory"),
+    format: str = typer.Option("html", help="Report format: html, json, both"),
+    dashboard: bool = typer.Option(
+        True,
+        "--dashboard/--no-dashboard",
+        help="Also emit the executive estate dashboard (HTML)",
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Analyze a whole estate of Alteryx workflows at once.
+
+    Builds a cross-workflow dependency graph (producer→consumer via shared
+    files/tables), flags macros and sub-flows duplicated across workflows, and
+    produces a dependency-ordered migration-wave plan ranked by
+    value x readiness / effort. With --dashboard (default) it also writes an
+    executive HTML dashboard rolling up coverage, effort and risk estate-wide.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    from a2d.portfolio.analyzer import PortfolioAnalyzer
+    from a2d.portfolio.dashboard import generate_dashboard
+    from a2d.portfolio.report import generate_html as portfolio_html
+    from a2d.portfolio.report import generate_json as portfolio_json
+    from a2d.portfolio.report import print_portfolio_summary
+
+    if input_path.is_dir():
+        files = sorted(input_path.glob("**/*.yxmd"))
+    elif input_path.is_file():
+        files = [input_path]
+    else:
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        console.print("[dim]Portfolio analysis expects a directory of .yxmd files.[/dim]")
+        raise typer.Exit(code=1)
+
+    if not files:
+        console.print(f"[red]No .yxmd files found under {input_path}[/red]")
+        raise typer.Exit(code=1)
+
+    report = PortfolioAnalyzer().analyze(files)
+    print_portfolio_summary(report, console)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if format in ("html", "both"):
+        portfolio_html(report, output_dir / "portfolio_report.html")
+    if format in ("json", "both"):
+        portfolio_json(report, output_dir / "portfolio_report.json")
+    if dashboard:
+        generate_dashboard(report, output_dir / "executive_dashboard.html")
+
+    console.print(f"\n[bold green]Portfolio report generated[/bold green] at {output_dir}")
+
+
+@app.command()
 def validate(
     generated_code: Path = typer.Argument(..., help="Generated .py or .designer.ipynb file to validate"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),

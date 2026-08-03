@@ -211,7 +211,32 @@ class ConversionPipeline:
                 conn.origin.anchor_name,
                 conn.destination.anchor_name,
             )
+
+        if self.config.expand_macros:
+            dag = self._expand_macros(parsed, dag)
+
         return dag
+
+    def _expand_macros(self, parsed: ParsedWorkflow, dag: WorkflowDAG) -> WorkflowDAG:
+        """Inline referenced .yxmc macros into the DAG (best-effort).
+
+        Unresolvable macros are left in place so the workflow still converts;
+        their references are logged. Only enabled when ``config.expand_macros``.
+        """
+        from a2d.macro.engine import MacroExpansionEngine
+
+        engine = MacroExpansionEngine(self.config)
+        result = engine.expand(parsed, dag)
+        if result.expanded_calls:
+            logger.info(
+                "Expanded %d macro call(s) across %d definition(s) in %s",
+                result.expanded_calls,
+                result.macro_count,
+                parsed.file_path,
+            )
+        for unresolved in result.unresolved:
+            logger.warning("Left macro unresolved (%s): %s", unresolved.reason, unresolved.macro_path)
+        return result.dag
 
     def _get_generator(self) -> CodeGenerator:
         """Return the appropriate code generator for the configured output format."""
