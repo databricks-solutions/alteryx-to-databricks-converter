@@ -1,1 +1,0 @@
-import{u as e}from"./useQuery-Bvs2HVoB.js";import{a as t}from"./api-BcVg_u4t.js";function u(){return e({queryKey:["tools"],queryFn:t.tools,staleTime:1/0})}function o(){return e({queryKey:["stats"],queryFn:t.stats,staleTime:6e4})}export{u as a,o as u};

@@ -42,6 +42,9 @@ variables:
   lakebase_capacity:
     description: "Capacity of the provisioned Lakebase instance."
     default: "CU_1"
+  fmapi_endpoint:
+    description: "[optional] Foundation Model API serving-endpoint invocations URL for the AI migration assistant. Empty (default) disables AI entirely — conversion never needs a model. Example: https://<workspace>.cloud.databricks.com/serving-endpoints/databricks-meta-llama-3-3-70b-instruct/invocations"
+    default: ""
   # Legacy fallbacks — only consumed when the native apps.resources: binding is
   # not picked up by the Apps runtime (e.g. older bundle CLI). Safe to leave empty.
   pg_host:
@@ -107,6 +110,14 @@ resources:
             value: ${var.lakebase_database_name}
           - name: A2D_CORS_ORIGINS
             value: '["*"]'
+          # AI migration assistant — OPT-IN, disabled by default (empty value).
+          # Deploy with `--var fmapi_endpoint=https://<workspace>/serving-endpoints/
+          # <name>/invocations` to enable the /chat assistant and `a2d suggest`
+          # report. Auth uses the App service principal's workspace credentials,
+          # so no token is needed for in-workspace serving endpoints.
+          # The assistant is advisory only and never modifies generated code.
+          - name: A2D_FMAPI_ENDPOINT
+            value: ${var.fmapi_endpoint}
       permissions:
         - level: CAN_USE
           group_name: users

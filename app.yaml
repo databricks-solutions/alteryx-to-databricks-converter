@@ -9,6 +9,13 @@ env:
     value: "src:."
   - name: "A2D_DB_BACKEND"
     value: "lakebase"
+  # AI migration assistant — OPT-IN. Empty means no model is ever called and the
+  # /chat page shows a setup hint instead. Set this to a Foundation Model API
+  # serving-endpoint invocations URL to enable it (via `--var fmapi_endpoint=...`
+  # when deploying with databricks.yml, which injects it through config.env).
+  # The assistant is advisory only: it never modifies generated code.
+  - name: "A2D_FMAPI_ENDPOINT"
+    value: ""
   # NOTE — Lakebase env vars are intentionally NOT declared here.
   #
   # When the app is deployed via `databricks bundle deploy` with the

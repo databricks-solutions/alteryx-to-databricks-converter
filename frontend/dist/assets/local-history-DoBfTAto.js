@@ -1,0 +1,6 @@
+import{c as i,d as m}from"./index-DQWRWHHX.js";/**
+ * @license lucide-react v0.470.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const _=i("Zap",[["path",{d:"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z",key:"1xq2db"}]]),r="a2d-local-history",s=50;function d(){try{const e=localStorage.getItem(r);return e?JSON.parse(e):[]}catch{return[]}}function c(e){try{localStorage.setItem(r,JSON.stringify(e.slice(0,s)))}catch{}}let l=Date.now();function f(e){const o=e.best_format?e.formats[e.best_format]:null,t=o==null?void 0:o.stats.coverage_percentage;return typeof t=="number"?t:null}const g=m((e,o)=>({items:d(),add:t=>{const n=[{id:String(++l),workflow_name:t.workflow_name,output_format:t.best_format||"multi",created_at:new Date().toISOString(),node_count:t.node_count,edge_count:t.edge_count,coverage_percentage:f(t),result:t},...o().items].slice(0,s);c(n),e({items:n})},remove:t=>{const a=o().items.filter(n=>n.id!==t);c(a),e({items:a})},get:t=>o().items.find(a=>a.id===t)}));export{_ as Z,g as u};
