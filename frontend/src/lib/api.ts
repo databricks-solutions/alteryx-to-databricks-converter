@@ -130,6 +130,38 @@ export const api = {
     fd.append("output_format", outputFormat);
     return request<ReviewSession>("/review", { method: "POST", body: fd });
   },
+
+  // ── Migration assistant (opt-in; requires a configured FMAPI endpoint) ──
+
+  chatStatus: () => request<{ enabled: boolean }>("/chat/status"),
+
+  chatStart: (file: File, outputFormat: FormatId = "pyspark") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("output_format", outputFormat);
+    return request<ChatSession>("/chat", { method: "POST", body: fd });
+  },
+
+  chatSend: (sessionId: string, message: string) =>
+    request<{ session_id: string; reply: string }>(`/chat/${sessionId}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    }),
+
+  /** Returns the report as Markdown text (server sends it as an attachment). */
+  chatReport: async (sessionId: string, answers?: Record<string, string>) => {
+    const res = await fetch(`${BASE}/chat/${sessionId}/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(answers ?? {}),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(body.detail || res.statusText);
+    }
+    return res.text();
+  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -374,4 +406,48 @@ export interface ReviewSession {
   summary: ReviewSummary;
   nodes: ReviewNode[];
   edges: ReviewEdge[];
+}
+
+// ── Migration assistant (advisory only — never edits generated code) ─────
+
+/** One gap the deterministic converter could not fully handle. */
+export interface MigrationGap {
+  kind: "unsupported_tool" | "todo" | "review_warning" | "graph";
+  summary: string;
+  node_id: number | null;
+  tool_type: string | null;
+  detail: string;
+}
+
+export interface MigrationDecision {
+  node_id: number;
+  tool_type: string;
+  annotation: string | null;
+  confidence: number;
+  conversion_method: string;
+  notes: string[];
+}
+
+export interface MigrationContext {
+  workflow_name: string;
+  output_format: FormatId;
+  node_count: number;
+  edge_count: number;
+  coverage: number | null;
+  deploy_status: "ready" | "needs_review" | "cannot_deploy";
+  gaps: MigrationGap[];
+  decisions: MigrationDecision[];
+  summary: { total_gaps: number; blocking_gaps: number };
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatSession {
+  session_id: string;
+  context: MigrationContext;
+  messages: ChatMessage[];
+  clarifying_questions: string[];
 }

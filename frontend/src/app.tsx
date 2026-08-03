@@ -22,6 +22,7 @@ const AboutPage = lazy(() => import("@/routes/about").then((m) => ({ default: m.
 const HistoryPage = lazy(() => import("@/routes/history").then((m) => ({ default: m.HistoryPage })));
 const ValidatePage = lazy(() => import("@/routes/validate").then((m) => ({ default: m.ValidatePage })));
 const ReviewPage = lazy(() => import("@/routes/review").then((m) => ({ default: m.ReviewPage })));
+const ChatPage = lazy(() => import("@/routes/chat").then((m) => ({ default: m.ChatPage })));
 const SettingsPage = lazy(() => import("@/routes/settings").then((m) => ({ default: m.SettingsPage })));
 
 function RouteLoading() {
@@ -67,6 +68,7 @@ const aboutRoute = createRoute({ getParentRoute: () => rootRoute, path: "/about"
 const historyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/history", component: HistoryPage });
 const validateRoute = createRoute({ getParentRoute: () => rootRoute, path: "/validate", component: ValidatePage });
 const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage });
+const chatRoute = createRoute({ getParentRoute: () => rootRoute, path: "/chat", component: ChatPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 
 const routeTree = rootRoute.addChildren([
@@ -79,6 +81,7 @@ const routeTree = rootRoute.addChildren([
   historyRoute,
   validateRoute,
   reviewRoute,
+  chatRoute,
   settingsRoute,
 ]);
 

@@ -13,6 +13,7 @@ import {
   Clock,
   CheckCircle,
   ClipboardCheck,
+  MessageSquare,
   Settings,
 } from "lucide-react";
 import { useState } from "react";
@@ -60,6 +61,10 @@ const navGroups: NavGroup[] = [
       { to: "/validate", label: "Validate", icon: CheckCircle },
       { to: "/review", label: "Review", icon: ClipboardCheck },
     ],
+  },
+  {
+    title: "Assist",
+    items: [{ to: "/chat", label: "Assistant", icon: MessageSquare }],
   },
   {
     title: "",

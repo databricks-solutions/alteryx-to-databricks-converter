@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     db_backend: str = ""  # "" (auto-detect), "postgres", or "lakebase"
     lakebase_endpoint: str = ""  # projects/<id>/branches/<id>/endpoints/<id>
 
+    # Foundation Model API (optional — AI suggestions are OPT-IN).
+    # Empty endpoint means no model is ever called: the chat/report endpoints
+    # return 422 and the rest of the product is unaffected.
+    fmapi_endpoint: str = Field(
+        default="",
+        validation_alias=AliasChoices("A2D_FMAPI_ENDPOINT", "FMAPI_ENDPOINT"),
+    )
+    fmapi_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("A2D_FMAPI_TOKEN", "FMAPI_TOKEN"),
+    )
+
     # Postgres connection params — read PG* first (native, auto-injected by
     # the Databricks Apps database binding) then fall back to A2D_PG_* aliases.
     pg_host: str = Field(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def _message_wf() -> bytes:
-    path = Path(__file__).parent.parent.parent / "fixtures" / "assist" / "message_passthrough.yxmd"
+    path = Path(__file__).parent.parent.parent / "fixtures" / "workflows" / "message_passthrough.yxmd"
     return path.read_bytes()
 
 

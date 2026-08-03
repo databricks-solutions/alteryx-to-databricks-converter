@@ -50,7 +50,7 @@ class TestUnsupportedToolFallback:
         assert "No converter" in result.unsupported_reason
 
     def test_unsupported_node_preserves_original_configuration(self):
-        """The original config must be preserved so LLM-assist can use it."""
+        """The original config must be preserved so reports can describe the gap."""
         cfg = {"SomeSetting": "value", "Nested": {"k": "v"}}
         node = make_node(
             tool_id=5,

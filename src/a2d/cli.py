@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.table import Table
 
 from a2d.__about__ import __version__
+from a2d.advisor.llm_client import ENV_ENDPOINT as ENV_FMAPI_ENDPOINT
+from a2d.advisor.llm_client import ENV_TOKEN as ENV_FMAPI_TOKEN
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.utils.logging import setup_logging
 
@@ -851,244 +853,6 @@ def _print_verify_report(result) -> None:
 
 
 @app.command()
-def assist(
-    input_path: Path = typer.Argument(..., help="Path to the .yxmd/.yxmc workflow to scan"),
-    inp: list[str] = typer.Option(
-        [],
-        "--input",
-        "-i",
-        help="Sample input data for a source, as KEY=PATH.csv (repeatable) — enables the verification gate",
-    ),
-    golden: list[str] = typer.Option(
-        [],
-        "--golden",
-        "-g",
-        help="Per-node golden output as NODE_ID=PATH.csv (repeatable) — a candidate is only accepted if it reproduces this",
-    ),
-    learn: bool = typer.Option(
-        False,
-        "--learn",
-        help="Record verified conversions into the feedback store so future runs reuse them",
-    ),
-    use_learned: bool = typer.Option(
-        True,
-        "--use-learned/--no-use-learned",
-        help="Propose previously-learned mappings first (still re-verified through the gate)",
-    ),
-    json_out: Path | None = typer.Option(None, "--json", help="Write the assist report as JSON to this path"),
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
-    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
-) -> None:
-    """Propose conversions for unsupported nodes, gated by the equivalence harness.
-
-    For each Alteryx tool a2d can't convert deterministically, this proposes a
-    candidate built from *supported* IR nodes and — when you supply sample input
-    (``-i``) and a per-node golden output (``-g NODE_ID=expected.csv``) — runs the
-    candidate through the pandas reference executor and parity engine. A
-    candidate is only marked **verified** (safe to adopt) when it reproduces the
-    golden output exactly; otherwise it is surfaced as an *unverified suggestion*
-    for human review. Proposals are never silently merged into the dataflow.
-
-    With ``--learn``, every verified conversion is captured in a feedback store
-    (``~/.a2d/feedback.json`` by default, or ``$A2D_FEEDBACK_STORE``); later runs
-    propose those learned mappings first (re-verifying them through the same
-    gate). The default proposer is fully offline, so this runs with no model
-    access.
-    """
-    setup_logging(quiet=quiet, debug=debug)
-
-    import json as _json
-
-    if not input_path.exists():
-        console.print(f"[red]Error: {input_path} not found[/red]")
-        raise typer.Exit(code=1)
-
-    source_data = None
-    node_goldens = None
-    if inp:
-        try:
-            from a2d.verification.runner import load_csv_inputs
-        except ImportError as exc:
-            console.print(
-                "[red]Sample-data verification requires the verify extra:[/red] "
-                "[cyan]pip install 'alteryx2databricks[verify]'[/cyan]"
-            )
-            raise typer.Exit(code=1) from exc
-        mapping: dict[str, Path] = {}
-        for item in inp:
-            if "=" not in item:
-                console.print(f"[red]Invalid --input {item!r}: expected KEY=PATH.csv[/red]")
-                raise typer.Exit(code=1)
-            key, _, path_str = item.partition("=")
-            mapping[key] = Path(path_str)
-        source_data = load_csv_inputs(mapping)
-
-        if golden:
-            import pandas as pd
-
-            node_goldens = {}
-            for item in golden:
-                if "=" not in item:
-                    console.print(f"[red]Invalid --golden {item!r}: expected NODE_ID=PATH.csv[/red]")
-                    raise typer.Exit(code=1)
-                nid_str, _, path_str = item.partition("=")
-                if not nid_str.lstrip("-").isdigit():
-                    console.print(f"[red]Invalid --golden node id {nid_str!r}: must be an integer[/red]")
-                    raise typer.Exit(code=1)
-                node_goldens[int(nid_str)] = pd.read_csv(Path(path_str))
-
-    from a2d.llm.workflow import scan_workflow_file
-
-    client = None
-    store = None
-    if use_learned or learn:
-        from a2d.feedback.client import LearnedClient
-        from a2d.feedback.store import FeedbackStore
-
-        store = FeedbackStore().load()
-        if use_learned:
-            client = LearnedClient(store=store)
-
-    report = scan_workflow_file(
-        input_path,
-        source_data=source_data,
-        node_goldens=node_goldens,
-        client=client,
-    )
-    _print_assist_report(report)
-
-    if learn and store is not None:
-        recorded = 0
-        for outcome in report.outcomes:
-            if outcome.accepted and outcome.candidate is not None:
-                store.record(
-                    outcome.tool_type,
-                    outcome.configuration,
-                    outcome.candidate,
-                    source="verified",
-                    save=False,
-                )
-                recorded += 1
-        if recorded:
-            store.save()
-            console.print(f"\n[green]Learned {recorded} verified conversion(s) into {store.path}[/green]")
-
-    if json_out is not None:
-        payload = {
-            "workflow": report.workflow_name,
-            "unsupported_total": report.unsupported_total,
-            "proposed": report.proposed,
-            "verified": report.verified,
-            "unverified": report.unverified,
-            "nodes": [
-                {
-                    "node_id": o.node_id,
-                    "tool_type": o.tool_type,
-                    "status": (o.verdict.status if o.verdict else "no_candidate"),
-                    "parity_score": (o.verdict.parity_score if o.verdict else 0.0),
-                    "rationale": (o.candidate.rationale if o.candidate else ""),
-                    "confidence": (o.candidate.confidence if o.candidate else 0.0),
-                }
-                for o in report.outcomes
-            ],
-        }
-        json_out.parent.mkdir(parents=True, exist_ok=True)
-        json_out.write_text(_json.dumps(payload, indent=2) + "\n")
-        console.print(f"\n[dim]Assist report written to {json_out}[/dim]")
-
-
-def _print_assist_report(report) -> None:
-    """Render the LLM-assist report to the console."""
-    console.print()
-    console.rule(f"[bold]LLM-assisted conversion — {report.workflow_name}[/bold]")
-    console.print(
-        f"[bold]{report.unsupported_total}[/bold] unsupported node(s) · "
-        f"[bold]{report.proposed}[/bold] proposed · "
-        f"[green]{report.verified} verified[/green] · "
-        f"[yellow]{report.unverified} unverified[/yellow]"
-    )
-
-    if not report.outcomes:
-        console.print("[dim]No unsupported nodes — nothing to assist.[/dim]")
-        return
-
-    table = Table(title="Proposals")
-    table.add_column("Node", justify="right")
-    table.add_column("Tool", style="cyan")
-    table.add_column("Status")
-    table.add_column("Parity", justify="right")
-    table.add_column("Rationale", style="dim")
-    for o in sorted(report.outcomes, key=lambda x: x.node_id):
-        if o.verdict is None:
-            status = "[dim]no candidate[/dim]"
-            parity = "-"
-            rationale = o.notes[0] if o.notes else ""
-        else:
-            status_color = {"verified": "green", "rejected": "red", "unverified": "yellow"}.get(
-                o.verdict.status, "white"
-            )
-            status = f"[{status_color}]{o.verdict.status}[/{status_color}]"
-            parity = f"{o.verdict.parity_score:.2f}" if o.candidate else "-"
-            rationale = o.candidate.rationale if o.candidate else ""
-        table.add_row(str(o.node_id), o.tool_type, status, parity, rationale)
-    console.print(table)
-
-    if report.verified:
-        console.print(f"\n[green]{report.verified} proposal(s) verified against golden output — safe to adopt.[/green]")
-    if report.unverified:
-        console.print(
-            f"[yellow]{report.unverified} proposal(s) need review: supply -i/-g sample+golden data "
-            f"to verify, or inspect manually.[/yellow]"
-        )
-
-
-@app.command()
-def feedback(
-    clear: bool = typer.Option(False, "--clear", help="Delete all learned mappings"),
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
-    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
-) -> None:
-    """Inspect (or clear) the learned-conversion feedback store.
-
-    Shows the mappings a2d has learned from verified conversions (via
-    ``a2d assist --learn``). The store lives at ``~/.a2d/feedback.json`` by
-    default, or ``$A2D_FEEDBACK_STORE``.
-    """
-    setup_logging(quiet=quiet, debug=debug)
-
-    from a2d.feedback.store import FeedbackStore
-
-    store = FeedbackStore().load()
-
-    if clear:
-        if store.path.exists():
-            store.path.unlink()
-        console.print(f"[green]Cleared feedback store[/green] {store.path}")
-        return
-
-    mappings = store.all_mappings()
-    stats = store.stats()
-    console.print()
-    console.rule("[bold]Learned conversions[/bold]")
-    console.print(f"Store: [dim]{store.path}[/dim]")
-    console.print(f"[bold]{stats.total_mappings}[/bold] mapping(s) · [bold]{stats.total_uses}[/bold] total use(s)")
-
-    if not mappings:
-        console.print("[dim]No learned mappings yet. Run 'a2d assist --learn' to capture verified conversions.[/dim]")
-        return
-
-    table = Table(title="Mappings")
-    table.add_column("Tool", style="cyan")
-    table.add_column("Nodes", justify="right")
-    table.add_column("Uses", justify="right")
-    table.add_column("Source")
-    table.add_column("Signature", style="dim")
-    for m in sorted(mappings, key=lambda x: (-x.uses, x.tool_type)):
-        table.add_row(m.tool_type, str(len(m.candidate_nodes)), str(m.uses), m.source, m.signature)
-    console.print(table)
-
-
-@app.command()
 def sync(
     input_dir: Path = typer.Argument(..., help="Directory of workflows to incrementally convert"),
     output_dir: Path = typer.Option("./a2d-output", "--output-dir", "-o", help="Output directory"),
@@ -1216,6 +980,103 @@ def advise(
         json_out.parent.mkdir(parents=True, exist_ok=True)
         json_out.write_text(_json.dumps(report.to_dict(), indent=2) + "\n")
         console.print(f"\n[dim]Advisory report written to {json_out}[/dim]")
+
+
+@app.command()
+def suggest(
+    input_path: Path = typer.Argument(..., help="Path to the .yxmd/.yxmc workflow to analyze"),
+    output_format: str = typer.Option(
+        "pyspark", "--format", "-f", help="Target format to analyze (pyspark|dlt|sql|lakeflow)"
+    ),
+    endpoint: str | None = typer.Option(
+        None, "--endpoint", help=f"FMAPI serving endpoint URL (or set ${ENV_FMAPI_ENDPOINT})"
+    ),
+    token: str | None = typer.Option(
+        None, "--token", help=f"Bearer token for the endpoint (or set ${ENV_FMAPI_TOKEN})"
+    ),
+    output_file: Path | None = typer.Option(
+        None, "--output", "-o", help="Markdown report path (default: <workflow>_suggestions.md)"
+    ),
+    cloud: str = typer.Option("aws", "--cloud", help="Target cloud (aws|azure|gcp)"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Write AI suggestions for what the converter could not convert.
+
+    Produces a **separate Markdown document** describing each gap (unsupported
+    tools, TODO stubs, expression fallbacks, connection issues) with a suggested
+    Databricks implementation. The generated code is never modified — this is
+    advisory reading material for a human.
+
+    AI is opt-in: without ``--endpoint`` (or ``$A2D_FMAPI_ENDPOINT``) the report
+    is still written, containing the deterministic gap list and no suggestions.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    if not input_path.exists():
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+
+    fmt = (output_format or "").strip().lower()
+    valid_formats = {"pyspark", "dlt", "sql", "lakeflow"}
+    if fmt not in valid_formats:
+        console.print(
+            f"[red]Invalid --format value: {output_format!r}. Valid: {', '.join(sorted(valid_formats))}[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    cloud_normalized = (cloud or "").strip().lower()
+    if cloud_normalized not in ("aws", "azure", "gcp"):
+        console.print(f"[red]Invalid --cloud value: {cloud!r}. Valid: aws, azure, gcp[/red]")
+        raise typer.Exit(code=1)
+
+    from a2d.advisor import build_migration_context, render_report, resolve_client
+    from a2d.pipeline import ConversionPipeline
+
+    cfg = ConversionConfig(
+        input_path=input_path,
+        output_format=OutputFormat(fmt),
+        cloud=cloud_normalized,  # type: ignore[arg-type]
+    )
+    try:
+        result = ConversionPipeline(cfg).convert(input_path)
+    except Exception as e:
+        console.print(f"[red]Conversion failed: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    generated_code = "\n".join(f.content for f in result.output.files)
+    ctx = build_migration_context(
+        result.dag,
+        workflow_name=input_path.stem,
+        output_format=fmt,
+        format_warnings=list(result.output.warnings),
+        generated_code=generated_code,
+        coverage=result.output.stats.get("coverage_percentage"),
+        confidence=result.confidence.overall if result.confidence else None,
+    )
+
+    client = resolve_client(endpoint, token)
+    if client is None:
+        console.print(
+            f"[yellow]No FMAPI endpoint configured — writing the deterministic gap list only.[/yellow]\n"
+            f"[dim]Set --endpoint or ${ENV_FMAPI_ENDPOINT} to include AI suggestions.[/dim]"
+        )
+
+    markdown = render_report(ctx, client)
+
+    destination = output_file or input_path.parent / f"{input_path.stem}_suggestions.md"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(markdown)
+
+    console.print()
+    console.rule(f"[bold]Migration suggestions — {ctx.workflow_name}[/bold]")
+    console.print(
+        f"Deploy readiness: [cyan]{ctx.deploy_status}[/cyan] · "
+        f"gaps: [bold]{len(ctx.gaps)}[/bold] ({len(ctx.blocking_gaps)} blocking) · "
+        f"suggestions: {'yes' if client is not None else '[dim]opt-in, skipped[/dim]'}"
+    )
+    console.print(f"\n[green]Report written to {destination}[/green]")
+    console.print("[dim]Advisory only — no generated file was modified.[/dim]")
 
 
 def _print_advisor_report(report) -> None:
