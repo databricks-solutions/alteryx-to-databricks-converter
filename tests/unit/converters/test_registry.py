@@ -49,6 +49,19 @@ class TestUnsupportedToolFallback:
         assert result.node_id == 999
         assert "No converter" in result.unsupported_reason
 
+    def test_unsupported_node_preserves_original_configuration(self):
+        """The original config must be preserved so LLM-assist can use it."""
+        cfg = {"SomeSetting": "value", "Nested": {"k": "v"}}
+        node = make_node(
+            tool_id=5,
+            tool_type="SomeNonexistentTool",
+            plugin_name="com.example.FakeTool",
+            configuration=cfg,
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert isinstance(result, UnsupportedNode)
+        assert result.original_configuration == cfg
+
 
 class TestToolMetadata:
     def test_all_plugin_map_tools_have_metadata(self):

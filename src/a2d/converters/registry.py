@@ -102,6 +102,7 @@ class ConverterRegistry:
                     original_plugin_name=parsed_node.plugin_name,
                     annotation=parsed_node.annotation,
                     position=parsed_node.position,
+                    original_configuration=parsed_node.configuration,
                     unsupported_reason=f"Converter error for tool type: {parsed_node.tool_type}",
                 )
 
@@ -111,6 +112,7 @@ class ConverterRegistry:
             original_plugin_name=parsed_node.plugin_name,
             annotation=parsed_node.annotation,
             position=parsed_node.position,
+            original_configuration=parsed_node.configuration,
             unsupported_reason=f"No converter for tool type: {parsed_node.tool_type}",
         )
 

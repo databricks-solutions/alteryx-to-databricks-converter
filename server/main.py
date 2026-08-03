@@ -18,6 +18,7 @@ from server.routers import (
     convert,
     health,
     history,
+    review,
     tools,
     validate,
 )
@@ -105,6 +106,7 @@ app.include_router(convert.router)
 app.include_router(analyze.router)
 app.include_router(history.router)
 app.include_router(validate.router)
+app.include_router(review.router)
 
 # WebSocket
 app.include_router(ws_batch.router)
