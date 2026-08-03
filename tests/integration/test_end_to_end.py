@@ -264,7 +264,9 @@ class TestGeneratedCodeSyntax:
                 content = sql_file.content.strip()
                 assert len(content) > 0, f"Empty Lakeflow output for {yxmd.name}"
                 assert "CREATE OR REFRESH" in content, f"No CREATE OR REFRESH in Lakeflow for {yxmd.name}"
-                assert "LIVE." in content or result.dag.node_count == 1, (
+                # A LIVE. reference only exists when one table reads from another,
+                # so single-table outputs legitimately have none.
+                assert "LIVE." in content or content.count("CREATE OR REFRESH") == 1, (
                     f"No LIVE. references in Lakeflow for {yxmd.name}"
                 )
 

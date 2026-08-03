@@ -12,7 +12,6 @@ from a2d.pipeline import ConversionPipeline
 from a2d.review.builder import _cell_code_by_node, build_review_session
 
 WORKFLOWS = Path(__file__).parent.parent.parent / "fixtures" / "workflows"
-ASSIST = Path(__file__).parent.parent.parent / "fixtures" / "assist"
 
 
 def _dag(path):
@@ -47,7 +46,7 @@ class TestBuildReviewSession:
             assert node.generated_code.strip(), f"node {node.node_id} has no code"
 
     def test_unsupported_node_flagged_cannot_convert(self):
-        dag, _ = _dag(ASSIST / "message_passthrough.yxmd")
+        dag, _ = _dag(WORKFLOWS / "message_passthrough.yxmd")
         session = build_review_session(dag, "message", output_format=OutputFormat.PYSPARK)
         statuses = {n.node_id: n.status for n in session.nodes}
         assert statuses[2] == "cannot_convert"  # the Message node

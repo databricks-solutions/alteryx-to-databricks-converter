@@ -11,7 +11,7 @@ from a2d.cli import app
 
 runner = CliRunner()
 
-FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "assist"
+FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "workflows"
 CHART_WF = FIXTURES / "chart_workflow.yxmd"
 
 
