@@ -1089,6 +1089,82 @@ def feedback(
 
 
 @app.command()
+def sync(
+    input_dir: Path = typer.Argument(..., help="Directory of workflows to incrementally convert"),
+    output_dir: Path = typer.Option("./a2d-output", "--output-dir", "-o", help="Output directory"),
+    manifest: Path = typer.Option(
+        Path(".a2d-manifest.json"), "--manifest", help="Path to the incremental state manifest"
+    ),
+    format: str = typer.Option("pyspark", "--format", "-f", help="Single output format for incremental conversion"),
+    no_prune: bool = typer.Option(False, "--no-prune", help="Keep manifest entries for deleted source files"),
+    json_out: Path | None = typer.Option(None, "--json", help="Write the sync result as JSON to this path"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Incrementally convert a directory — only changed/new workflows.
+
+    Tracks each source file's content hash in a manifest and re-converts only
+    files that are new or modified since the last run; entries for deleted files
+    are pruned. Run it on a schedule (cron) or in a loop to approximate a watch.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    import json as _json
+
+    if not input_dir.is_dir():
+        console.print(f"[red]Error: {input_dir} is not a directory[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        formats = _parse_formats(format)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+    fmt = formats[0]
+
+    from a2d.incremental import ManifestTracker, sync_directory
+    from a2d.pipeline import ConversionPipeline
+
+    cfg = ConversionConfig(
+        input_path=input_dir,
+        output_dir=output_dir,
+        output_format=fmt,
+    )
+    pipeline = ConversionPipeline(cfg)
+
+    def _convert(path: Path) -> list[str]:
+        result = pipeline.convert(path)
+        sub = output_dir / fmt.value
+        sub.mkdir(parents=True, exist_ok=True)
+        for gen_file in result.output.files:
+            (sub / gen_file.filename).write_text(gen_file.content)
+        return [f.content for f in result.output.files]
+
+    tracker = ManifestTracker(manifest)
+    sync_result = sync_directory(input_dir, _convert, tracker, prune=not no_prune)
+
+    console.print()
+    console.rule("[bold]Incremental sync[/bold]")
+    console.print(
+        f"[green]{len(sync_result.converted)} converted[/green] · "
+        f"[dim]{len(sync_result.skipped)} unchanged[/dim] · "
+        f"[red]{len(sync_result.failed)} failed[/red] · "
+        f"{len(sync_result.removed)} pruned  (manifest: {manifest})"
+    )
+    for path in sync_result.converted:
+        console.print(f"  [green]✓[/green] {Path(path).name}")
+    for path, err in sync_result.failed:
+        console.print(f"  [red]✗[/red] {Path(path).name}: {err}")
+
+    if json_out is not None:
+        json_out.parent.mkdir(parents=True, exist_ok=True)
+        json_out.write_text(_json.dumps(sync_result.to_dict(), indent=2) + "\n")
+
+    if sync_result.failed:
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def advise(
     input_path: Path = typer.Argument(..., help="Path to a workflow (.yxmd/.yxmc) or dbt manifest"),
     cloud: str = typer.Option("aws", "--cloud", help="Target cloud for node_type_id (aws|azure|gcp)"),
