@@ -1190,6 +1190,44 @@ def list_tools(
 
 
 @app.command()
+def plugins() -> None:
+    """List installed source frontends and converter plugins.
+
+    Shows the built-in and third-party frontends (``a2d.frontends`` entry-point
+    group) and the outcome of loading converter plugins (``a2d.converters``).
+    Third-party packages extend a2d by declaring these entry points — see the
+    SDK docs (`docs/converter-sdk.md`).
+    """
+    from a2d.frontends.registry import FrontendRegistry
+    from a2d.sdk import SDK_VERSION, list_plugins
+
+    console.print(f"[bold]a2d SDK contract[/bold]: v{SDK_VERSION}\n")
+
+    fe_table = Table(title="Source frontends")
+    fe_table.add_column("Name", style="cyan")
+    fe_table.add_column("Extensions", style="dim")
+    for name in FrontendRegistry.names():
+        fe = FrontendRegistry.get(name)
+        exts = ", ".join(fe.supported_extensions) or "(filename-matched)"
+        fe_table.add_row(name, exts)
+    console.print(fe_table)
+
+    infos = list_plugins()
+    conv_table = Table(title="Converter plugins (a2d.converters)")
+    conv_table.add_column("Name", style="cyan")
+    conv_table.add_column("Target", style="dim")
+    conv_table.add_column("Status")
+    conv_table.add_column("Tool types")
+    if not infos:
+        console.print("[dim]No third-party converter plugins installed.[/dim]")
+    else:
+        for info in infos:
+            status = "[green]loaded[/green]" if info.loaded else f"[red]failed: {info.error}[/red]"
+            conv_table.add_row(info.name, info.value, status, ", ".join(info.tool_types) or "-")
+        console.print(conv_table)
+
+
+@app.command()
 def version() -> None:
     """Show version."""
     console.print(f"a2d v{__version__}")
