@@ -1,4 +1,13 @@
-# False positives: Shiki WASM syntax highlighting bundles contain
-# base64-encoded binary data that matches AWS access token patterns.
-# These are NOT real credentials.
+# Gitleaks false-positive allowlist (by commit:path:rule:line fingerprint).
+#
+# Both entries are base64-encoded BINARY data in the initial public-release
+# commit (e4fb257) that incidentally matches the aws-access-token regex — they
+# are NOT real credentials:
+#   * the Shiki WASM syntax-highlighting bundle (a base64 WebAssembly module), and
+#   * a <SerializedData> blob in a Packt sample Alteryx workflow (base64 SQLite).
+# Reviewed as false positives. NOTE: path globs alone are NOT honored by
+# gitleaks' --log-opts scan (used by the Databricks pre-push hook); it matches
+# on these full commit:path:rule:line fingerprints.
 frontend/dist/assets/wasm-*.js
+e4fb2570edda8151b0132ed9da2a22fd503ca97e:frontend/dist/assets/wasm-CG6Dc4jp.js:aws-access-token:1
+e4fb2570edda8151b0132ed9da2a22fd503ca97e:tests/fixtures/packt/Machine_Learning_-_Intelligence_Suite.yxmd:aws-access-token:125
