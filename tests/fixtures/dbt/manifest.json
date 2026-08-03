@@ -1,0 +1,32 @@
+{
+  "metadata": {"project_name": "demo_shop", "dbt_version": "1.7.4"},
+  "sources": {
+    "source.demo_shop.raw.orders": {
+      "name": "orders", "database": "raw", "schema": "public", "alias": "orders"
+    }
+  },
+  "nodes": {
+    "seed.demo_shop.country_codes": {
+      "resource_type": "seed", "name": "country_codes",
+      "database": "analytics", "schema": "seeds", "alias": "country_codes"
+    },
+    "model.demo_shop.stg_orders": {
+      "resource_type": "model", "name": "stg_orders",
+      "database": "analytics", "schema": "staging", "alias": "stg_orders",
+      "config": {"materialized": "view"},
+      "compiled_code": "select * from raw.public.orders",
+      "depends_on": {"nodes": ["source.demo_shop.raw.orders"]}
+    },
+    "model.demo_shop.fct_orders": {
+      "resource_type": "model", "name": "fct_orders",
+      "database": "analytics", "schema": "marts", "alias": "fct_orders",
+      "config": {"materialized": "incremental"},
+      "compiled_code": "select * from analytics.staging.stg_orders o join analytics.seeds.country_codes c on o.country = c.code",
+      "depends_on": {"nodes": ["model.demo_shop.stg_orders", "seed.demo_shop.country_codes"]}
+    },
+    "test.demo_shop.not_null_fct_orders_id": {
+      "resource_type": "test", "name": "not_null_fct_orders_id",
+      "depends_on": {"nodes": ["model.demo_shop.fct_orders"]}
+    }
+  }
+}

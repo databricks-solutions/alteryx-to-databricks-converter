@@ -95,10 +95,10 @@ def verify_workflow(
     name = workflow_path.stem
     cfg = config or ConversionConfig(input_path=workflow_path, output_dir=Path("."))
 
-    # Parse + build the IR DAG (reuse the pipeline's parser/builder).
+    # Parse + build the IR DAG (reuse the pipeline's frontend/builder).
     try:
         pipeline = ConversionPipeline(cfg)
-        parsed = pipeline._parser.parse(workflow_path)
+        parsed = pipeline._frontend.parse(workflow_path)
         dag = pipeline._build_dag(parsed)
     except Exception as exc:
         return VerificationResult(workflow=name, status="error", mode="reference_only", error=str(exc))

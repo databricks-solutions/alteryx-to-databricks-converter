@@ -126,6 +126,12 @@ def convert(
     expand_macros: bool = typer.Option(
         False, "--expand-macros", help="Expand macro references as functions", rich_help_panel="Code Generation"
     ),
+    frontend: str | None = typer.Option(
+        None,
+        "--frontend",
+        help="Source frontend: 'alteryx' (default) or 'dbt' (parse a dbt manifest.json). Auto-detected when omitted.",
+        rich_help_panel="Core Options",
+    ),
     # -- Observability --
     expression_audit: bool = typer.Option(
         True,
@@ -273,10 +279,18 @@ def convert(
         # PYSPARK is a sensible default, mirroring server/services/conversion.py.
         shared_cfg = _build_config(OutputFormat.PYSPARK)
 
+        from a2d.frontends import FrontendRegistry
+
+        try:
+            source_frontend = FrontendRegistry.resolve(input_path, frontend)
+        except KeyError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(code=1) from None
+
         t_total = time.monotonic()
         try:
             with console.status(f"[bold]Converting {input_path.name} (all formats)...[/bold]"):
-                pipeline = ConversionPipeline(shared_cfg)
+                pipeline = ConversionPipeline(shared_cfg, frontend=source_frontend)
                 multi_result = pipeline.convert_all_formats(input_path)
         except Exception as e:
             elapsed_total = time.monotonic() - t_total
