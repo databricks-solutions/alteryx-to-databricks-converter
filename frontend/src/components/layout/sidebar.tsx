@@ -12,6 +12,7 @@ import {
   X,
   Clock,
   CheckCircle,
+  ClipboardCheck,
   Settings,
 } from "lucide-react";
 import { useState } from "react";
@@ -57,6 +58,7 @@ const navGroups: NavGroup[] = [
     title: "Validate",
     items: [
       { to: "/validate", label: "Validate", icon: CheckCircle },
+      { to: "/review", label: "Review", icon: ClipboardCheck },
     ],
   },
   {
