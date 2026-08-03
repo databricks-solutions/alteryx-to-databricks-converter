@@ -40,25 +40,29 @@ decisions are applied against that model.
   }
   ```
 
-## Frontend (integration plan)
+## Frontend (implemented)
 
-The repo's React frontend has no unit-test harness, so the frontend layer is
-specified here rather than built blind. A `ReviewPage` route would:
+The `ReviewPage` route (`frontend/src/routes/review.tsx`, nav item **Review**)
+is a thin rendering layer over the verified `/api/review`:
 
-1. Upload a workflow to `POST /api/review` and render two synced panes:
-   - **Canvas** (reuse `components/convert/workflow-graph.tsx`) laid out from
-     `nodes[].position_x/y` + `edges`, each node coloured by `status`
-     (green/amber/red).
+1. Uploads a workflow via `useReview` (`hooks/use-review.ts` → `api.review`) and
+   renders two synced panes:
+   - **Canvas** (`components/review/review-graph.tsx`, a react-flow + dagre LR
+     layout adapted from `workflow-graph.tsx`) laid out from `nodes[]` + `edges`,
+     each node coloured by `status` (green/amber/red) — a resolved decision
+     recolours the node green, a reject red, so the canvas doubles as a progress
+     view.
    - **Code** pane showing the selected node's `generated_code` in the existing
-     Shiki-highlighted viewer, editable for a `needs_review`/`cannot_convert`
-     node.
-2. Selecting a node cross-highlights canvas ↔ code. Per-node **Accept** / **Edit**
-   / **Reject** controls update local review state; a progress bar reads
-   `summary.needs_review`/`resolved`.
-3. **Export** concatenates each node's `effective_code` (edits applied) in
-   topological order into the final artifact.
+     Shiki-highlighted `CodeBlock`, with an inline textarea editor for edits.
+2. Selecting a node cross-highlights canvas ↔ code (selected node gets a ring +
+   fill). Per-node **Accept** / **Edit** / **Reject** controls update local
+   review state; a progress bar reads resolved / needs-review counts.
+3. **Export** concatenates each node's effective code (reviewer edit if any) in
+   the topological node order the builder emits, skipping rejected nodes, and
+   downloads the final artifact.
 
-Because the model, status logic, cell-splitting and endpoint are fully covered
-by backend tests, the frontend is a thin rendering layer over a verified API —
-the same split used for the Designer round-trip (offline validator tested; live
-UI layer separate).
+Reviewer decisions are held client-side (a `node_id → {decision, edited_code}`
+overlay) against the server model; the backend model, status logic,
+cell-splitting and endpoint are fully covered by backend tests, and the UI was
+verified end-to-end against a running server (upload → panes → select → accept →
+export, no console errors).

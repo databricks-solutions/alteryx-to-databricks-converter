@@ -123,6 +123,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, filename: filename || "<input>" }),
     }),
+
+  review: (file: File, outputFormat: FormatId = "pyspark") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("output_format", outputFormat);
+    return request<ReviewSession>("/review", { method: "POST", body: fd });
+  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -322,4 +329,49 @@ export interface FileValidationResult {
 export interface ValidateResponse {
   results: FileValidationResult[];
   all_valid: boolean;
+}
+
+// ── Interactive review workspace ─────────────────────────────────────
+
+/** How the auto-conversion of one node turned out. */
+export type ReviewStatus = "auto_accepted" | "needs_review" | "cannot_convert";
+
+/** A reviewer's decision on one node. */
+export type ReviewDecision = "pending" | "accepted" | "edited" | "rejected";
+
+export interface ReviewNode {
+  node_id: number;
+  tool_type: string;
+  annotation: string | null;
+  position_x: number;
+  position_y: number;
+  status: ReviewStatus;
+  confidence: number;
+  conversion_method: string;
+  generated_code: string;
+  warnings: string[];
+  decision: ReviewDecision;
+  edited_code: string | null;
+}
+
+export interface ReviewEdge {
+  source_id: number;
+  target_id: number;
+  origin_anchor: string;
+  destination_anchor: string;
+}
+
+export interface ReviewSummary {
+  total: number;
+  needs_review: number;
+  resolved: number;
+  complete: boolean;
+}
+
+export interface ReviewSession {
+  workflow_name: string;
+  output_format: FormatId;
+  summary: ReviewSummary;
+  nodes: ReviewNode[];
+  edges: ReviewEdge[];
 }
