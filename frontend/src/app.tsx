@@ -12,18 +12,39 @@ import { PageTransition } from "@/components/layout/page-transition";
 import { ErrorBoundary } from "@/components/shared/error-boundary";
 import { ToastContainer } from "@/components/shared/toast-container";
 
+/**
+ * Retry a dynamic import once before giving up.
+ *
+ * Route chunks are fetched on navigation, so a brief network blip (or a stale
+ * chunk after a redeploy) would otherwise drop the user into the error boundary
+ * with no way forward. One retry clears the common transient case; a genuine
+ * failure still surfaces.
+ */
+function lazyWithRetry<T extends { default: React.ComponentType<unknown> }>(
+  load: () => Promise<T>,
+) {
+  return lazy(() =>
+    load().catch(() => {
+      // A redeployed app serves new chunk hashes; a full reload picks them up.
+      return new Promise<T>((resolve, reject) => {
+        setTimeout(() => load().then(resolve, reject), 500);
+      });
+    }),
+  );
+}
+
 // Lazy-load route components for code splitting
-const HomePage = lazy(() => import("@/routes/index").then((m) => ({ default: m.HomePage })));
-const ConvertPage = lazy(() => import("@/routes/convert").then((m) => ({ default: m.ConvertPage })));
-const ConvertBatchPage = lazy(() => import("@/routes/convert-batch").then((m) => ({ default: m.ConvertBatchPage })));
-const AnalyzePage = lazy(() => import("@/routes/analyze").then((m) => ({ default: m.AnalyzePage })));
-const ToolsPage = lazy(() => import("@/routes/tools").then((m) => ({ default: m.ToolsPage })));
-const AboutPage = lazy(() => import("@/routes/about").then((m) => ({ default: m.AboutPage })));
-const HistoryPage = lazy(() => import("@/routes/history").then((m) => ({ default: m.HistoryPage })));
-const ValidatePage = lazy(() => import("@/routes/validate").then((m) => ({ default: m.ValidatePage })));
-const ReviewPage = lazy(() => import("@/routes/review").then((m) => ({ default: m.ReviewPage })));
-const ChatPage = lazy(() => import("@/routes/chat").then((m) => ({ default: m.ChatPage })));
-const SettingsPage = lazy(() => import("@/routes/settings").then((m) => ({ default: m.SettingsPage })));
+const HomePage = lazyWithRetry(() => import("@/routes/index").then((m) => ({ default: m.HomePage })));
+const ConvertPage = lazyWithRetry(() => import("@/routes/convert").then((m) => ({ default: m.ConvertPage })));
+const ConvertBatchPage = lazyWithRetry(() => import("@/routes/convert-batch").then((m) => ({ default: m.ConvertBatchPage })));
+const AnalyzePage = lazyWithRetry(() => import("@/routes/analyze").then((m) => ({ default: m.AnalyzePage })));
+const ToolsPage = lazyWithRetry(() => import("@/routes/tools").then((m) => ({ default: m.ToolsPage })));
+const AboutPage = lazyWithRetry(() => import("@/routes/about").then((m) => ({ default: m.AboutPage })));
+const HistoryPage = lazyWithRetry(() => import("@/routes/history").then((m) => ({ default: m.HistoryPage })));
+const ValidatePage = lazyWithRetry(() => import("@/routes/validate").then((m) => ({ default: m.ValidatePage })));
+const ReviewPage = lazyWithRetry(() => import("@/routes/review").then((m) => ({ default: m.ReviewPage })));
+const ChatPage = lazyWithRetry(() => import("@/routes/chat").then((m) => ({ default: m.ChatPage })));
+const SettingsPage = lazyWithRetry(() => import("@/routes/settings").then((m) => ({ default: m.SettingsPage })));
 
 function RouteLoading() {
   return (

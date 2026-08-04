@@ -71,7 +71,13 @@ export function ChatPage() {
       { sessionId, message: text },
       {
         onSuccess: ({ reply }) => setMessages((m) => [...m, { role: "assistant", content: reply }]),
-        onError: (err) => addToast(err.message, "error"),
+        onError: (err) => {
+          addToast(err.message, "error");
+          // Drop the optimistic message and restore it to the composer. Leaving
+          // it in the transcript with no reply implies it was delivered.
+          setMessages((m) => m.slice(0, -1));
+          setDraft(text);
+        },
       },
     );
   };

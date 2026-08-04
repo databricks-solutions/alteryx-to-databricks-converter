@@ -15,8 +15,8 @@ that failed to load, with the error).
 ## Writing a converter plugin
 
 A converter turns one source `ParsedNode` into an `IRNode`. Everything
-downstream (all generators, `verify`, `portfolio`, `assist`, the bridges, the
-review workspace) then works on your node for free.
+downstream (all generators, `verify`, `portfolio`, `advise`, `suggest`, the
+bridges, the review workspace) then works on your node for free.
 
 ```python
 # my_pkg/converters.py
