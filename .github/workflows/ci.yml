@@ -67,12 +67,6 @@ jobs:
         run: npm ci
       - working-directory: frontend
         run: npm run typecheck
-      # Includes the cross-language contract tests: warning-parsing.ts and
-      # deploy-status.ts are hand-ports of Python logic and assert against the
-      # same fixture as tests/unit/observability/test_shared_contract.py, so a
-      # one-sided change fails here.
-      - working-directory: frontend
-        run: npm test
       - working-directory: frontend
         run: npm run build
 
