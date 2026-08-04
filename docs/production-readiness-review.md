@@ -329,3 +329,22 @@ Fixed across four commits on `fix/production-readiness`.
 Also added a README **AI assistant (opt-in)** section documenting `a2d suggest`,
 the `/chat` page, and how to enable FMAPI at deploy time — the feature existed but
 was undocumented for end users.
+
+## One follow-up still open
+
+**Wire `npm test` into CI.** The frontend tests exist and pass (`cd frontend &&
+npm test`, 14 tests), but the CI step that runs them is not committed: pushing a
+branch that edits `.github/workflows/ci.yml` requires GitHub's `workflow` token
+scope, which the available push credentials don't have.
+
+Until that step lands, the cross-language drift guard only fires locally — a
+one-sided change to `warning-parsing.ts` / `deploy-status.ts` would pass CI. The
+change is six lines, in the `frontend` job after `npm run typecheck`:
+
+```yaml
+      - working-directory: frontend
+        run: npm test
+```
+
+Anyone with `workflow` scope (or editing the file in the GitHub web UI) can add
+it. The Python half of the contract already runs in CI via the normal pytest job.
