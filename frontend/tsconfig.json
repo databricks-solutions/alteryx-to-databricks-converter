@@ -14,6 +14,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    // "node" is needed by the cross-language contract test, which reads the
+    // shared JSON fixture from disk. App code does not use Node APIs.
+    "types": ["node", "vitest/globals"],
     "paths": {
       "@/*": ["./src/*"]
     },

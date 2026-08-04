@@ -23,6 +23,13 @@ export default defineConfig({
       },
     },
   },
+  test: {
+    // Node environment is enough: the tested modules are pure logic (warning
+    // parsing, deploy-status rules) with no DOM. Add jsdom if component tests
+    // are introduced later.
+    environment: "node",
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+  },
   build: {
     outDir: "dist",
     rollupOptions: {
