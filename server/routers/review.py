@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from server.services.review import build_review
+from server.utils.deadline import run_with_timeout
 from server.utils.validation import read_upload, validate_yxmd_file
 
 logger = logging.getLogger("a2d.server.routers.review")
@@ -32,10 +32,18 @@ async def review(
     content = await read_upload(file)
 
     try:
-        result = await asyncio.to_thread(build_review, file.filename or "upload.yxmd", content, output_format)
+        result = await run_with_timeout(
+            build_review,
+            file.filename or "upload.yxmd",
+            content,
+            output_format,
+            label=f"Building review for {file.filename}",
+        )
     except ValueError as e:
         logger.warning("Validation error building review: %s", e)
         raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Unexpected error building review session")
         raise HTTPException(status_code=500, detail="Internal review error")

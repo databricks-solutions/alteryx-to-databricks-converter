@@ -345,8 +345,22 @@ class SQLGenerator(CodeGenerator):
             )
 
         if isinstance(node, JoinNode):
-            left = input_ctes.get("Left", input_ctes.get("Input", "MISSING_LEFT"))
-            right = input_ctes.get("Right", "MISSING_RIGHT")
+            left = input_ctes.get("Left", input_ctes.get("Input"))
+            right = input_ctes.get("Right")
+            # A join with a missing side cannot be expressed. Emitting a
+            # placeholder table name here would produce SQL that looks complete
+            # and fails much later with an unrelated "table not found" — so refuse
+            # to generate a runnable statement and say exactly which side is
+            # missing. `SELECT 1 WHERE FALSE` matches how UnionNode handles the
+            # same situation below.
+            if not left or not right:
+                missing = "left" if not left else "right"
+                warnings.append(
+                    f"Join node {node.node_id}: {missing} input is not connected — "
+                    f"cannot generate the join. Connect both inputs in the source workflow "
+                    f"and re-convert, or write this join by hand."
+                )
+                return f"SELECT 1 WHERE FALSE  -- Join node {node.node_id}: {missing} input missing", warnings
             jtype = (node.join_type or "inner").upper()
             if node.join_keys:
                 on_parts = [f"{left}.`{jk.left_field}` = {right}.`{jk.right_field}`" for jk in node.join_keys]
@@ -363,8 +377,16 @@ class SQLGenerator(CodeGenerator):
             return " UNION ALL ".join(parts), warnings
 
         if isinstance(node, AppendFieldsNode):
-            target = input_ctes.get("Target", input_ctes.get("Input", "MISSING"))
-            source = input_ctes.get("Source", "MISSING")
+            target = input_ctes.get("Target", input_ctes.get("Input"))
+            source = input_ctes.get("Source")
+            # Same reasoning as JoinNode: don't emit a placeholder table name.
+            if not target or not source:
+                missing = "target" if not target else "source"
+                warnings.append(
+                    f"AppendFields node {node.node_id}: {missing} input is not connected — "
+                    f"cannot generate the cross join. Connect both inputs and re-convert."
+                )
+                return f"SELECT 1 WHERE FALSE  -- AppendFields node {node.node_id}: {missing} input missing", warnings
             warnings.append(
                 f"AppendFields node {node.node_id}: CROSS JOIN — verify source is a single-row lookup. "
                 "If source has multiple rows, output will be target_rows x source_rows."

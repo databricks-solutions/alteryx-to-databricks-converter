@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     max_batch_files: int = 50
     allowed_extensions: set[str] = {".yxmd"}
 
+    # Deadline for a single conversion/analysis. Conversion is CPU-bound and runs
+    # in a worker thread; without a deadline a pathological workflow occupies that
+    # thread forever and enough of them exhaust the pool, so the service stops
+    # answering. Past this the request returns 408 and the slot is released.
+    conversion_timeout_seconds: float = 300.0
+
+    # Cap on a batch ZIP built in memory. Batch allows max_batch_files uploads,
+    # each fanning out to several formats plus optional DDL/DAB, so an unbounded
+    # buffer is a memory-exhaustion risk. Past this the request returns 413.
+    max_zip_size_bytes: int = 500 * 1024 * 1024  # 500 MB
+
     # Job management
     job_ttl_seconds: int = 3600  # 1 hour
 

@@ -1,0 +1,119 @@
+{
+  "_comment": [
+    "Cross-language contract for warning categorization and deploy status.",
+    "",
+    "The same rules are implemented twice — src/a2d/observability/ in Python and",
+    "frontend/src/lib/ in TypeScript — so the CLI and the web UI agree on what a",
+    "conversion means. Nothing structural stops those two from drifting, and a",
+    "drift is user-visible: the UI would show a different deploy verdict than the",
+    "CLI for the same workflow.",
+    "",
+    "Both sides assert against THIS file:",
+    "  Python — tests/unit/observability/test_shared_contract.py",
+    "  TS     — frontend/src/lib/__tests__/shared-contract.test.ts",
+    "",
+    "Add a case here when you change either implementation; a one-sided change",
+    "then fails the other language's suite."
+  ],
+
+  "warning_cases": [
+    {
+      "name": "unsupported_tool",
+      "raw": "Unsupported node 7: No converter for tool type: Crosstab",
+      "expect": { "kind": "unsupported_tool", "severity": "blocker", "node_id": 7, "tool": "Crosstab" }
+    },
+    {
+      "name": "missing_generator_pyspark",
+      "raw": "No PySpark generator for CrosstabNode (node 12)",
+      "expect": { "kind": "missing_generator", "severity": "review", "node_id": 12 }
+    },
+    {
+      "name": "expression_fallback",
+      "raw": "Filter expression fallback for node 4",
+      "expect": { "kind": "expression_fallback", "severity": "review", "node_id": 4 }
+    },
+    {
+      "name": "local_path_input",
+      "raw": "Input node 2: path 'C:\\data\\sales.csv' is a local/UNC path",
+      "expect": { "kind": "local_path", "severity": "review", "node_id": 2 }
+    },
+    {
+      "name": "disconnected_components",
+      "_note": "Informational: a multi-component graph is legal Alteryx, not a defect.",
+      "raw": "Graph has 2 disconnected data components: [1, 2], [5, 6]",
+      "expect": { "kind": "disconnected_components", "severity": "info" }
+    },
+    {
+      "name": "unrecognized_falls_back_to_other",
+      "_note": "Unknown warnings default to 'review', not 'info' — an unrecognized message is deliberately NOT downgraded to noise.",
+      "raw": "Some warning nobody has a pattern for",
+      "expect": { "kind": "other", "severity": "review", "node_id": null }
+    }
+  ],
+
+  "deploy_status_cases": [
+    {
+      "name": "ready_at_threshold",
+      "coverage": 95.0,
+      "confidence": 80.0,
+      "formats_status": { "pyspark": "success" },
+      "workflow_warnings": [],
+      "best_format_warnings": [],
+      "expect": "ready"
+    },
+    {
+      "name": "coverage_just_below_ready",
+      "coverage": 94.9,
+      "confidence": 80.0,
+      "formats_status": { "pyspark": "success" },
+      "workflow_warnings": [],
+      "best_format_warnings": [],
+      "expect": "needs_review"
+    },
+    {
+      "name": "coverage_at_review_floor",
+      "coverage": 70.0,
+      "confidence": 95.0,
+      "formats_status": { "pyspark": "success" },
+      "workflow_warnings": [],
+      "best_format_warnings": [],
+      "expect": "needs_review"
+    },
+    {
+      "name": "coverage_below_review_floor_cannot_deploy",
+      "coverage": 69.9,
+      "confidence": 95.0,
+      "formats_status": { "pyspark": "success" },
+      "workflow_warnings": [],
+      "best_format_warnings": [],
+      "expect": "cannot_deploy"
+    },
+    {
+      "name": "any_format_failed_cannot_deploy",
+      "coverage": 100.0,
+      "confidence": 100.0,
+      "formats_status": { "pyspark": "success", "dlt": "failed" },
+      "workflow_warnings": [],
+      "best_format_warnings": [],
+      "expect": "cannot_deploy"
+    },
+    {
+      "name": "unsupported_tool_warning_forces_review",
+      "coverage": 100.0,
+      "confidence": 100.0,
+      "formats_status": { "pyspark": "success" },
+      "workflow_warnings": ["Unsupported node 7: No converter for tool type: Crosstab"],
+      "best_format_warnings": [],
+      "expect": "needs_review"
+    },
+    {
+      "name": "low_confidence_forces_review",
+      "coverage": 100.0,
+      "confidence": 65.0,
+      "formats_status": { "pyspark": "success" },
+      "workflow_warnings": [],
+      "best_format_warnings": [],
+      "expect": "needs_review"
+    }
+  ]
+}

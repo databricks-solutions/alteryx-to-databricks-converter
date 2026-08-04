@@ -163,7 +163,9 @@ class CostPerformanceAdvisor:
             idx = 2
         else:
             idx = 3
-        tier = _TIERS[idx]
+        # Clamp so extending the score thresholds without adding a tier degrades
+        # to the largest tier rather than raising IndexError.
+        tier = _TIERS[min(idx, len(_TIERS) - 1)]
 
         if idx == 0:
             rationale.append("Small, mostly linear workflow → single-node is cheapest and sufficient")

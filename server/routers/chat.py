@@ -10,7 +10,6 @@ with an actionable message rather than silently degrading.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
@@ -18,6 +17,7 @@ from fastapi.responses import PlainTextResponse
 
 from a2d.advisor.llm_client import LLMRequestError
 from server.services import chat as chat_service
+from server.utils.deadline import run_with_timeout
 from server.utils.validation import read_upload, validate_yxmd_file
 
 logger = logging.getLogger("a2d.server.routers.chat")
@@ -41,6 +41,14 @@ def _require_client():
 def _require_session(session_id: str):
     session = chat_service.get_session(session_id)
     if session is None:
+        # 410 when the session existed and aged out: a client mid-conversation
+        # should be told to start a new one, not left guessing whether it sent a
+        # bad id (which is what a bare 404 implies).
+        if chat_service.was_evicted(session_id):
+            raise HTTPException(
+                status_code=410,
+                detail="This assistant session expired. Upload the workflow again to start a new one.",
+            )
         raise HTTPException(status_code=404, detail=f"Unknown chat session {session_id!r}")
     return session
 
@@ -66,16 +74,19 @@ async def start_chat(
     content = await read_upload(file)
 
     try:
-        session = await asyncio.to_thread(
+        session = await run_with_timeout(
             chat_service.create_session,
             file.filename or "upload.yxmd",
             content,
             output_format,
+            label=f"Starting assistant session for {file.filename}",
             client=client,
         )
     except ValueError as e:
         logger.warning("Validation error starting chat: %s", e)
         raise HTTPException(status_code=422, detail=str(e)) from None
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Unexpected error starting chat session")
         raise HTTPException(status_code=500, detail="Internal chat error") from None
@@ -95,10 +106,12 @@ async def send_message(session_id: str, message: str = Body(..., embed=True)) ->
 
     session.record("user", text)
     try:
-        reply = await asyncio.to_thread(session.chat.ask, text)
+        reply = await run_with_timeout(session.chat.ask, text, label="Assistant reply")
     except LLMRequestError as e:
         logger.warning("Chat turn failed for %s: %s", session_id, e)
         raise HTTPException(status_code=502, detail=f"Model endpoint error: {e}") from None
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Unexpected error on chat turn")
         raise HTTPException(status_code=500, detail="Internal chat error") from None
@@ -118,10 +131,12 @@ async def generate_report(session_id: str, answers: dict[str, str] | None = Body
     session = _require_session(session_id)
 
     try:
-        markdown = await asyncio.to_thread(session.chat.generate_report, answers or None)
+        markdown = await run_with_timeout(session.chat.generate_report, answers or None, label="Report generation")
     except LLMRequestError as e:
         logger.warning("Report generation failed for %s: %s", session_id, e)
         raise HTTPException(status_code=502, detail=f"Model endpoint error: {e}") from None
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Unexpected error generating report")
         raise HTTPException(status_code=500, detail="Internal chat error") from None

@@ -375,8 +375,20 @@ class DLTGenerator(CodeGenerator):
             ], warnings
 
         if isinstance(node, JoinNode):
-            left_tbl = input_tables.get("Left", input_tables.get("Input", "MISSING"))
-            right_tbl = input_tables.get("Right", "MISSING")
+            left_tbl = input_tables.get("Left", input_tables.get("Input"))
+            right_tbl = input_tables.get("Right")
+            # Don't emit dlt.read("MISSING") — that looks like a real table and
+            # fails at pipeline runtime with a confusing "table not found".
+            if not left_tbl or not right_tbl:
+                missing = "left" if not left_tbl else "right"
+                warnings.append(
+                    f"Join node {node.node_id}: {missing} input is not connected — "
+                    f"join not generated. Connect both inputs and re-convert, or write it by hand."
+                )
+                return [
+                    f"# CANNOT CONVERT: Join node {node.node_id} has no {missing} input connected.",
+                    "raise NotImplementedError('Join input missing — see conversion warnings.')",
+                ], warnings
             left_read = f'dlt.read("{left_tbl}")'
             right_read = f'dlt.read("{right_tbl}")'
             if node.join_keys:

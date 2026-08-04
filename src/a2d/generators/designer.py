@@ -34,6 +34,7 @@ import re
 import uuid
 
 from a2d.config import ConversionConfig
+from a2d.expressions.base_translator import BaseTranslationError
 from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput
 from a2d.generators.sql import SQLGenerator, _cte_name
 from a2d.ir.graph import WorkflowDAG
@@ -408,9 +409,13 @@ class DesignerGenerator(CodeGenerator):
         else:
             try:
                 condition = self._sql._translator.translate_string(node.expression)
-            except Exception:
+            except BaseTranslationError as exc:
+                # Falling back emits the ORIGINAL Alteryx expression, which is not
+                # valid Spark SQL — say why, so the warning is actionable instead
+                # of leaving the reviewer to guess. Only translation failures are
+                # caught: a bug in the translator must surface, not be papered over.
                 condition = node.expression
-                warnings.append(f"Designer filter expression fallback for node {node.node_id}")
+                warnings.append(f"Designer filter expression fallback for node {node.node_id}: {exc}")
         # filter@2 emits both filtered_data and excluded_data output ports.
         config = {"condition": condition}
         body = (
@@ -716,9 +721,12 @@ class DesignerGenerator(CodeGenerator):
             for f in node.formulas:
                 try:
                     expr = self._sql._translator.translate_string(f.expression)
-                except Exception:
+                except BaseTranslationError as exc:
+                    # NULL is a safe placeholder (unlike the filter case it can't
+                    # be mistaken for working code), but the reviewer still needs
+                    # the reason. Unexpected errors propagate.
                     expr = "NULL"
-                    warnings.append(f"Designer formula fallback: {f.output_field}")
+                    warnings.append(f"Designer formula fallback for {f.output_field}: {exc}")
                 expressions.append(f"{expr} AS `{f.output_field}`")
                 lines.append(f"df = df.withColumn({self._py(f.output_field)}, F.expr({self._py(expr)}))")
         elif isinstance(node, DataCleansingNode):

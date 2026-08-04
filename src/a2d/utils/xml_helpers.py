@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
 from lxml import etree
+
+logger = logging.getLogger("a2d.utils.xml_helpers")
+
+# Depth ceiling for element_to_dict. Real Alteryx configuration nests only a few
+# levels; this is high enough never to touch a genuine workflow while keeping an
+# adversarial or corrupt file from exhausting the recursion stack.
+MAX_XML_DEPTH = 100
 
 
 def get_text(element: etree._Element | None, default: str = "") -> str:
@@ -31,13 +40,26 @@ def get_child_attr(parent: etree._Element, child_tag: str, attr: str, default: s
     return get_attr(child, attr, default)
 
 
-def element_to_dict(element: etree._Element) -> dict:
+def element_to_dict(element: etree._Element, _depth: int = 0) -> dict:
     """Recursively convert an XML element to a nested dict.
 
     Attributes are stored with '@' prefix. Text content stored as '#text'.
     Repeated child tags become lists.
+
+    Nesting is bounded by :data:`MAX_XML_DEPTH`: workflow files come from an
+    external source, and a pathologically deep document would otherwise exhaust
+    the stack. Past the limit the branch is truncated with a marker rather than
+    crashing, so a legitimate-but-deep file still converts.
     """
     result: dict = {}
+
+    if _depth >= MAX_XML_DEPTH:
+        logger.warning(
+            "XML nesting exceeded %d levels at <%s> — truncating this branch",
+            MAX_XML_DEPTH,
+            element.tag,
+        )
+        return {"#truncated": True}
 
     # Add attributes
     for key, value in element.attrib.items():
@@ -51,7 +73,7 @@ def element_to_dict(element: etree._Element) -> dict:
 
     # Add children
     for child in element:
-        child_data = element_to_dict(child)
+        child_data = element_to_dict(child, _depth + 1)
         tag = child.tag
         if tag in result:
             # Convert to list if multiple same-tag children

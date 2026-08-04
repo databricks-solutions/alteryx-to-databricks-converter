@@ -11,7 +11,17 @@ from server.settings import settings
 
 
 def sanitize_filename(filename: str) -> str:
-    """Strip directory components and dangerous characters from a filename."""
+    """Strip directory components and dangerous characters from a filename.
+
+    Two things worth knowing, since both are visible to users:
+
+    * Any path is discarded — ``../../etc/passwd`` becomes ``passwd`` — so an
+      upload can never be written outside its temp directory.
+    * Characters outside ``[A-Za-z0-9_.-]`` are replaced with ``_``, so
+      ``sales@2024 (final).yxmd`` arrives as ``sales_2024__final_.yxmd``. The
+      rewritten name is what appears in generated output and history, which can
+      surprise someone who expected the original spelling.
+    """
     name = PurePosixPath(filename).name
     name = re.sub(r"[^\w\-.]", "_", name)
     return name or "upload.yxmd"

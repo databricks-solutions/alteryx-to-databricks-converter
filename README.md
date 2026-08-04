@@ -45,7 +45,7 @@ Large organizations use Alteryx to build data pipelines visually. Moving those p
 
 - **What you save:** weeks of manual rewriting per workflow
 - **What you get:** PySpark notebooks, Spark Declarative Pipelines (DLT), Databricks SQL, Lakeflow Designer pipelines, and Workflow JSON — every conversion produces all four formats in one run, available via CLI, web upload, or Databricks Apps deployment
-- **What it handles:** 112 Alteryx tool types via 62 converters, 141 formula functions, 4 output formats, 5 CLI commands, database connections, expressions, joins, aggregations, and more
+- **What it handles:** 158 Alteryx tool types via 113 converters, 141 formula functions, 5 output formats, 12 CLI commands, database connections, expressions, joins, aggregations, and more
 
 > **You do not need Alteryx installed** to run this tool.
 
@@ -340,15 +340,21 @@ All warnings include remediation hints with 50+ specific recommendations. The JS
 
 ## CLI Reference
 
-a2d provides 6 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
+a2d provides 12 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
 
 | Command | Purpose |
 |---|---|
-| `convert` | Convert workflows — emits PySpark, Spark Declarative Pipelines (DLT), SQL, and Lakeflow code in one run; use `-f` to filter |
+| `convert` | Convert workflows — emits PySpark, Spark Declarative Pipelines (DLT), SQL, Lakeflow and Designer code in one run; use `-f` to filter |
 | `analyze` | Generate migration readiness reports (HTML/JSON) |
+| `portfolio` | Analyze a whole estate — cross-workflow dependencies, shared macros, and a migration-wave plan |
 | `validate` | Check generated Python syntax |
 | `verify` | Check a workflow produces **semantically equivalent** results on sample data (see below) |
+| `suggest` | Write AI suggestions for what the converter couldn't convert (opt-in; see [AI assistant](#ai-assistant-opt-in)) |
+| `sync` | Incrementally re-convert a directory — only changed or new workflows |
+| `advise` | Recommend a cluster size and surface Spark optimization hints |
+| `profile` | Profile a sample-data CSV: per-column type, null rate, and range |
 | `list-tools` | Show supported Alteryx tool matrix |
+| `plugins` | List installed source frontends and converter plugins |
 | `version` | Show a2d version |
 
 **Example:** `a2d convert workflow.yxmd -o output/ --comments --expression-audit --performance-hints` (all 4 formats)
@@ -383,6 +389,44 @@ a2d verify workflow.yxmd -i sales=sales.csv -e expected.csv --json report.json
 - Exit code is non-zero only on an actual **FAIL**; an inconclusive run (no ground truth) exits 0.
 - Workflows containing operators the reference executor doesn't model report a *partial* result
   (verified subset only) — never a false pass.
+
+### AI assistant (opt-in)
+
+**By default a2d never calls a language model.** Conversion is entirely
+deterministic, and nothing here changes that.
+
+If you configure a Databricks Foundation Model API endpoint, two advisory features
+become available. They can only **suggest** and **explain** — an LLM never modifies
+generated code, and its output arrives as a separate document you read and apply
+yourself.
+
+```bash
+export A2D_FMAPI_ENDPOINT="https://<workspace>/serving-endpoints/<name>/invocations"
+export A2D_FMAPI_TOKEN="..."   # optional — omit to use ambient workspace credentials
+
+a2d suggest workflow.yxmd          # writes workflow_suggestions.md
+```
+
+- **`a2d suggest`** writes a Markdown report describing every gap the converter
+  left — unsupported tools, TODO stubs, expression fallbacks, connection issues —
+  with a suggested Databricks implementation for each. With no endpoint configured
+  it still succeeds and still writes the deterministic gap list, just without
+  suggestions.
+- **The Assistant page** (`/chat` in the web UI) is a chatbot for discussing the
+  migration: why the converter made the choices it did, how to handle a gap, and
+  what the trade-offs are. It asks a few clarifying questions, then generates the
+  same downloadable report.
+
+To enable it in a Databricks Apps deployment, pass the endpoint at deploy time:
+
+```bash
+databricks bundle deploy --var fmapi_endpoint="https://<workspace>/serving-endpoints/<name>/invocations"
+```
+
+In-workspace serving endpoints need no token — the app's service principal
+credentials are used. Leave `fmapi_endpoint` empty (the default) to keep AI off
+entirely; the Assistant page then shows setup instructions instead of an upload
+form.
 
 ---
 
@@ -439,36 +483,48 @@ make clean       # Remove build artifacts
 
 ```
 src/a2d/
-  cli.py                   # Typer CLI (5 commands)
+  cli.py                   # Typer CLI (12 commands)
   config.py                # Configuration dataclasses
   pipeline.py              # Orchestration: Parse → Convert → Generate
   connections.py           # YAML connection mapping (Alteryx → Unity Catalog)
   parser/                  # .yxmd XML parsing
-  ir/                      # 60 typed IR nodes + WorkflowDAG
-  converters/              # 62 converters handling 112 tool types (8 categories)
+  ir/                      # Typed IR nodes + WorkflowDAG
+  converters/              # 113 converters handling 158 tool types (8 categories)
   expressions/             # Expression engine (tokenizer → parser → AST → translator, 141 functions)
-  generators/              # PySpark, DLT, SQL, Lakeflow, DDL, DAB, Workflow JSON
+  generators/              # PySpark, DLT, SQL, Lakeflow, Designer, DDL, DAB, Workflow JSON
+  frontends/               # Pluggable source frontends (Alteryx, dbt) — one IR, many sources
   analyzer/                # Complexity, coverage analysis
-  observability/           # Confidence scoring, enriched hints, expression audit, performance hints
+  observability/           # Confidence scoring, warning categorization, deploy status,
+                           #   expression audit, performance hints
+  verification/            # Semantic equivalence harness (pandas reference executor)
+  advisor/                 # Cluster/cost advice + the opt-in advisory LLM (context, report, chat)
+  portfolio/               # Estate-wide analysis, dependency graph, executive dashboard
+  macro/                   # .yxmc macro expansion (inlined into the parent DAG)
+  review/                  # Interactive review sessions (canvas ↔ generated code)
+  bridges/                 # Spatial (ST/Sedona/H3) + AI/BI dashboard generation
+  incremental/             # Manifest tracking for `a2d sync`
+  sdk/                     # Stable public contract for converter plugins
   validation/              # Syntax validation
 
 server/                    # FastAPI backend
   main.py                  # App entry point
-  routers/                 # REST endpoints (analyze, convert, health, history, tools, validate)
+  routers/                 # REST endpoints (analyze, convert, chat, health, history,
+                           #   review, tools, validate)
   services/                # Business logic
   websocket/               # Real-time batch progress
 
 frontend/                  # React 19 + TypeScript + Tailwind 4
   src/
-    routes/                # 9 pages (convert, batch, analyze, history,
-                           #   tools, validate, settings, about, home)
+    routes/                # 11 pages (convert, batch, analyze, history, tools,
+                           #   validate, review, chat, settings, about, home)
     components/            # UI components (workflow graph, code viewer, etc.)
     stores/                # Zustand state management
     lib/                   # API client, utilities
   dist/                    # Pre-built assets (committed for Databricks App deployment)
 
 demo/                      # Sample .yxmd workflows for testing
-tests/                     # pytest test suite (1006 tests, 82%+ coverage)
+tests/                     # pytest suite (1500+ tests, 85%+ coverage)
+  fixtures/shared/         # Cross-language contract fixture (Python + TS assert the same rules)
 docs/                      # Architecture, expression reference, migration playbook,
                            # visual guide (a2d-guide.html), conversion mapping
 ```

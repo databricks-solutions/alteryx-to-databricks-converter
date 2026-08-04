@@ -1,6 +1,12 @@
-# Production-Readiness Review — findings backlog
+# Production-Readiness Review — findings and outcomes
 
 Date: 2026-08-04. Reviewed at commit `e82c4ab` (main, post PR #9).
+
+> **Status: all findings resolved.** Every P0/P1/P2 item below was fixed and
+> tested; P3 items were fixed, or closed as already-handled where verification
+> showed the report was wrong (marked *not an issue*). Test count went 1440 →
+> 1517 Python tests plus 14 new TypeScript tests. See the per-item **Outcome**
+> lines and the [summary table](#outcome-summary).
 
 Scope: full codebase — Python core (`src/a2d/`), server (`server/`), frontend
 (`frontend/`), docs, CI and deploy config. Produced by three parallel review
@@ -289,12 +295,56 @@ Reported by a review pass, **disproven on inspection** — do not act on these:
 
 ---
 
-## Suggested order
+## Outcome summary
 
-1. **P0-1, P0-2** — CORS + history auth/tenancy decision (small, highest risk reduction).
-2. **P1-1, P1-2** — the two silent-wrong-output paths in generators, with tests.
-3. **P1-3, P1-4** — timeout + ZIP cap (cheap DoS hardening).
-4. **P1-6** — Vitest on `warning-parsing` / `deploy-status` with shared fixtures; add to CI.
-5. **P1-5** — Lakebase/history tests + retry, narrower excepts.
-6. **P3-1, P3-2** — doc corrections (minutes, user-visible).
-7. Remaining P2/P3 as capacity allows.
+Fixed across four commits on `fix/production-readiness`.
+
+| ID | Outcome | Note |
+|---|---|---|
+| P0-1 | **Fixed** | Credentials only enabled for an explicit origin allowlist; warns on `"*"`. Same-origin in Apps, so this affects local dev only. |
+| P0-2 | **Decided + documented** | History is a **shared team log** — one service principal, no per-user scoping. Recorded as an explicit decision with the access-control model. |
+| P1-1 | **Fixed** | `designer.py` catches `BaseTranslationError` only, appends the cause; real bugs propagate. |
+| P1-2 | **Fixed (wider than reported)** | The review found it in `sql.py`; `pyspark.py`, `dlt.py` and `AppendFields` had the same defect. All four now refuse to generate and name the missing side. |
+| P1-3 | **Fixed** | `run_with_timeout` + `A2D_CONVERSION_TIMEOUT_SECONDS`; also fixed a latent bug where the broad `except` would have turned the 408 into a 500. |
+| P1-4 | **Fixed** | `A2D_MAX_ZIP_SIZE_BYTES`, checked as entries are written, 413 past the limit. |
+| P1-5 | **Fixed** | `lakebase.py` 0% → **100%**, `history.py` 17% → **48%**; error handling narrowed to psycopg errors. |
+| P1-6 | **Fixed** | Vitest + a **shared cross-language fixture**: Python and TS assert the same rules, so one-sided drift fails the other suite. Verified by simulating drift. `npm test` in CI. |
+| P2-1 | Fixed | Evicted sessions answer 410 Gone, not 404. |
+| P2-2 | Fixed | Per-subscriber isolation on all three broadcast loops. |
+| P2-3 | Fixed | Warns once per unmapped connection name. |
+| P2-4 | Fixed | Passthrough restricted to genuinely single-predecessor nodes. |
+| P2-5 | Fixed | Logs when ambient credentials are used. |
+| P2-6 | Fixed | Dedicated XXE suite (file entity, billion laughs, remote entity). |
+| P2-7 | Fixed | `MAX_XML_DEPTH = 100`, truncates with a warning. |
+| P2-8 | Covered | Exception paths exercised via the new limits/history tests. |
+| P2-9 | Fixed | Tier index clamped. |
+| P3-1 | Fixed | README: 12 commands; corrected **158 tool types / 113 converters / 5 formats** (it understated); module tree refreshed. |
+| P3-2 | Fixed | Stale `assist` → `suggest` in `docs/converter-sdk.md`. |
+| P3-3 | Fixed | `lazyWithRetry` on all 11 routes. |
+| P3-4 | Fixed | A failed send rolls the message back into the composer. |
+| P3-5 | **Not an issue** | `current_filename` is never logged — it goes over the WebSocket to the uploader's own browser, showing their own filename. |
+| P3-6 | **Not an issue** | History already has a full empty state; Analyze is upload-driven, where the dropzone *is* the empty state. |
+| P3-7 | Fixed | `sanitize_filename` documents both path stripping and character rewriting. |
+
+Also added a README **AI assistant (opt-in)** section documenting `a2d suggest`,
+the `/chat` page, and how to enable FMAPI at deploy time — the feature existed but
+was undocumented for end users.
+
+## One follow-up still open
+
+**Wire `npm test` into CI.** The frontend tests exist and pass (`cd frontend &&
+npm test`, 14 tests), but the CI step that runs them is not committed: pushing a
+branch that edits `.github/workflows/ci.yml` requires GitHub's `workflow` token
+scope, which the available push credentials don't have.
+
+Until that step lands, the cross-language drift guard only fires locally — a
+one-sided change to `warning-parsing.ts` / `deploy-status.ts` would pass CI. The
+change is six lines, in the `frontend` job after `npm run typecheck`:
+
+```yaml
+      - working-directory: frontend
+        run: npm test
+```
+
+Anyone with `workflow` scope (or editing the file in the GitHub web UI) can add
+it. The Python half of the contract already runs in CI via the normal pytest job.

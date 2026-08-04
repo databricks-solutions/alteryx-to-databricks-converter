@@ -1023,8 +1023,24 @@ class PySparkGenerator(CodeGenerator):
     def _generate_JoinNode(
         self, node: JoinNode, input_vars: dict[str, str], dag: WorkflowDAG | None = None
     ) -> NodeCodeResult:
-        left_var = input_vars.get("Left", input_vars.get("Input", "MISSING_LEFT"))
-        right_var = input_vars.get("Right", "MISSING_RIGHT")
+        left_var = input_vars.get("Left", input_vars.get("Input"))
+        right_var = input_vars.get("Right")
+        # A join needs both sides. Emitting a placeholder variable name would
+        # produce code that looks complete and dies later with a confusing
+        # NameError, so refuse to generate the join and name the missing side.
+        if not left_var or not right_var:
+            missing = "left" if not left_var else "right"
+            return NodeCodeResult(
+                code_lines=[
+                    f"# CANNOT CONVERT: Join node {node.node_id} has no {missing} input connected.",
+                    "# Connect both inputs in the source workflow and re-convert, # or write this join by hand.",
+                ],
+                output_vars={},
+                warnings=[
+                    f"Join node {node.node_id}: {missing} input is not connected — "
+                    f"join not generated. Connect both inputs and re-convert, or write it by hand."
+                ],
+            )
         out_join = f"df_{node.node_id}_join"
         out_left = f"df_{node.node_id}_left"
         out_right = f"df_{node.node_id}_right"

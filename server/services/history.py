@@ -8,6 +8,22 @@ import uuid
 
 logger = logging.getLogger("a2d.server.services.history")
 
+# Errors are narrowed to psycopg.Error so a database outage degrades gracefully
+# (history is optional) while a genuine bug — bad column, wrong type — still
+# surfaces instead of masquerading as "no history".
+#
+# psycopg comes with the `server` extra, and this module must stay importable
+# without it (the rest of the server, and the CLI, don't need a database), so the
+# import is tolerant. With no driver installed there is no pool either, and the
+# guarded blocks are unreachable.
+try:
+    from psycopg import Error as _DatabaseError
+except ModuleNotFoundError:  # pragma: no cover - only when the extra is absent
+
+    class _DatabaseError(Exception):  # type: ignore[no-redef]
+        """Placeholder so `except` clauses stay valid without psycopg."""
+
+
 _pool = None
 _initialized = False
 
@@ -136,7 +152,9 @@ def save_conversion(data: dict) -> str | None:
             )
             conn.commit()
         return record_id
-    except Exception:
+    except _DatabaseError:
+        # A database problem must not fail the conversion itself — the caller
+        # treats history as best-effort. Programming errors still propagate.
         logger.exception("Failed to save conversion to history")
         return None
 
@@ -174,7 +192,8 @@ def list_conversions(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]
             for r in rows
         ]
         return items, total
-    except Exception:
+    except _DatabaseError:
+        # Degrade to an empty list on a DB outage rather than 500 the page.
         logger.exception("Failed to list conversions")
         return [], 0
 
@@ -211,7 +230,7 @@ def get_conversion(record_id: str) -> dict | None:
             "dag_data": row[9],
             "stats": row[10] or {},
         }
-    except Exception:
+    except _DatabaseError:
         logger.exception("Failed to get conversion %s", record_id)
         return None
 
@@ -230,6 +249,6 @@ def delete_conversion(record_id: str) -> bool:
             )
             conn.commit()
             return (result.rowcount or 0) > 0
-    except Exception:
+    except _DatabaseError:
         logger.exception("Failed to delete conversion %s", record_id)
         return False
