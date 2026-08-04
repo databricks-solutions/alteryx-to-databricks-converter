@@ -371,7 +371,12 @@ async def _run_batch(
                 }
                 msg = {"type": "file_complete", **summary}
                 for q in list(job.subscribers):
-                    await q.put(msg)
+                    # A dead or full subscriber queue must not stop the others
+                    # from being notified.
+                    try:
+                        await q.put(msg)
+                    except Exception:
+                        logger.warning("Failed to notify a batch subscriber", exc_info=True)
 
         duration = time.monotonic() - started_at
         avg_coverage = 0.0
@@ -411,11 +416,17 @@ async def _run_batch(
             ],
         }
         for q in list(job.subscribers):
-            await q.put(complete_msg)
+            try:
+                await q.put(complete_msg)
+            except Exception:
+                logger.warning("Failed to send batch completion to a subscriber", exc_info=True)
     except Exception:
         logger.exception("Batch job %s failed", job.job_id)
         job.status = JobStatus.FAILED
         job.error_message = "Internal batch conversion error"
         error_msg = {"type": "error", "message": job.error_message}
         for q in list(job.subscribers):
-            await q.put(error_msg)
+            try:
+                await q.put(error_msg)
+            except Exception:
+                logger.warning("Failed to send batch error to a subscriber", exc_info=True)

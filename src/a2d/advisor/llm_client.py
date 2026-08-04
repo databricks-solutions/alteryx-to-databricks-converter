@@ -102,6 +102,11 @@ class FMAPIClient:
             headers = cfg.authenticate() or {}
             bearer = headers.get("Authorization", "")
             self._resolved_token = bearer.removeprefix("Bearer ").strip() or None
+            if self._resolved_token:
+                # Say which identity is in play: otherwise a wrong or expired
+                # explicit token silently falls back to workspace credentials and
+                # the operator cannot tell why their endpoint sees no traffic.
+                logger.info("FMAPI: using ambient Databricks credentials (no explicit token provided)")
         except Exception as exc:
             logger.debug("No ambient Databricks credentials available: %s", exc)
             self._resolved_token = None

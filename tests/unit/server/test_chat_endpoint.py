@@ -174,3 +174,27 @@ class TestNoCodeMutation:
         assert set(data.keys()) == {"session_id", "context", "messages", "clarifying_questions"}
         assert "files" not in data["context"]
         assert "generated_code" not in data["context"]
+
+
+class TestEvictedSessionGone:
+    """An expired session must be distinguishable from a bad id."""
+
+    def test_evicted_session_returns_410_not_404(self, client, enabled):
+        start = client.post(
+            "/api/chat",
+            files={"file": ("wf.yxmd", _message_wf(), "application/xml")},
+        ).json()
+        session_id = start["session_id"]
+
+        # Force expiry, then trigger the prune that a new session performs.
+        chat_service.get_session(session_id).created_at = 0
+        client.post("/api/chat", files={"file": ("wf.yxmd", _message_wf(), "application/xml")})
+
+        resp = client.post(f"/api/chat/{session_id}/message", json={"message": "still there?"})
+
+        assert resp.status_code == 410, resp.text
+        assert "expired" in resp.json()["detail"].lower()
+
+    def test_never_seen_session_still_returns_404(self, client, enabled):
+        resp = client.post("/api/chat/deadbeef/message", json={"message": "hi"})
+        assert resp.status_code == 404

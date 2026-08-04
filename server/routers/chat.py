@@ -41,6 +41,14 @@ def _require_client():
 def _require_session(session_id: str):
     session = chat_service.get_session(session_id)
     if session is None:
+        # 410 when the session existed and aged out: a client mid-conversation
+        # should be told to start a new one, not left guessing whether it sent a
+        # bad id (which is what a bare 404 implies).
+        if chat_service.was_evicted(session_id):
+            raise HTTPException(
+                status_code=410,
+                detail="This assistant session expired. Upload the workflow again to start a new one.",
+            )
         raise HTTPException(status_code=404, detail=f"Unknown chat session {session_id!r}")
     return session
 

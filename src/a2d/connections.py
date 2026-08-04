@@ -37,15 +37,31 @@ class ConnectionMappingConfig:
     mappings: dict[str, ConnectionMapping] = field(default_factory=dict)
     default_catalog: str = "main"
     default_schema: str = "default"
+    # Names already warned about, so a connection used by many nodes logs once.
+    _warned_unmapped: set[str] = field(default_factory=set, repr=False, compare=False)
 
     def resolve(self, connection_name: str, table_name: str = "") -> str:
         """Resolve a connection name to a Databricks table path.
 
         Falls back to default catalog/schema if no explicit mapping exists.
+
+        A miss is logged once per name: silently defaulting means a typo'd key in
+        the mapping file sends generated code at ``main.default`` instead of the
+        configured location, with nothing to indicate the mapping didn't apply.
         """
         mapping = self.mappings.get(connection_name)
         if mapping:
             return mapping.resolve_table(table_name)
+
+        if connection_name and connection_name not in self._warned_unmapped:
+            self._warned_unmapped.add(connection_name)
+            logger.warning(
+                "Connection %r has no mapping — defaulting to %s.%s. "
+                "Check for a typo in the connection map if this is unexpected.",
+                connection_name,
+                self.default_catalog,
+                self.default_schema,
+            )
 
         # Fallback to defaults
         parts = [p for p in (self.default_catalog, self.default_schema, table_name) if p]

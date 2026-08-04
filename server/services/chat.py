@@ -52,6 +52,8 @@ class ChatSession:
 
 
 _sessions: dict[str, ChatSession] = {}
+# Ids dropped by TTL/cap, kept so the API can answer 410 instead of 404.
+_evicted: set[str] = set()
 _lock = threading.Lock()
 
 
@@ -73,10 +75,24 @@ def _prune_locked() -> None:
     stale = [sid for sid, s in _sessions.items() if s.created_at < cutoff]
     for sid in stale:
         del _sessions[sid]
+        _evicted.add(sid)
     # Hard cap: drop the oldest sessions if we're still over budget.
     if len(_sessions) > MAX_SESSIONS:
         for sid, _ in sorted(_sessions.items(), key=lambda kv: kv[1].created_at)[: len(_sessions) - MAX_SESSIONS]:
             del _sessions[sid]
+            _evicted.add(sid)
+        logger.warning("Chat session cap reached — evicted the oldest sessions")
+
+
+def was_evicted(session_id: str) -> bool:
+    """True if this session existed and was dropped (vs never existing).
+
+    Lets the API answer 410 Gone rather than 404, so a client mid-conversation is
+    told to start a new session instead of being left to guess whether it sent a
+    bad id.
+    """
+    with _lock:
+        return session_id in _evicted
 
 
 def build_context(filename: str, content: bytes, output_format: str = "pyspark") -> MigrationContext:
@@ -151,6 +167,7 @@ def clear_sessions() -> None:
     """Drop every session (used by tests)."""
     with _lock:
         _sessions.clear()
+        _evicted.clear()
 
 
 def session_payload(session: ChatSession) -> dict:

@@ -97,8 +97,15 @@ class ReferenceExecutor:
                 result.skipped.append((node.node_id, str(exc)))
                 # Best-effort passthrough so downstream nodes can still run when
                 # a non-transforming node (e.g. Browse) is unsupported.
+                #
+                # Only for genuinely single-input nodes. A node that combines
+                # several inputs (join/union/append) must NOT forward one side:
+                # downstream ops would then run on partial data and the run could
+                # report parity for them, quietly weakening the very guarantee
+                # this harness exists to provide.
                 inputs = self._input_frames(node, dag, result)
-                if len(inputs) == 1:
+                predecessors = list(dag.get_predecessors(node.node_id))
+                if len(inputs) == 1 and len(predecessors) <= 1:
                     result.outputs[node.node_id] = next(iter(inputs.values()))
                 continue
             if df is not None:
