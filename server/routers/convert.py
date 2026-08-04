@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import io
 import logging
 import zipfile
@@ -18,6 +17,8 @@ from server.models.responses import (
 )
 from server.services import batch as batch_service
 from server.services.conversion import convert_file
+from server.settings import settings
+from server.utils.deadline import run_with_timeout
 from server.utils.validation import read_upload, validate_and_read_files, validate_yxmd_file
 
 logger = logging.getLogger("a2d.server.routers.convert")
@@ -35,10 +36,11 @@ async def convert_single(
 
     logger.info("Converting %s (multi-format, size=%d bytes)", file.filename, len(file_bytes))
     try:
-        result = await asyncio.to_thread(
+        result = await run_with_timeout(
             convert_file,
             file_bytes,
             file.filename,
+            label=f"Converting {file.filename}",
             catalog_name=opts.catalog_name,
             schema_name=opts.schema_name,
             include_comments=opts.include_comments,
@@ -51,6 +53,9 @@ async def convert_single(
     except ValueError as e:
         logger.warning("Validation error converting %s: %s", file.filename, e)
         raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        # Already an HTTP response (e.g. the 408 deadline) — don't rewrite it as a 500.
+        raise
     except Exception:
         logger.exception("Unexpected error converting %s", file.filename)
         raise HTTPException(status_code=500, detail="Internal conversion error")
@@ -112,6 +117,11 @@ async def batch_download(job_id: str) -> StreamingResponse:
     if job.status != batch_service.JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job not completed yet")
 
+    # The archive is assembled in memory, so it needs a ceiling: a full batch
+    # (max_batch_files uploads x 5 formats, plus optional DDL/DAB) could otherwise
+    # allocate gigabytes. Checked as we write so we stop at the limit instead of
+    # after the damage is done.
+    max_bytes = settings.max_zip_size_bytes
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for fr in job.file_results:
@@ -129,6 +139,20 @@ async def batch_download(job_id: str) -> StreamingResponse:
                         f"{workflow_folder}/{fmt_key}/{f['filename']}",
                         f["content"],
                     )
+                    if buf.tell() > max_bytes:
+                        logger.warning(
+                            "Batch %s ZIP exceeded %d bytes — refusing to build it",
+                            job_id,
+                            max_bytes,
+                        )
+                        raise HTTPException(
+                            status_code=413,
+                            detail=(
+                                f"The archive for this batch exceeds the "
+                                f"{max_bytes // (1024 * 1024)} MB limit. Download individual "
+                                f"workflows instead, or raise A2D_MAX_ZIP_SIZE_BYTES."
+                            ),
+                        )
 
     buf.seek(0)
     return StreamingResponse(

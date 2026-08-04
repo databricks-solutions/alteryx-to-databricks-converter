@@ -81,11 +81,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS from settings
+# CORS from settings.
+#
+# In Databricks Apps the SPA is served by THIS app (see the static mount below),
+# so requests are same-origin and need no CORS at all. These settings exist for
+# local development, where Vite runs on a different port.
+#
+# `allow_credentials=True` with a wildcard origin is invalid per the CORS spec
+# (browsers reject `Access-Control-Allow-Origin: *` on a credentialed request),
+# and asking for it would silently break those requests while widening exposure.
+# So credentials are only enabled for an explicit origin allowlist.
+_wildcard_origin = "*" in settings.cors_origins
+if _wildcard_origin:
+    logger.warning(
+        "A2D_CORS_ORIGINS is '*' — credentialed cross-origin requests are disabled. "
+        "Set an explicit origin allowlist if you need them."
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=not _wildcard_origin,
     allow_methods=settings.cors_allow_methods,
     allow_headers=settings.cors_allow_headers,
 )
