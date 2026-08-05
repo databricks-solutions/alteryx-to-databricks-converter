@@ -98,6 +98,17 @@ class DLTGenerator(CodeGenerator):
         super().__init__(config)
         self._translator = PySparkTranslator()
 
+    @staticmethod
+    def _lit(value: str) -> str:
+        r"""Render *value* as a complete, correctly quoted Python string literal.
+
+        Regex patterns, delimiters and paths are backslash-heavy by nature, so
+        interpolating them into hand-written quotes produces invalid escapes
+        (``\D`` in a Windows path) or silently changes the pattern. ``repr``
+        handles quoting and escaping by construction.
+        """
+        return repr(value)
+
     def generate(self, dag: WorkflowDAG, workflow_name: str = "workflow") -> GeneratedOutput:
         ordered_nodes = dag.topological_order()
         warnings: list[str] = []
@@ -587,13 +598,17 @@ class DLTGenerator(CodeGenerator):
             inp = self._get_single_input_read(input_tables)
             if node.mode == "replace":
                 return [
-                    f'return {inp}.withColumn("{node.field_name}", F.regexp_replace(F.col("{node.field_name}"), "{node.expression}", "{node.replacement}"))'
+                    f"return {inp}.withColumn({self._lit(node.field_name)}, "
+                    f"F.regexp_replace(F.col({self._lit(node.field_name)}), "
+                    f"{self._lit(node.expression)}, {self._lit(node.replacement)}))"
                 ], warnings
             elif node.mode == "parse":
                 lines = [f"df = {inp}"]
                 for idx, out_field in enumerate(node.output_fields):
                     lines.append(
-                        f'df = df.withColumn("{out_field}", F.regexp_extract(F.col("{node.field_name}"), "{node.expression}", {idx + 1}))'
+                        f"df = df.withColumn({self._lit(out_field)}, "
+                        f"F.regexp_extract(F.col({self._lit(node.field_name)}), "
+                        f"{self._lit(node.expression)}, {idx + 1}))"
                     )
                 lines.append("return df")
                 return lines, warnings
@@ -608,12 +623,16 @@ class DLTGenerator(CodeGenerator):
             root = node.output_root_name or node.field_name
             if node.split_to == "rows":
                 return [
-                    f'return {inp}.withColumn("{root}", F.explode(F.split(F.col("{node.field_name}"), "{node.delimiter}")))'
+                    f"return {inp}.withColumn({self._lit(root)}, "
+                    f"F.explode(F.split(F.col({self._lit(node.field_name)}), {self._lit(node.delimiter)})))"
                 ], warnings
-            lines = [f"df = {inp}", f'_split = F.split(F.col("{node.field_name}"), "{node.delimiter}")']
+            lines = [
+                f"df = {inp}",
+                f"_split = F.split(F.col({self._lit(node.field_name)}), {self._lit(node.delimiter)})",
+            ]
             num = node.num_columns or 5
             for i in range(num):
-                lines.append(f'df = df.withColumn("{root}_{i + 1}", _split[{i}])')
+                lines.append(f"df = df.withColumn({self._lit(f'{root}_{i + 1}')}, _split[{i}])")
             lines.append("return df")
             return lines, warnings
 
@@ -623,7 +642,8 @@ class DLTGenerator(CodeGenerator):
             fmt = alteryx_fmt_to_spark(node.format_string or "yyyy-MM-dd")
             if node.conversion_mode == "parse":
                 return [
-                    f'return {inp}.withColumn("{out_field}", F.to_date(F.col("{node.input_field}"), "{fmt}"))'
+                    f"return {inp}.withColumn({self._lit(out_field)}, "
+                    f"F.to_date(F.col({self._lit(node.input_field)}), {self._lit(fmt)}))"
                 ], warnings
             elif node.conversion_mode == "format":
                 return [
