@@ -56,12 +56,19 @@ async def lifespan(app: FastAPI):
     # Startup: ensure converters are loaded
     import a2d.converters  # noqa: F401
 
-    # Initialize history database (optional)
-    if settings.database_url:
+    # Initialize history database (optional).
+    #
+    # Ask the history service which backend is configured rather than checking
+    # `database_url` directly: the Lakebase path is driven by
+    # A2D_LAKEBASE_ENDPOINT + PGHOST and never sets `database_url`, so gating on
+    # that alone made Lakebase history unreachable by construction — the app
+    # logged "not configured" even with a correctly bound database.
+    backend = history_service.resolve_backend()
+    if backend:
         if history_service.init_db():
-            logger.info("History database connected")
+            logger.info("History database connected (backend=%s)", backend)
         else:
-            logger.warning("History database configured but failed to initialize")
+            logger.warning("History database configured (backend=%s) but failed to initialize", backend)
     else:
         logger.info("History database not configured — history feature disabled")
 

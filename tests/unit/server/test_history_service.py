@@ -75,3 +75,38 @@ class TestHistoryDegradesOnDatabaseErrors:
             pytest.raises(TypeError, match="bug"),
         ):
             operation()
+
+
+class TestResolveBackend:
+    """Startup asks resolve_backend() which backend is configured.
+
+    Regression guard: startup previously gated history on `database_url` alone,
+    so the Lakebase path — driven by A2D_LAKEBASE_ENDPOINT + PGHOST, which never
+    sets database_url — was unreachable by construction. The app logged
+    "not configured" even with a correctly bound Lakebase database.
+    """
+
+    def _settings(self, **kw):
+        from types import SimpleNamespace
+
+        base = {"db_backend": "", "lakebase_endpoint": "", "pg_host": "", "database_url": ""}
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def test_explicit_backend_wins(self):
+        assert history_service._resolve_backend(self._settings(db_backend="lakebase")) == "lakebase"
+
+    def test_lakebase_detected_without_database_url(self):
+        """The exact case that was broken: no database_url, but Lakebase configured."""
+        s = self._settings(lakebase_endpoint="projects/p/branches/b/endpoints/e", pg_host="h")
+        assert history_service._resolve_backend(s) == "lakebase"
+
+    def test_plain_postgres_detected(self):
+        assert history_service._resolve_backend(self._settings(database_url="postgres://x")) == "postgres"
+
+    def test_nothing_configured_is_empty(self):
+        assert history_service._resolve_backend(self._settings()) == ""
+
+    def test_partial_lakebase_config_is_not_enough(self):
+        """Endpoint without a host can't connect, so don't claim it's configured."""
+        assert history_service._resolve_backend(self._settings(lakebase_endpoint="projects/p")) == ""

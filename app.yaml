@@ -9,24 +9,27 @@ env:
     value: "src:."
   - name: "A2D_DB_BACKEND"
     value: "lakebase"
+  # IMPORTANT — this file is the source of truth for the app's environment.
+  #
+  # A deployed `app.yaml` SHADOWS `resources.apps.<app>.config.env` in
+  # databricks.yml: the Apps runtime reads this file, so anything declared only
+  # in the bundle (including values passed via `--var`) never reaches the app.
+  # That silently disabled both Lakebase history and the AI assistant on a real
+  # deploy, so the values live here instead. Keep the two in sync, or delete the
+  # `config.env` block in databricks.yml to avoid the ambiguity.
+
   # AI migration assistant — OPT-IN. Empty means no model is ever called and the
-  # /chat page shows a setup hint instead. Set this to a Foundation Model API
-  # serving-endpoint invocations URL to enable it (via `--var fmapi_endpoint=...`
-  # when deploying with databricks.yml, which injects it through config.env).
-  # The assistant is advisory only: it never modifies generated code.
+  # /chat page shows a setup hint instead. The assistant is advisory only: it
+  # never modifies generated code.
   - name: "A2D_FMAPI_ENDPOINT"
-    value: ""
-  # NOTE — Lakebase env vars are intentionally NOT declared here.
-  #
-  # When the app is deployed via `databricks bundle deploy` with the
-  # databricks.yml in this repo:
-  #   * PGHOST / PGPORT / PGDATABASE / PGUSER / PGSSLMODE are auto-injected
-  #     by the Databricks Apps runtime because `apps.resources:` declares a
-  #     `database` resource binding.
-  #   * A2D_LAKEBASE_ENDPOINT is injected by `config.env` in databricks.yml
-  #     (it cannot be auto-derived — the endpoint name is a2d-specific).
-  #
-  # If you deploy this app *without* the bundle (e.g. via `databricks apps
-  # deploy` against a hand-rolled workspace), set those env vars yourself.
-  # server/settings.py reads PGHOST/PGUSER/etc natively and falls back to
-  # the legacy A2D_PG_* names for backward compatibility with older deploys.
+    value: "https://fevm-alteryx-to-dbx-converter.cloud.databricks.com/serving-endpoints/databricks-claude-opus-5/invocations"
+
+  # Lakebase (Autoscaling Postgres) — conversion history. PGPORT/PGSSLMODE fall
+  # back to sane defaults in server/settings.py; PGUSER falls back to
+  # DATABRICKS_CLIENT_ID, which is the app's service principal.
+  - name: "A2D_LAKEBASE_ENDPOINT"
+    value: "projects/a2d-lakebase-autoscale/branches/production/endpoints/primary"
+  - name: "PGHOST"
+    value: "ep-shiny-art-d2ooiahz.database.us-east-1.cloud.databricks.com"
+  - name: "PGDATABASE"
+    value: "databricks_postgres"

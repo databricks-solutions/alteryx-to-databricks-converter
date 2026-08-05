@@ -59,6 +59,18 @@ def _resolve_backend(settings) -> str:
     return ""
 
 
+def resolve_backend() -> str:
+    """Return the configured backend name, or "" when history is unconfigured.
+
+    Public so startup can ask "is a database configured?" without reimplementing
+    the rule. Checking a single setting instead (e.g. ``database_url``) misses the
+    Lakebase path, which is driven by ``A2D_LAKEBASE_ENDPOINT`` + ``PGHOST``.
+    """
+    from server.settings import settings
+
+    return _resolve_backend(settings)
+
+
 def _get_pool():
     """Return the connection pool, or None if database is not configured."""
     global _pool
