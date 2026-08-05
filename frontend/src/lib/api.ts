@@ -102,6 +102,12 @@ export const api = {
   batchStatus: (jobId: string) =>
     request<BatchStatus>(`/convert/batch/${jobId}`),
 
+  /** Actually stop server-side conversion (not just stop listening). */
+  batchCancel: (jobId: string) =>
+    request<{ job_id: string; status: string }>(`/convert/batch/${jobId}/cancel`, {
+      method: "POST",
+    }),
+
   analyze: (files: File[]) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
@@ -319,7 +325,7 @@ export interface BatchMetrics {
 
 export interface BatchStatus {
   job_id: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
   progress: number;
   total: number;
   file_results: FileResult[];

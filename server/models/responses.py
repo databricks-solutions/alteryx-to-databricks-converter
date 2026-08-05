@@ -160,7 +160,7 @@ class BatchMetricsResponse(BaseModel):
 
 class BatchStatusResponse(BaseModel):
     job_id: str
-    status: Literal["pending", "running", "completed", "failed"]
+    status: Literal["pending", "running", "completed", "failed", "cancelled"]
     progress: int
     total: int
     file_results: list[FileResultResponse]

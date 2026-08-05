@@ -32,12 +32,32 @@ export function ConvertBatchPage() {
   const addToast = useToastStore((s) => s.add);
   const [downloading, setDownloading] = useState(false);
 
-  const handleCancel = () => {
-    disconnect();
-    addToast("Batch conversion cancelled", "info");
-    reset();
-    setFiles([]);
-    mutation.reset();
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancel = async () => {
+    // This used to only close the WebSocket and claim "cancelled" while the server
+    // kept converting every remaining file — the UI stated something untrue and the
+    // compute was wasted. Tell the server to stop, and only then tear down locally.
+    const id = jobId;
+    setCancelling(true);
+    try {
+      if (id) await api.batchCancel(id);
+      addToast(
+        "Conversion stopped. The file already in progress will finish; the rest were skipped.",
+        "info",
+      );
+    } catch (e) {
+      addToast(
+        e instanceof Error ? `Could not stop the job: ${e.message}` : "Could not stop the job",
+        "error",
+      );
+    } finally {
+      setCancelling(false);
+      disconnect();
+      reset();
+      setFiles([]);
+      mutation.reset();
+    }
   };
 
   const failedFiles = fileResults.filter((fr) => !fr.success);
@@ -94,9 +114,9 @@ export function ConvertBatchPage() {
         description="Upload multiple .yxmd files for batch conversion in all supported formats with real-time progress"
       >
         {status === "running" && (
-          <Button variant="destructive" size="sm" onClick={handleCancel}>
+          <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>
             <XCircle className="h-4 w-4" />
-            Cancel
+            {cancelling ? "Stopping…" : "Stop conversion"}
           </Button>
         )}
         {status === "completed" && (

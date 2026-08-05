@@ -92,12 +92,19 @@ export function ValidatePage() {
               <>
                 <CheckCircle className="h-6 w-6 text-green-500" />
                 <div>
-                  <h3 className="text-sm font-semibold text-[var(--fg)]">Syntax Valid</h3>
+                  <h3 className="text-sm font-semibold text-[var(--fg)]">Python syntax passed</h3>
+                  {/* This check parses Python. Saying "ready for Databricks" invited
+                      false confidence — the same page notes SQL isn't checked at all —
+                      so state plainly what is still unverified. */}
                   <p className="text-xs text-[var(--fg-muted)]">
-                    No syntax errors found. Code is ready for Databricks.
+                    The file parses. Runtime behavior, dependencies, permissions, SQL and
+                    semantic equivalence are <strong>not</strong> verified — run{" "}
+                    <code className="font-mono">a2d verify</code> for equivalence.
                   </p>
                 </div>
-                <Badge variant="success" className="ml-auto">PASS</Badge>
+                <Badge variant="success" className="ml-auto">
+                  SYNTAX OK
+                </Badge>
               </>
             ) : (
               <>
@@ -132,18 +139,43 @@ export function ValidatePage() {
         </Card>
       )}
 
-      {/* Tips */}
-      {!result && !loading && (
-        <Card className="bg-[var(--bg-sidebar)]">
-          <h3 className="text-sm font-semibold text-[var(--fg)] mb-2">Tips</h3>
-          <ul className="text-xs text-[var(--fg-muted)] space-y-1 list-disc list-inside">
-            <li>Paste the generated PySpark or Spark Declarative Pipelines code from the Convert page</li>
-            <li>Databricks notebook magic commands (%sql, %pip) are automatically handled</li>
-            <li>SQL validation is not yet supported — only Python syntax is checked</li>
-            <li>For full data validation, run the generated code against sample data in Databricks</li>
-          </ul>
-        </Card>
-      )}
+      {/* Where this check sits among the real gates. Shown alongside the result so
+          the limitation stays next to the reassurance, not a scroll away. */}
+      <Card className="bg-[var(--bg-sidebar)]">
+        <h3 className="text-sm font-semibold text-[var(--fg)] mb-2">
+          What "validated" means
+        </h3>
+        <ol className="text-xs text-[var(--fg-muted)] space-y-1.5">
+          <li>
+            <span className="font-medium text-[var(--fg)]">1. Python syntax</span> — this page.
+            Confirms the file parses. SQL is not checked.
+          </li>
+          <li>
+            <span className="font-medium text-[var(--fg)]">2. Generator warnings resolved</span> —
+            see the Convert page's blockers and manual-review items.
+          </li>
+          <li>
+            <span className="font-medium text-[var(--fg)]">3. Semantic equivalence</span> —{" "}
+            <code className="font-mono">a2d verify</code> runs the workflow through an independent
+            reference executor and diffs the result against expected output.
+          </li>
+          <li>
+            <span className="font-medium text-[var(--fg)]">4. Runtime smoke test</span> — run the
+            generated code against real data in Databricks.
+          </li>
+          <li>
+            <span className="font-medium text-[var(--fg)]">5. Deployment configuration</span> —
+            connections, Unity Catalog targets, permissions and schedule.
+          </li>
+        </ol>
+        {!result && !loading && (
+          <p className="mt-3 text-xs text-[var(--fg-muted)]">
+            Paste generated PySpark or Spark Declarative Pipelines code from the Convert page.
+            Databricks notebook magics (<code className="font-mono">%sql</code>,{" "}
+            <code className="font-mono">%pip</code>) are handled automatically.
+          </p>
+        )}
+      </Card>
     </div>
   );
 }

@@ -1,0 +1,1 @@
+import{j as o}from"./vendor-xyflow-DmJodXFS.js";import{g as s}from"./index-DF24xXTS.js";function n({className:r,...e}){return o.jsx("div",{className:s("animate-pulse rounded-lg bg-[var(--border)]",r),...e})}export{n as S};
