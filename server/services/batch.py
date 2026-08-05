@@ -39,6 +39,7 @@ class JobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
@@ -122,6 +123,28 @@ def get_store() -> JobStore:
 
 def get_job(job_id: str) -> BatchJob | None:
     return _store.get(job_id)
+
+
+def cancel_job(job_id: str) -> bool:
+    """Actually stop a running batch. Returns False if there was nothing to stop.
+
+    The UI's Cancel button used to only close its WebSocket and say "cancelled"
+    while the server kept converting every remaining file — misleading feedback and
+    wasted compute. Cancelling the job task stops work after the in-flight file
+    (asyncio cannot interrupt the thread running one conversion), which is the
+    honest boundary the UI now describes.
+    """
+    job = _store.get(job_id)
+    if job is None:
+        return False
+    if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+        return False
+
+    if job.task and not job.task.done():
+        job.task.cancel()
+    job.status = JobStatus.CANCELLED
+    logger.info("Batch job %s cancelled by request", job_id)
+    return True
 
 
 async def create_batch_job(

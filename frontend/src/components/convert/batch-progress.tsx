@@ -33,7 +33,7 @@ export function BatchProgress() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6"
-    >
+     role="status" aria-live="polite">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium text-[var(--fg)]">
           <Loader2 className="h-4 w-4 animate-spin text-[var(--ring)]" />

@@ -21,6 +21,17 @@ interface BatchStore {
 
 const MAX_RETRIES = 3;
 
+// Incremented on every connect/disconnect so stale socket callbacks can be ignored.
+let connectionGeneration = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearRetryTimer() {
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+}
+
 export const useBatchStore = create<BatchStore>((set, get) => ({
   jobId: null,
   status: "idle",
@@ -53,14 +64,26 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
       set({ ws: null });
     }
 
+    // A connection generation, so events from a socket we've already replaced are
+    // ignored. Previously any closing socket ran `set({ ws: null })` even when a
+    // newer one was live, and retry timers were never cleared — so a reconnect could
+    // null out the active socket, and a disconnect/reset left a pending timer that
+    // reopened a connection the user had stopped.
+    connectionGeneration += 1;
+    const generation = connectionGeneration;
+    const isStale = () => generation !== connectionGeneration;
+
+    clearRetryTimer();
     let retryCount = 0;
 
     function connect() {
+      if (isStale()) return;
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${proto}//${location.host}/api/ws/batch/${jobId}`;
       const ws = new WebSocket(wsUrl);
 
       ws.onmessage = (event) => {
+        if (isStale()) return;
         let msg;
         try {
           msg = JSON.parse(event.data);
@@ -93,13 +116,14 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
       };
 
       ws.onerror = () => {
+        if (isStale()) return;
         const { status: currentStatus } = get();
         if (currentStatus === "completed" || currentStatus === "error") return;
 
         if (retryCount < MAX_RETRIES) {
           retryCount++;
           const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
-          setTimeout(connect, delay);
+          retryTimer = setTimeout(connect, delay);
         } else {
           set({
             status: "error",
@@ -108,7 +132,11 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
         }
       };
 
-      ws.onclose = () => set({ ws: null });
+      // Only clear the stored socket if this is still the current connection.
+      ws.onclose = () => {
+        if (isStale()) return;
+        set({ ws: null });
+      };
 
       set({ ws });
     }
@@ -117,12 +145,19 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   },
 
   disconnect: () => {
+    // Invalidate in-flight sockets and cancel any pending retry, otherwise a timer
+    // scheduled before disconnect would reopen a connection the user stopped.
+    connectionGeneration += 1;
+    clearRetryTimer();
     const { ws } = get();
     if (ws) ws.close();
     set({ ws: null });
   },
 
   reset: () => {
+    // Same reasoning as disconnect: a pending retry must not outlive a reset.
+    connectionGeneration += 1;
+    clearRetryTimer();
     const { ws } = get();
     if (ws) ws.close();
     set({

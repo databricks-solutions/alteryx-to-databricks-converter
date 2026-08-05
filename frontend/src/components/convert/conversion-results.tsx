@@ -327,6 +327,7 @@ export function ConversionResults({ result }: ConversionResultsProps) {
           value={bestCoverage ?? 0}
           suffix={bestCoverage !== null ? "%" : ""}
           icon={<Percent className="h-5 w-5" />}
+          hint="Nodes with a generated implementation — not proof the output is correct."
         />
         {bestConfidence && (
           <MetricCard
@@ -334,6 +335,7 @@ export function ConversionResults({ result }: ConversionResultsProps) {
             value={Math.round(bestConfidence.overall)}
             suffix={`/100`}
             icon={<Shield className="h-5 w-5" />}
+            hint="Heuristic from mapping method, warnings and graph shape. Not a measurement."
           />
         )}
       </div>

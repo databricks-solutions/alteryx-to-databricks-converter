@@ -1,0 +1,1 @@
+import{u as e}from"./useQuery-BMDiob-p.js";import{a as t}from"./api-DxOPKUkt.js";function u(){return e({queryKey:["tools"],queryFn:t.tools,staleTime:1/0})}function o(){return e({queryKey:["stats"],queryFn:t.stats,staleTime:6e4})}export{u as a,o as u};
