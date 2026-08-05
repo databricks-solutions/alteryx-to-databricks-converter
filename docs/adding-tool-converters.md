@@ -1,6 +1,6 @@
 # Adding a New Tool Converter
 
-This guide walks through the end-to-end process of adding support for a new Alteryx tool. By the end, the tool will be parsed, converted to an IR node, and generated into all four output formats: PySpark, Spark Declarative Pipelines (DLT), SQL, and Lakeflow Designer. (Lakeflow inherits from SQL, so most new tools need no Lakeflow-specific code.)
+This guide walks through the end-to-end process of adding support for a new Alteryx tool. By the end, the tool will be parsed, converted to an IR node, and generated into all five output formats: PySpark, Spark Declarative Pipelines (DLT), SQL, Lakeflow, and Lakeflow Designer. (Lakeflow inherits from SQL, so most new tools need no Lakeflow-specific code.)
 
 ---
 
@@ -370,9 +370,9 @@ pytest tests/unit/converters/transform/test_tile.py -v
 ## Step 7: Verify End-to-End
 
 1. Create or find a `.yxmd` file that uses the Tile tool
-2. Run: `a2d convert test_tile.yxmd -o /tmp/tile_test/` — emits all 4 formats by default into `pyspark/`, `dlt/`, `sql/`, `lakeflow/` subdirs
+2. Run: `a2d convert test_tile.yxmd -o /tmp/tile_test/` — emits all 5 formats by default into `pyspark/`, `dlt/`, `sql/`, `lakeflow/`, `designer/` subdirs
 3. Verify the generated code in each subdir contains the expected `ntile` logic (PySpark / DLT / SQL / Lakeflow flavors)
-4. Confirm the CLI deploy-readiness banner reports `Ready to deploy` and that the per-format status table shows `OK` for all four formats — flag the best-format star (`★`)
+4. Confirm the CLI deploy-readiness banner reports `Ready to deploy` and that the per-format status table shows `OK` for all five formats — flag the best-format star (`★`)
 5. Run: `a2d list-tools --supported` and confirm "Tile" appears
 6. Run: `make all` to ensure lint, typecheck, and tests pass
 

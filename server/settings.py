@@ -43,9 +43,14 @@ class Settings(BaseSettings):
     allowed_extensions: set[str] = {".yxmd"}
 
     # Deadline for a single conversion/analysis. Conversion is CPU-bound and runs
-    # in a worker thread; without a deadline a pathological workflow occupies that
-    # thread forever and enough of them exhaust the pool, so the service stops
-    # answering. Past this the request returns 408 and the slot is released.
+    # in a worker thread; without a deadline a client waits indefinitely on a
+    # pathological workflow. Past this the request returns 408.
+    #
+    # Note what this does NOT do: asyncio.wait_for cannot kill the underlying
+    # thread, so the work keeps running and keeps holding its worker after the
+    # client gives up. This bounds the CLIENT wait, not the resource. Guarding
+    # against genuinely unbounded work needs limits inside the converter or a
+    # killable process pool — see server/utils/deadline.py.
     conversion_timeout_seconds: float = 300.0
 
     # Cap on a batch ZIP built in memory. Batch allows max_batch_files uploads,

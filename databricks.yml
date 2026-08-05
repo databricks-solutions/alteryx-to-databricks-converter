@@ -85,39 +85,18 @@ resources:
       #       instance_name: ${var.lakebase_instance_name}
       #       permission: CAN_CONNECT_AND_CREATE
 
-      config:
-        command:
-          - uvicorn
-          - server.main:app
-          - --host
-          - "0.0.0.0"
-          - --port
-          - "8000"
-        env:
-          - name: PYTHONPATH
-            value: "src:."
-          # Lakebase Autoscaling: explicit env-var binding. server/services/
-          # lakebase.py creates a psycopg pool with an OAuthConnection
-          # subclass that calls WorkspaceClient.postgres.generate_database_
-          # credential() on each connect. The App SP's identity is the user.
-          - name: A2D_DB_BACKEND
-            value: "lakebase"
-          - name: A2D_LAKEBASE_ENDPOINT
-            value: ${var.lakebase_endpoint}
-          - name: A2D_PG_HOST
-            value: ${var.pg_host}
-          - name: A2D_PG_DATABASE
-            value: ${var.lakebase_database_name}
-          - name: A2D_CORS_ORIGINS
-            value: '["*"]'
-          # AI migration assistant — OPT-IN, disabled by default (empty value).
-          # Deploy with `--var fmapi_endpoint=https://<workspace>/serving-endpoints/
-          # <name>/invocations` to enable the /chat assistant and `a2d suggest`
-          # report. Auth uses the App service principal's workspace credentials,
-          # so no token is needed for in-workspace serving endpoints.
-          # The assistant is advisory only and never modifies generated code.
-          - name: A2D_FMAPI_ENDPOINT
-            value: ${var.fmapi_endpoint}
+      # NOTE — no `config:` block here, deliberately.
+      #
+      # A deployed `app.yaml` SHADOWS this block: the Apps runtime reads app.yaml
+      # from the uploaded source, so command/env declared here never reach the
+      # app. Keeping both was a live bug — the two files disagreed on port, CORS,
+      # the Lakebase host and the FMAPI endpoint, and the app silently used
+      # app.yaml's values while `--var` overrides appeared to do nothing.
+      #
+      # app.yaml is now the single source of truth for command + env. Set
+      # deployment-specific values there (or via `databricks apps update` / the
+      # Apps UI) rather than adding them back here.
+
       permissions:
         - level: CAN_USE
           group_name: users

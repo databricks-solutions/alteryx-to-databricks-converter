@@ -49,13 +49,38 @@ lock: ## Generate requirements.lock
 DATABRICKS_CLI := $(shell test -x /opt/homebrew/bin/databricks && echo /opt/homebrew/bin/databricks || command -v databricks)
 DBX := DATABRICKS_CLI_PATH=$(DATABRICKS_CLI) $(DATABRICKS_CLI)
 
+# Deployment-specific env (Lakebase host, FMAPI endpoint) is NOT committed —
+# app.yaml ships with those empty so the repo stays portable and AI stays opt-in.
+# To supply real values, create the untracked file `.local/app.env.yaml` holding
+# just the `env:` entries you want appended, e.g.
+#
+#   - name: "A2D_DB_BACKEND"
+#     value: "lakebase"
+#   - name: "A2D_FMAPI_ENDPOINT"
+#     value: "https://<workspace>/serving-endpoints/<model>/invocations"
+#
+# `make deploy-*` splices it into app.yaml for the upload and restores the clean
+# file afterwards, so a deploy never leaves workspace identifiers in your tree.
+LOCAL_APP_ENV := .local/app.env.yaml
+
 deploy-dev: frontend ## Deploy to Databricks Apps (dev) — uploads files AND triggers app restart
-	$(DBX) bundle deploy -t dev
-	$(DBX) bundle run -t dev a2d_app
+	@$(MAKE) --no-print-directory _deploy TARGET=dev
 
 deploy-prod: frontend ## Deploy to Databricks Apps (prod) — uploads files AND triggers app restart
-	$(DBX) bundle deploy -t prod
-	$(DBX) bundle run -t prod a2d_app
+	@$(MAKE) --no-print-directory _deploy TARGET=prod
+
+_deploy:
+	@if [ -f "$(LOCAL_APP_ENV)" ]; then \
+		echo "Splicing $(LOCAL_APP_ENV) into app.yaml for this deploy"; \
+		cp app.yaml .app.yaml.bak; \
+		cat "$(LOCAL_APP_ENV)" >> app.yaml; \
+	else \
+		echo "No $(LOCAL_APP_ENV) — deploying with defaults (history off, AI off)"; \
+	fi
+	@$(DBX) bundle deploy -t $(TARGET); status=$$?; \
+		if [ -f .app.yaml.bak ]; then mv .app.yaml.bak app.yaml; fi; \
+		exit $$status
+	$(DBX) bundle run -t $(TARGET) a2d_app
 
 bundle-validate: ## Validate DAB configuration
 	$(DBX) bundle validate

@@ -14,7 +14,7 @@ Upload a `.yxmd` file. Get back a PySpark notebook, Spark Declarative Pipelines 
 git clone https://github.com/databricks-solutions/alteryx-to-databricks-converter.git
 cd alteryx-to-databricks-converter
 pip install "."
-a2d convert my_workflow.yxmd -o output/                  # Emits ALL 4 formats (default)
+a2d convert my_workflow.yxmd -o output/                  # Emits ALL 5 formats (default)
 a2d convert my_workflow.yxmd -o output/ -f pyspark       # Filter to PySpark only
 a2d convert my_workflow.yxmd -o output/ -f pyspark,sql   # Filter to PySpark + SQL
 ```
@@ -44,7 +44,7 @@ Large organizations use Alteryx to build data pipelines visually. Moving those p
 **a2d** reads your Alteryx `.yxmd` workflow files and automatically generates equivalent Databricks code:
 
 - **What you save:** weeks of manual rewriting per workflow
-- **What you get:** PySpark notebooks, Spark Declarative Pipelines (DLT), Databricks SQL, Lakeflow Designer pipelines, and Workflow JSON — every conversion produces all four formats in one run, available via CLI, web upload, or Databricks Apps deployment
+- **What you get:** PySpark notebooks, Spark Declarative Pipelines (DLT), Databricks SQL, Lakeflow Designer pipelines, and Workflow JSON — every conversion produces all five formats in one run, available via CLI, web upload, or Databricks Apps deployment
 - **What it handles:** 158 Alteryx tool types via 113 converters, 141 formula functions, 5 output formats, 12 CLI commands, database connections, expressions, joins, aggregations, and more
 
 > **You do not need Alteryx installed** to run this tool.
@@ -158,7 +158,7 @@ For users comfortable with a terminal.
 # Install (CLI only — no web UI)
 pip install "."
 
-# Convert a single workflow — emits ALL 4 formats by default
+# Convert a single workflow — emits ALL 5 formats by default
 # (output/pyspark/, output/dlt/, output/sql/, output/lakeflow/)
 a2d convert my_workflow.yxmd -o output/
 
@@ -166,7 +166,7 @@ a2d convert my_workflow.yxmd -o output/
 a2d convert my_workflow.yxmd -o output/ -f pyspark
 a2d convert my_workflow.yxmd -o output/ -f pyspark,sql
 
-# Convert all workflows in a folder (still all 4 formats)
+# Convert all workflows in a folder (still all 5 formats)
 a2d convert workflows/ -o output/
 
 # Generate a migration readiness report
@@ -247,7 +247,7 @@ If you need to deploy by hand instead, sync `src/`, `server/`, `frontend/dist/`,
 
 See the full [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**v1.5** (latest) — Lakeflow Designer output, confidence scoring, complexity analysis, connection mapping, expression audit, performance hints, Unity Catalog DDL, DAB generation, multi-format default (every conversion emits all 4 formats), cloud-portable Workflow JSON / DAB via `--cloud aws|azure|gcp`, categorized warnings + 3-tier deploy-readiness banner, and more. 141 expression functions, 1006 tests.
+**v1.5** (latest) — Lakeflow Designer output, confidence scoring, complexity analysis, connection mapping, expression audit, performance hints, Unity Catalog DDL, DAB generation, multi-format default (every conversion emits all 5 formats), cloud-portable Workflow JSON / DAB via `--cloud aws|azure|gcp`, categorized warnings + 3-tier deploy-readiness banner, and more. 141 expression functions, 1006 tests.
 
 ---
 
@@ -357,7 +357,7 @@ a2d provides 12 commands. Run `a2d --help` for the full list, or `a2d <command> 
 | `plugins` | List installed source frontends and converter plugins |
 | `version` | Show a2d version |
 
-**Example:** `a2d convert workflow.yxmd -o output/ --comments --expression-audit --performance-hints` (all 4 formats)
+**Example:** `a2d convert workflow.yxmd -o output/ --comments --expression-audit --performance-hints` (all 5 formats)
 **Filter example:** `a2d convert workflow.yxmd -f pyspark,sql -o output/`
 **Cloud target:** `a2d convert workflow.yxmd --cloud azure -o output/` (drives `node_type_id` in Workflow JSON / DAB; `aws|azure|gcp`, default `aws`)
 

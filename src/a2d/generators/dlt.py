@@ -98,6 +98,17 @@ class DLTGenerator(CodeGenerator):
         super().__init__(config)
         self._translator = PySparkTranslator()
 
+    @staticmethod
+    def _lit(value: str) -> str:
+        r"""Render *value* as a complete, correctly quoted Python string literal.
+
+        Regex patterns, delimiters and paths are backslash-heavy by nature, so
+        interpolating them into hand-written quotes produces invalid escapes
+        (``\D`` in a Windows path) or silently changes the pattern. ``repr``
+        handles quoting and escaping by construction.
+        """
+        return repr(value)
+
     def generate(self, dag: WorkflowDAG, workflow_name: str = "workflow") -> GeneratedOutput:
         ordered_nodes = dag.topological_order()
         warnings: list[str] = []
@@ -137,6 +148,15 @@ class DLTGenerator(CodeGenerator):
             "# Databricks notebook source",
             *meta_header,
             "",
+            # Databricks now recommends `from pyspark import pipelines as dp` with
+            # @dp.materialized_view / @dp.table. `dlt` still works and is the most
+            # broadly compatible import across DBR LTS versions in the field, which
+            # is why it's emitted here — but say so in the output rather than
+            # leaving the reader to wonder whether the tool knows.
+            "# NOTE: uses the `dlt` module, which remains supported and is the most",
+            "# compatible choice across current DBR LTS versions. Databricks' newer",
+            "# API is `from pyspark import pipelines as dp` (@dp.materialized_view for",
+            "# batch, @dp.table for streaming); migrate when your runtime guarantees it.",
             "import dlt",
             "from pyspark.sql import functions as F",
             "from pyspark.sql import Window",
@@ -223,11 +243,19 @@ class DLTGenerator(CodeGenerator):
         """Generate @dlt.expect decorators for data quality constraints."""
         expectations: list[str] = []
 
-        if isinstance(node, UniqueNode) and node.key_fields:
-            escaped_keys = ", ".join(f"`{k}`" for k in node.key_fields)
-            expectations.append(
-                f'@dlt.expect_all_or_drop({{"unique_keys": "COUNT(*) OVER (PARTITION BY {escaped_keys}) = 1"}})'
-            )
+        # NOTE: deliberately no uniqueness expectation for UniqueNode.
+        #
+        # This used to emit:
+        #   @dlt.expect_all_or_drop({"unique_keys":
+        #       "COUNT(*) OVER (PARTITION BY `k`) = 1"})
+        #
+        # which was wrong on three counts. Pipeline expectations are row-level SQL
+        # predicates, so a window aggregate is not generally valid there; where it
+        # is tolerated it forces a full shuffle; and `_or_drop` silently discards
+        # rows, which is not what Alteryx's Unique tool does (it routes duplicates
+        # to a second output). The generated body already calls
+        # `dropDuplicates(key_fields)`, which expresses the dedup correctly — the
+        # expectation added a plausible-looking constraint that did nothing useful.
 
         if isinstance(node, DataCleansingNode):
             for field_name in node.fields:
@@ -587,13 +615,17 @@ class DLTGenerator(CodeGenerator):
             inp = self._get_single_input_read(input_tables)
             if node.mode == "replace":
                 return [
-                    f'return {inp}.withColumn("{node.field_name}", F.regexp_replace(F.col("{node.field_name}"), "{node.expression}", "{node.replacement}"))'
+                    f"return {inp}.withColumn({self._lit(node.field_name)}, "
+                    f"F.regexp_replace(F.col({self._lit(node.field_name)}), "
+                    f"{self._lit(node.expression)}, {self._lit(node.replacement)}))"
                 ], warnings
             elif node.mode == "parse":
                 lines = [f"df = {inp}"]
                 for idx, out_field in enumerate(node.output_fields):
                     lines.append(
-                        f'df = df.withColumn("{out_field}", F.regexp_extract(F.col("{node.field_name}"), "{node.expression}", {idx + 1}))'
+                        f"df = df.withColumn({self._lit(out_field)}, "
+                        f"F.regexp_extract(F.col({self._lit(node.field_name)}), "
+                        f"{self._lit(node.expression)}, {idx + 1}))"
                     )
                 lines.append("return df")
                 return lines, warnings
@@ -608,12 +640,16 @@ class DLTGenerator(CodeGenerator):
             root = node.output_root_name or node.field_name
             if node.split_to == "rows":
                 return [
-                    f'return {inp}.withColumn("{root}", F.explode(F.split(F.col("{node.field_name}"), "{node.delimiter}")))'
+                    f"return {inp}.withColumn({self._lit(root)}, "
+                    f"F.explode(F.split(F.col({self._lit(node.field_name)}), {self._lit(node.delimiter)})))"
                 ], warnings
-            lines = [f"df = {inp}", f'_split = F.split(F.col("{node.field_name}"), "{node.delimiter}")']
+            lines = [
+                f"df = {inp}",
+                f"_split = F.split(F.col({self._lit(node.field_name)}), {self._lit(node.delimiter)})",
+            ]
             num = node.num_columns or 5
             for i in range(num):
-                lines.append(f'df = df.withColumn("{root}_{i + 1}", _split[{i}])')
+                lines.append(f"df = df.withColumn({self._lit(f'{root}_{i + 1}')}, _split[{i}])")
             lines.append("return df")
             return lines, warnings
 
@@ -623,7 +659,8 @@ class DLTGenerator(CodeGenerator):
             fmt = alteryx_fmt_to_spark(node.format_string or "yyyy-MM-dd")
             if node.conversion_mode == "parse":
                 return [
-                    f'return {inp}.withColumn("{out_field}", F.to_date(F.col("{node.input_field}"), "{fmt}"))'
+                    f"return {inp}.withColumn({self._lit(out_field)}, "
+                    f"F.to_date(F.col({self._lit(node.input_field)}), {self._lit(fmt)}))"
                 ], warnings
             elif node.conversion_mode == "format":
                 return [

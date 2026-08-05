@@ -1,35 +1,53 @@
+# Databricks Apps runtime manifest.
+#
+# IMPORTANT — this file is the ONLY source of truth for the app's environment.
+# A deployed `app.yaml` SHADOWS `resources.apps.<app>.config` in databricks.yml:
+# the Apps runtime reads this file, so anything declared only in the bundle
+# (including values passed via `--var` at deploy time) never reaches the app.
+# databricks.yml therefore declares no `config:` block — see the note there.
+#
+# Deployment-specific values are intentionally NOT committed here. Every value
+# below is either non-sensitive or empty by default; set the empty ones for your
+# own workspace with `databricks apps update` / the Apps UI, or by adding a
+# `config.env` block in a private overlay. Committing a workspace hostname makes
+# the repo non-portable and, for the FMAPI endpoint, would silently enable AI for
+# everyone who clones it.
 command:
   - "python"
   - "-c"
-  - "import os; import uvicorn; uvicorn.run('server.main:app', host='0.0.0.0', port=int(os.environ.get('PORT', '8000')))"
+  # Bind the port the Apps runtime asks for. DATABRICKS_APP_PORT is the runtime's
+  # own variable; PORT and 8000 are fallbacks so `make serve` and older runtimes
+  # keep working.
+  - "import os; import uvicorn; uvicorn.run('server.main:app', host='0.0.0.0', port=int(os.environ.get('DATABRICKS_APP_PORT') or os.environ.get('PORT') or 8000))"
+
 env:
-  - name: "A2D_CORS_ORIGINS"
-    value: '["*"]'
   - name: "PYTHONPATH"
     value: "src:."
+
+  # The SPA is served by this same app, so browser requests are same-origin and
+  # need no CORS at all. Left empty in production; `make serve` adds localhost
+  # origins for Vite dev via server/settings.py defaults.
+  - name: "A2D_CORS_ORIGINS"
+    value: '[]'
+
+  # --- Conversion history (optional) -------------------------------------
+  # Empty backend = history disabled, and the app says so at startup. To enable
+  # Lakebase, set A2D_DB_BACKEND=lakebase plus A2D_LAKEBASE_ENDPOINT / PGHOST /
+  # PGDATABASE for YOUR workspace, and grant the app's service principal a
+  # Postgres role on the target branch.
   - name: "A2D_DB_BACKEND"
-    value: "lakebase"
-  # IMPORTANT — this file is the source of truth for the app's environment.
-  #
-  # A deployed `app.yaml` SHADOWS `resources.apps.<app>.config.env` in
-  # databricks.yml: the Apps runtime reads this file, so anything declared only
-  # in the bundle (including values passed via `--var`) never reaches the app.
-  # That silently disabled both Lakebase history and the AI assistant on a real
-  # deploy, so the values live here instead. Keep the two in sync, or delete the
-  # `config.env` block in databricks.yml to avoid the ambiguity.
-
-  # AI migration assistant — OPT-IN. Empty means no model is ever called and the
-  # /chat page shows a setup hint instead. The assistant is advisory only: it
-  # never modifies generated code.
-  - name: "A2D_FMAPI_ENDPOINT"
-    value: "https://fevm-alteryx-to-dbx-converter.cloud.databricks.com/serving-endpoints/databricks-claude-opus-5/invocations"
-
-  # Lakebase (Autoscaling Postgres) — conversion history. PGPORT/PGSSLMODE fall
-  # back to sane defaults in server/settings.py; PGUSER falls back to
-  # DATABRICKS_CLIENT_ID, which is the app's service principal.
+    value: ""
   - name: "A2D_LAKEBASE_ENDPOINT"
-    value: "projects/a2d-lakebase-autoscale/branches/production/endpoints/primary"
+    value: ""
   - name: "PGHOST"
-    value: "ep-shiny-art-d2ooiahz.database.us-east-1.cloud.databricks.com"
+    value: ""
   - name: "PGDATABASE"
     value: "databricks_postgres"
+
+  # --- AI migration assistant (OPT-IN) -----------------------------------
+  # MUST stay empty in source control. a2d calls no language model unless an
+  # operator sets this to a Foundation Model API invocations URL — that is a
+  # product rule, not a default. Empty means /api/chat/status reports disabled
+  # and the assistant page shows setup instructions.
+  - name: "A2D_FMAPI_ENDPOINT"
+    value: ""

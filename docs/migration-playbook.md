@@ -173,7 +173,7 @@ Review the analysis report's macro references and connection details to find ove
 
 ### Step 3.1: Run the Converter
 
-`a2d convert` emits all four formats by default (PySpark, Spark Declarative Pipelines a.k.a. DLT, SQL, Lakeflow Designer) into per-format subdirectories of `--output-dir`. Use `-f` to restrict to a subset.
+`a2d convert` emits all five formats by default (PySpark, Spark Declarative Pipelines a.k.a. DLT, SQL, Lakeflow, Lakeflow Designer) into per-format subdirectories of `--output-dir`. Use `-f` to restrict to a subset.
 
 ```bash
 # Single workflow — produces output/finance/{pyspark,dlt,sql,lakeflow}/
@@ -183,7 +183,7 @@ a2d convert finance/monthly_close.yxmd -o output/finance/
 a2d convert finance/monthly_close.yxmd -o output/finance/ -f pyspark
 a2d convert finance/monthly_close.yxmd -o output/finance/ -f pyspark,sql
 
-# With Unity Catalog + connection mapping (still all 4 formats unless filtered)
+# With Unity Catalog + connection mapping (still all 5 formats unless filtered)
 a2d convert wave1/ -o output/wave1/ \
   --catalog prod_catalog --schema finance \
   --connection-map connections.yml

@@ -106,8 +106,28 @@ class PySparkGenerator(CodeGenerator):
 
     @staticmethod
     def _esc(s: str) -> str:
-        """Escape a string for safe embedding inside a double-quoted Python string literal."""
+        """Escape a string for safe embedding inside a double-quoted Python string literal.
+
+        Prefer :meth:`_lit` for new code: it renders the quotes too, so a value can
+        never leak out of its literal.
+        """
         return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+
+    @staticmethod
+    def _lit(value: str) -> str:
+        """Render *value* as a complete, correctly quoted Python string literal.
+
+        Use this for every externally-sourced string (file paths, patterns, XPath,
+        field names) instead of interpolating into hand-written quotes. Windows
+        paths were the concrete failure: ``f"ls('{path}')"`` with ``..\\DATA``
+        emitted ``'..\\DATA'``, where ``\\D`` is an invalid escape — Python warns
+        and the path silently means something else.
+
+        ``repr`` picks safe quoting and escapes backslashes, quotes, newlines and
+        control characters by construction, so there is no escaping rule left for a
+        caller to forget.
+        """
+        return repr(value)
 
     # -- Public API ---------------------------------------------------------
 
@@ -1332,15 +1352,19 @@ class PySparkGenerator(CodeGenerator):
         out_var = f"df_{node.node_id}"
         root = node.output_root_name or node.field_name
 
+        # A backslash delimiter is common in path splitting and used to emit
+        # F.split(..., "\") — an unterminated literal, i.e. code that will not
+        # even parse. Render every external value as a complete literal instead.
         if node.split_to == "rows":
             lines = [
-                f'{out_var} = {inp}.withColumn("{root}", F.explode(F.split(F.col("{node.field_name}"), "{node.delimiter}")))',
+                f"{out_var} = {inp}.withColumn({self._lit(root)}, "
+                f"F.explode(F.split(F.col({self._lit(node.field_name)}), {self._lit(node.delimiter)})))",
             ]
         else:
             num = node.num_columns or 5
-            entries = ",\n    ".join(f'"{root}_{i + 1}": _split_{node.node_id}[{i}]' for i in range(num))
+            entries = ",\n    ".join(f"{self._lit(f'{root}_{i + 1}')}: _split_{node.node_id}[{i}]" for i in range(num))
             lines = [
-                f'_split_{node.node_id} = F.split(F.col("{node.field_name}"), "{node.delimiter}")',
+                f"_split_{node.node_id} = F.split(F.col({self._lit(node.field_name)}), {self._lit(node.delimiter)})",
                 f"{out_var} = {inp}.withColumns({{\n    {entries},\n}})",
             ]
 
@@ -1614,10 +1638,14 @@ class PySparkGenerator(CodeGenerator):
         if node.xpath_expressions:
             for xpath, name in node.xpath_expressions:
                 lines.append(
-                    f'{out_var} = {out_var}.withColumn("{name}", F.xpath_string(F.col("{node.input_field}"), F.lit("{xpath}")))'
+                    f"{out_var} = {out_var}.withColumn({self._lit(name)}, "
+                    f"F.xpath_string(F.col({self._lit(node.input_field)}), F.lit({self._lit(xpath)})))"
                 )
         elif node.output_field:
-            lines.append(f'{out_var} = {out_var}.withColumn("{node.output_field}", F.col("{node.input_field}"))')
+            lines.append(
+                f"{out_var} = {out_var}.withColumn({self._lit(node.output_field)}, "
+                f"F.col({self._lit(node.input_field)}))"
+            )
         return NodeCodeResult(
             code_lines=lines,
             output_vars={"Output": out_var},
@@ -1769,10 +1797,12 @@ class PySparkGenerator(CodeGenerator):
         lines = ["# DynamicOutput: write to partitioned destination"]
         if node.partition_field:
             lines.append(
-                f'{inp}.write.format("{fmt}").partitionBy("{node.partition_field}").mode("overwrite").save("{path}")'
+                f"{inp}.write.format({self._lit(fmt)})"
+                f".partitionBy({self._lit(node.partition_field)})"
+                f'.mode("overwrite").save({self._lit(path)})'
             )
         else:
-            lines.append(f'{inp}.write.format("{fmt}").mode("overwrite").save("{path}")')
+            lines.append(f'{inp}.write.format({self._lit(fmt)}).mode("overwrite").save({self._lit(path)})')
         lines.append(f"{out_var} = {inp}  # passthrough after write")
         return NodeCodeResult(
             code_lines=lines,
@@ -2115,11 +2145,12 @@ class PySparkGenerator(CodeGenerator):
 
         lines = [
             f"# Directory listing: {path} (pattern={pattern}, recursive={recursive})",
-            f"_files_{node.node_id} = dbutils.fs.ls('{path}')",
+            f"_files_{node.node_id} = dbutils.fs.ls({self._lit(path)})",
         ]
         if pattern != "*":
+            suffix = pattern.lstrip("*")
             lines.append(
-                f"_files_{node.node_id} = [f for f in _files_{node.node_id} if f.name.endswith('{pattern.lstrip('*')}')]"
+                f"_files_{node.node_id} = [f for f in _files_{node.node_id} if f.name.endswith({self._lit(suffix)})]"
             )
         lines.extend(
             [

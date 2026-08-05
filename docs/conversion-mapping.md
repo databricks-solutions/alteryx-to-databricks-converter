@@ -1,12 +1,12 @@
 # Alteryx → Databricks Conversion Mapping
 
-How each Alteryx tool maps to generated Databricks code across all 4 output formats (PySpark, DLT, SQL, Lakeflow). 62 converters covering 112 tool types across 157 plugin name variants.
+How each Alteryx tool maps to generated Databricks code across all 5 output formats (PySpark, DLT, SQL, Lakeflow, Lakeflow Designer). 62 converters covering 112 tool types across 157 plugin name variants.
 
 ---
 
 ## Output Formats
 
-`a2d convert` emits all four formats by default into per-format subdirectories of `--output-dir` (`output/pyspark/`, `output/dlt/`, `output/sql/`, `output/lakeflow/`). The server's `POST /api/convert` likewise returns every format in a single `ConversionResponse.formats` map (no `output_format` request parameter). Use `-f` (CLI, comma-separated) to restrict to a subset.
+`a2d convert` emits all five formats by default into per-format subdirectories of `--output-dir` (`output/pyspark/`, `output/dlt/`, `output/sql/`, `output/lakeflow/`, `output/designer/`). The server's `POST /api/convert` likewise returns every format in a single `ConversionResponse.formats` map (no `output_format` request parameter). Use `-f` (CLI, comma-separated) to restrict to a subset.
 
 | Format | Filter flag | Generated Files | Best For |
 |--------|-------------|----------------|----------|

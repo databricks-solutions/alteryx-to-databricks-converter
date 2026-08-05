@@ -11,6 +11,9 @@ from server.services.batch import JobStatus, get_job, subscribe, unsubscribe
 
 logger = logging.getLogger("a2d.server.websocket.batch")
 
+# Per-subscriber event backlog cap (see the queue construction below).
+MAX_QUEUED_EVENTS = 500
+
 router = APIRouter(tags=["websocket"])
 
 
@@ -25,8 +28,12 @@ async def batch_ws(websocket: WebSocket, job_id: str) -> None:
         await websocket.close()
         return
 
-    # Create a queue for this subscriber
-    queue: asyncio.Queue = asyncio.Queue()
+    # Bounded so a slow or stalled client can't grow the queue without limit.
+    # Producers already tolerate a failed put (see services/batch.py), so a full
+    # queue drops progress events for that subscriber rather than the server
+    # accumulating every message for a browser that stopped reading. The cap is
+    # generous relative to max_batch_files so normal runs never hit it.
+    queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_QUEUED_EVENTS)
     subscribe(job_id, queue)
     logger.info("WebSocket subscriber connected for job %s", job_id)
 

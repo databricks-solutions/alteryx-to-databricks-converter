@@ -162,3 +162,53 @@ class TestDLTUnsupported:
         assert "UNSUPPORTED" in content
         assert "passthrough" in content
         assert len(output.warnings) >= 1
+
+
+class TestUniqueNodeSemantics:
+    """F-06: uniqueness must be expressed as a transform, not an expectation.
+
+    The generator used to emit
+    ``@dlt.expect_all_or_drop({"unique_keys": "COUNT(*) OVER (PARTITION BY ...) = 1"})``.
+    Pipeline expectations are row-level SQL predicates, so a window aggregate is not
+    generally valid there; where tolerated it forces a full shuffle; and ``_or_drop``
+    silently discards rows rather than matching Alteryx's Unique tool. The body's
+    ``dropDuplicates`` already expresses the dedup correctly.
+    """
+
+    def _unique_dag(self):
+        from a2d.ir.nodes import ReadNode, UniqueNode
+
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, original_tool_type="Input", file_path="/d.csv", file_format="csv"))
+        dag.add_node(UniqueNode(node_id=2, original_tool_type="Unique", key_fields=["id", "region"]))
+        dag.add_edge(1, 2)
+        return dag
+
+    def test_no_window_aggregate_in_expectations(self, generator):
+        content = generator.generate(self._unique_dag()).files[0].content
+        assert "COUNT(*) OVER" not in content
+        assert "unique_keys" not in content
+
+    def test_dedup_is_still_expressed(self, generator):
+        """Removing the expectation must not lose the semantics."""
+        content = generator.generate(self._unique_dag()).files[0].content
+        assert "dropDuplicates" in content
+        assert "'id'" in content or '"id"' in content
+
+    def test_generated_code_still_compiles(self, generator):
+        content = generator.generate(self._unique_dag()).files[0].content
+        compile(content, "unique_dlt.py", "exec")
+
+
+class TestDltApiVersionIsDisclosed:
+    """F-07: emitting the legacy module is a decision, so say so in the output."""
+
+    def test_output_explains_the_dlt_module_choice(self, generator):
+        from a2d.ir.nodes import ReadNode
+
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, original_tool_type="Input", file_path="/d.csv", file_format="csv"))
+        content = generator.generate(dag).files[0].content
+
+        assert "import dlt" in content
+        assert "pyspark import pipelines" in content
