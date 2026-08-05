@@ -120,7 +120,10 @@ export function ConvertPage() {
       )}
 
       {mutation.isPending && (
-        <div className="space-y-4">
+        // role=status + aria-live so the conversion is announced, not only shown.
+        // A spinner and pulsing text convey nothing to a screen reader, which left
+        // the longest-running action in the product silent.
+        <div className="space-y-4" role="status" aria-live="polite">
           <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="animate-pulse">

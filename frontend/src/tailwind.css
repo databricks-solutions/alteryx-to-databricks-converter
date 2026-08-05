@@ -60,3 +60,25 @@ body {
 .a2d-line-flash {
   animation: a2d-line-flash 1.2s ease-out;
 }
+
+/* Respect the OS "reduce motion" preference.
+ *
+ * The UI animates page transitions, toasts, card hovers, dropzone feedback and a
+ * counting metric readout. For users who set this preference — often because motion
+ * causes nausea or migraine — none of that is worth the cost, and the app previously
+ * ignored it entirely. Kept as one global rule so every current and future animation
+ * is covered rather than each component having to remember.
+ *
+ * Durations are near-zero rather than `animation: none` so animation-end callbacks
+ * still fire and nothing waits forever on a transition that never completes.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
