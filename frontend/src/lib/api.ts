@@ -162,6 +162,21 @@ export const api = {
     }
     return res.text();
   },
+
+  // ── Estate-level insights ────────────────────────────────────────────
+
+  portfolio: (files: File[]) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    return request<PortfolioReport>("/portfolio", { method: "POST", body: fd });
+  },
+
+  advise: (file: File, cloud: CloudName = "aws") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("cloud", cloud);
+    return request<AdvisorReport>("/advise", { method: "POST", body: fd });
+  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -450,4 +465,96 @@ export interface ChatSession {
   context: MigrationContext;
   messages: ChatMessage[];
   clarifying_questions: string[];
+}
+
+// ── Estate-level insights ────────────────────────────────────────────────
+
+export type CloudName = "aws" | "azure" | "gcp";
+
+export interface PortfolioSummary {
+  workflow_count: number;
+  dependency_count: number;
+  shared_macro_count: number;
+  duplicate_subflow_count: number;
+  isolated_workflow_count: number;
+  estimated_effort_days: number;
+  wave_count: number;
+}
+
+export interface PortfolioDependency {
+  producer: string;
+  consumer: string;
+  artifact: string;
+}
+
+export interface SharedMacro {
+  macro_path: string;
+  usage_count: number;
+  used_by: string[];
+}
+
+export interface DuplicateSubflow {
+  fingerprint: string;
+  description: string;
+  occurrence_count: number;
+  found_in: string[];
+}
+
+export interface WaveEntry {
+  workflow_name: string;
+  file_path: string;
+  node_count: number;
+  coverage_pct: number;
+  complexity_score: number;
+  migration_priority: string;
+  estimated_effort: string;
+  value: number;
+  readiness: number;
+  effort: number;
+  score: number;
+  depends_on: string[];
+}
+
+export interface MigrationWave {
+  wave: number;
+  estimated_effort_days: number;
+  workflows: WaveEntry[];
+}
+
+export interface PortfolioReport {
+  generated_at: string;
+  tool_version: string;
+  summary: PortfolioSummary;
+  dependencies: PortfolioDependency[];
+  shared_macros: SharedMacro[];
+  duplicate_subflows: DuplicateSubflow[];
+  isolated_workflows: string[];
+  migration_plan: { waves: MigrationWave[] };
+}
+
+export interface ClusterRecommendation {
+  tier: "single-node" | "small" | "medium" | "large";
+  workers: number;
+  node_type_id: string;
+  relative_dbu_per_hour: number;
+  photon_recommended: boolean;
+  rationale: string[];
+}
+
+export interface AdvisorHint {
+  node_id: number;
+  hint_type: string;
+  priority: string;
+  suggestion: string;
+  code_snippet: string;
+  tool_type: string;
+}
+
+export interface AdvisorReport {
+  workflow_name: string;
+  cluster: ClusterRecommendation;
+  hints: AdvisorHint[];
+  node_count: number;
+  max_depth: number;
+  summary: Record<string, unknown>;
 }

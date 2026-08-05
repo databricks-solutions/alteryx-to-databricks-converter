@@ -106,10 +106,13 @@ def _print_plan(plan: MigrationPlan, console: Console) -> None:
 # ---------------------------------------------------------------------------
 
 
-def generate_json(report: PortfolioReport, output_path: Path) -> None:
-    """Write the portfolio report as JSON."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    doc = {
+def to_dict(report: PortfolioReport) -> dict:
+    """Serialize a portfolio report to a JSON-ready dict.
+
+    Shared by the CLI (``a2d portfolio --json``) and ``POST /api/portfolio`` so the
+    two cannot drift into describing the same estate differently.
+    """
+    return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tool_version": __version__,
         "summary": {
@@ -165,7 +168,12 @@ def generate_json(report: PortfolioReport, output_path: Path) -> None:
             ],
         },
     }
-    output_path.write_text(json.dumps(doc, indent=2) + "\n")
+
+
+def generate_json(report: PortfolioReport, output_path: Path) -> None:
+    """Write the portfolio report as JSON."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(to_dict(report), indent=2) + "\n")
 
 
 # ---------------------------------------------------------------------------

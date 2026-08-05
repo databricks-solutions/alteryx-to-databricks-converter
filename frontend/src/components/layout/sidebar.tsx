@@ -14,6 +14,8 @@ import {
   CheckCircle,
   ClipboardCheck,
   MessageSquare,
+  Network,
+  Gauge,
   Settings,
 } from "lucide-react";
 import { useState } from "react";
@@ -44,6 +46,7 @@ const navGroups: NavGroup[] = [
     title: "Assess",
     items: [
       { to: "/analyze", label: "Analyze", icon: BarChart3 },
+      { to: "/portfolio", label: "Portfolio", icon: Network },
       { to: "/tools", label: "Tools", icon: Grid3X3 },
     ],
   },
@@ -60,6 +63,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/validate", label: "Validate", icon: CheckCircle },
       { to: "/review", label: "Review", icon: ClipboardCheck },
+      { to: "/advise", label: "Advisor", icon: Gauge },
     ],
   },
   {

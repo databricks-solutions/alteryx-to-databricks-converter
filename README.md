@@ -390,6 +390,75 @@ a2d verify workflow.yxmd -i sales=sales.csv -e expected.csv --json report.json
 - Workflows containing operators the reference executor doesn't model report a *partial* result
   (verified subset only) — never a false pass.
 
+### Estate-wide planning (`a2d portfolio`)
+
+Most migrations fail on sequencing, not on any single workflow. `portfolio` analyzes
+many workflows together and answers "what do we migrate first?":
+
+```bash
+a2d portfolio ./workflows/ -o portfolio-out/
+```
+
+- **Cross-workflow dependencies** — which workflow writes a file or table another
+  one reads, so you don't migrate a consumer before its producer.
+- **Shared macros and duplicate sub-flows** — logic repeated across the estate that
+  should be migrated once and reused.
+- **A migration-wave plan** — workflows grouped into dependency-respecting waves,
+  ranked by value x readiness / effort, with a person-day estimate per wave.
+- Emits a rich console summary, an **executive dashboard** (`executive_dashboard.html`)
+  with estate-wide coverage/effort/risk rollups, plus HTML and JSON reports.
+
+Also available in the web UI at **Assess → Portfolio**.
+
+### Cluster and cost advice (`a2d advise`)
+
+```bash
+a2d advise workflow.yxmd --cloud azure
+```
+
+Recommends a starting cluster tier (single-node → small → medium → large) with a
+worker count, the cloud-specific `node_type_id`, a relative DBU/hour proxy and a
+Photon recommendation — then lists per-node Spark optimization hints (broadcast
+joins, cross joins, persist/repartition, sequential joins).
+
+Derived from the workflow's **shape** (node count, DAG depth, shuffle/spatial/ML
+operations), not your data volumes. It's a planning aid, not a benchmark or a quote.
+Also available in the web UI at **Validate → Advisor**.
+
+### Incremental re-conversion (`a2d sync`)
+
+```bash
+a2d sync ./workflows/ -o output/ --manifest .a2d-manifest.json
+```
+
+Converts only what changed. A JSON manifest tracks each source file's hash, so
+unchanged workflows are skipped, new and modified ones are re-converted, and deleted
+ones are pruned. A failed file isn't recorded, so it retries next run.
+
+Intentionally **CLI-only** — this is designed to run on a schedule (cron, a Databricks
+job, or a CI step) as your Alteryx estate keeps changing during a long migration.
+
+### Data profiling (`a2d profile`)
+
+```bash
+a2d profile sample-data.csv
+```
+
+Infers per-column type, null rate and value range from a sample CSV — useful when
+preparing golden data for `a2d verify` or sanity-checking an extract. CLI-only
+utility.
+
+### Plugins and frontends (`a2d plugins`)
+
+```bash
+a2d plugins
+```
+
+Lists the installed source frontends (`alteryx`, `dbt`, plus any third-party ones
+registered via the `a2d.frontends` entry point) and converter plugins loaded from the
+`a2d.converters` entry point, including any that failed to load and why. CLI-only
+introspection — see [docs/converter-sdk.md](docs/converter-sdk.md) to write your own.
+
 ### AI assistant (opt-in)
 
 **By default a2d never calls a language model.** Conversion is entirely
