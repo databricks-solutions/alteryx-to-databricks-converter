@@ -122,6 +122,7 @@ async def batch_download(job_id: str) -> StreamingResponse:
     # allocate gigabytes. Checked as we write so we stop at the limit instead of
     # after the damage is done.
     max_bytes = settings.max_zip_size_bytes
+    uncompressed_bytes = 0
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for fr in job.file_results:
@@ -135,9 +136,30 @@ async def batch_download(job_id: str) -> StreamingResponse:
                 if fmt_result.get("status") != "success":
                     continue
                 for f in fmt_result.get("files", []):
+                    # Check the UNCOMPRESSED size before writing. Measuring the
+                    # archive buffer alone let highly compressible output through:
+                    # generated code compresses ~10x, so a small ZIP could still
+                    # expand to gigabytes on the client, and a single oversized
+                    # entry was fully allocated before being rejected.
+                    content = f["content"]
+                    uncompressed_bytes += len(content.encode("utf-8", errors="replace"))
+                    if uncompressed_bytes > max_bytes:
+                        logger.warning(
+                            "Batch %s exceeded %d uncompressed bytes — refusing to build the archive",
+                            job_id,
+                            max_bytes,
+                        )
+                        raise HTTPException(
+                            status_code=413,
+                            detail=(
+                                f"The generated output for this batch exceeds the "
+                                f"{max_bytes // (1024 * 1024)} MB limit. Download individual "
+                                f"workflows instead, or raise A2D_MAX_ZIP_SIZE_BYTES."
+                            ),
+                        )
                     zf.writestr(
                         f"{workflow_folder}/{fmt_key}/{f['filename']}",
-                        f["content"],
+                        content,
                     )
                     if buf.tell() > max_bytes:
                         logger.warning(

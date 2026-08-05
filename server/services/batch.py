@@ -293,8 +293,16 @@ async def _run_batch(
 
         with tempfile.TemporaryDirectory() as tmpdir:
             file_paths: list[tuple[str, Path]] = []
-            for original_filename, content in files:
-                p = Path(tmpdir) / sanitize_filename(original_filename)
+            # Each upload gets its own subdirectory. sanitize_filename is lossy —
+            # "sales@2024.yxmd" and "sales#2024.yxmd" both become
+            # "sales_2024.yxmd" — so writing every upload into one directory let a
+            # later file silently overwrite an earlier one, and both results then
+            # described the same content. Indexing by position keeps distinct
+            # uploads distinct regardless of what sanitization collapses.
+            for index, (original_filename, content) in enumerate(files):
+                upload_dir = Path(tmpdir) / f"upload_{index}"
+                upload_dir.mkdir()
+                p = upload_dir / sanitize_filename(original_filename)
                 p.write_bytes(content)
                 file_paths.append((original_filename, p))
 

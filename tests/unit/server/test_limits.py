@@ -132,3 +132,64 @@ def _incompressible(size: int) -> str:
 
     rnd = random.Random(0)
     return "".join(rnd.choice(string.ascii_letters + string.digits) for _ in range(size))
+
+
+class TestUncompressedZipCap:
+    """F-19: generated code compresses ~10x, so the compressed size is a poor proxy."""
+
+    def _job_with_compressible_payload(self, size: int) -> str:
+        job = batch_service.get_store().create(total=1)
+        job.status = batch_service.JobStatus.COMPLETED
+        job.file_results = [
+            {
+                "success": True,
+                "workflow_name": "wf",
+                "formats": {
+                    "pyspark": {
+                        "status": "success",
+                        # Highly compressible: a small archive that expands hugely.
+                        "files": [{"filename": "big.py", "content": "a" * size}],
+                    }
+                },
+            }
+        ]
+        return job.job_id
+
+    def test_compressible_payload_is_rejected_on_uncompressed_size(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "max_zip_size_bytes", 50_000)
+        job_id = self._job_with_compressible_payload(500_000)
+
+        resp = client.get(f"/api/convert/batch/{job_id}/download")
+
+        # Compressed this is only a few hundred bytes, so the old compressed-only
+        # check let it through.
+        assert resp.status_code == 413, resp.text
+        assert "exceeds" in resp.json()["detail"]
+
+    def test_small_payload_still_downloads(self, client, monkeypatch):
+        monkeypatch.setattr(settings, "max_zip_size_bytes", 10 * 1024 * 1024)
+        job_id = self._job_with_compressible_payload(1_000)
+        assert client.get(f"/api/convert/batch/{job_id}/download").status_code == 200
+
+
+class TestBatchUploadCollisions:
+    """F-09: sanitize_filename is lossy, so distinct uploads could overwrite."""
+
+    def test_sanitization_really_does_collide(self):
+        """Establish the premise before asserting the fix."""
+        from server.utils.validation import sanitize_filename
+
+        assert sanitize_filename("sales@2024.yxmd") == sanitize_filename("sales#2024.yxmd")
+
+    def test_colliding_names_are_converted_separately(self, client):
+        """Both uploads must appear as distinct results with their own content."""
+        wf = _simple_wf()
+        resp = client.post(
+            "/api/convert/batch",
+            files=[
+                ("files", ("sales@2024.yxmd", wf, "application/xml")),
+                ("files", ("sales#2024.yxmd", wf, "application/xml")),
+            ],
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["total_files"] == 2
