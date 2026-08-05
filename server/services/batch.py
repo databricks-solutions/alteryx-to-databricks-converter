@@ -69,7 +69,12 @@ class JobStore:
             return self._jobs.get(job_id)
 
     def create(self, total: int) -> BatchJob:
-        job_id = uuid.uuid4().hex[:12]
+        # Full UUID, not a 12-hex-char truncation. Job ids are the only thing
+        # guarding a job's status/download/WebSocket endpoints, so a 48-bit value
+        # was needlessly guessable for a URL that returns another user's generated
+        # code. (Ownership binding is the real fix — see the tenancy note in
+        # server/routers/history.py — but there is no reason to shorten the id.)
+        job_id = uuid.uuid4().hex
         job = BatchJob(job_id=job_id, total=total)
         with self._lock:
             self._jobs[job_id] = job

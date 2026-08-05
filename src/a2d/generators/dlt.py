@@ -148,6 +148,15 @@ class DLTGenerator(CodeGenerator):
             "# Databricks notebook source",
             *meta_header,
             "",
+            # Databricks now recommends `from pyspark import pipelines as dp` with
+            # @dp.materialized_view / @dp.table. `dlt` still works and is the most
+            # broadly compatible import across DBR LTS versions in the field, which
+            # is why it's emitted here — but say so in the output rather than
+            # leaving the reader to wonder whether the tool knows.
+            "# NOTE: uses the `dlt` module, which remains supported and is the most",
+            "# compatible choice across current DBR LTS versions. Databricks' newer",
+            "# API is `from pyspark import pipelines as dp` (@dp.materialized_view for",
+            "# batch, @dp.table for streaming); migrate when your runtime guarantees it.",
             "import dlt",
             "from pyspark.sql import functions as F",
             "from pyspark.sql import Window",
@@ -234,11 +243,19 @@ class DLTGenerator(CodeGenerator):
         """Generate @dlt.expect decorators for data quality constraints."""
         expectations: list[str] = []
 
-        if isinstance(node, UniqueNode) and node.key_fields:
-            escaped_keys = ", ".join(f"`{k}`" for k in node.key_fields)
-            expectations.append(
-                f'@dlt.expect_all_or_drop({{"unique_keys": "COUNT(*) OVER (PARTITION BY {escaped_keys}) = 1"}})'
-            )
+        # NOTE: deliberately no uniqueness expectation for UniqueNode.
+        #
+        # This used to emit:
+        #   @dlt.expect_all_or_drop({"unique_keys":
+        #       "COUNT(*) OVER (PARTITION BY `k`) = 1"})
+        #
+        # which was wrong on three counts. Pipeline expectations are row-level SQL
+        # predicates, so a window aggregate is not generally valid there; where it
+        # is tolerated it forces a full shuffle; and `_or_drop` silently discards
+        # rows, which is not what Alteryx's Unique tool does (it routes duplicates
+        # to a second output). The generated body already calls
+        # `dropDuplicates(key_fields)`, which expresses the dedup correctly — the
+        # expectation added a plausible-looking constraint that did nothing useful.
 
         if isinstance(node, DataCleansingNode):
             for field_name in node.fields:
