@@ -63,10 +63,21 @@ DBX := DATABRICKS_CLI_PATH=$(DATABRICKS_CLI) $(DATABRICKS_CLI)
 # file afterwards, so a deploy never leaves workspace identifiers in your tree.
 LOCAL_APP_ENV := .local/app.env.yaml
 
-deploy-dev: frontend ## Deploy to Databricks Apps (dev) — uploads files AND triggers app restart
+# Databricks profile for deploys. Without this, `bundle deploy` falls back to
+# default credentials and fails with "cannot configure default credentials" on any
+# machine that authenticates per-profile. Pass PROFILE=<name> or export
+# DATABRICKS_PROFILE.
+PROFILE ?= $(DATABRICKS_PROFILE)
+PROFILE_FLAG := $(if $(PROFILE),-p $(PROFILE),)
+
+# NOTE: deliberately NOT dependent on `frontend`. Rebuilding regenerates Vite
+# content hashes, so deploying and then committing left the repo and the deployed
+# app pointing at different entry chunks (and dirtied frontend/dist every deploy).
+# Deploy the committed build; run `make frontend` first if you have source changes.
+deploy-dev: ## Deploy to Databricks Apps (dev) — uploads files AND triggers app restart
 	@$(MAKE) --no-print-directory _deploy TARGET=dev
 
-deploy-prod: frontend ## Deploy to Databricks Apps (prod) — uploads files AND triggers app restart
+deploy-prod: ## Deploy to Databricks Apps (prod) — uploads files AND triggers app restart
 	@$(MAKE) --no-print-directory _deploy TARGET=prod
 
 _deploy:
@@ -77,10 +88,10 @@ _deploy:
 	else \
 		echo "No $(LOCAL_APP_ENV) — deploying with defaults (history off, AI off)"; \
 	fi
-	@$(DBX) bundle deploy -t $(TARGET); status=$$?; \
+	@$(DBX) bundle deploy -t $(TARGET) $(PROFILE_FLAG); status=$$?; \
 		if [ -f .app.yaml.bak ]; then mv .app.yaml.bak app.yaml; fi; \
 		exit $$status
-	$(DBX) bundle run -t $(TARGET) a2d_app
+	$(DBX) bundle run -t $(TARGET) a2d_app $(PROFILE_FLAG)
 
 bundle-validate: ## Validate DAB configuration
 	$(DBX) bundle validate
