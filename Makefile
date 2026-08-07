@@ -70,14 +70,14 @@ LOCAL_APP_ENV := .local/app.env.yaml
 PROFILE ?= $(DATABRICKS_PROFILE)
 PROFILE_FLAG := $(if $(PROFILE),-p $(PROFILE),)
 
-# NOTE: deliberately NOT dependent on `frontend`. Rebuilding regenerates Vite
-# content hashes, so deploying and then committing left the repo and the deployed
-# app pointing at different entry chunks (and dirtied frontend/dist every deploy).
-# Deploy the committed build; run `make frontend` first if you have source changes.
-deploy-dev: ## Deploy to Databricks Apps (dev) — uploads files AND triggers app restart
+# Deploy builds the frontend. That's safe now that frontend/dist is untracked: the
+# hash churn that used to dirty the repo (and could leave the app serving a build
+# absent from git) no longer has anywhere to land. The build is the source of truth
+# for what gets uploaded.
+deploy-dev: frontend ## Deploy to Databricks Apps (dev) — builds frontend, uploads, restarts
 	@$(MAKE) --no-print-directory _deploy TARGET=dev
 
-deploy-prod: ## Deploy to Databricks Apps (prod) — uploads files AND triggers app restart
+deploy-prod: frontend ## Deploy to Databricks Apps (prod) — builds frontend, uploads, restarts
 	@$(MAKE) --no-print-directory _deploy TARGET=prod
 
 _deploy:
@@ -88,10 +88,21 @@ _deploy:
 	else \
 		echo "No $(LOCAL_APP_ENV) — deploying with defaults (history off, AI off)"; \
 	fi
+	@if [ -n "$(FULL_SYNC)" ]; then \
+		echo "Full sync (pruning stale workspace files)…"; \
+		$(DBX) bundle sync --full -t $(TARGET) $(PROFILE_FLAG) || true; \
+	fi
 	@$(DBX) bundle deploy -t $(TARGET) $(PROFILE_FLAG); status=$$?; \
 		if [ -f .app.yaml.bak ]; then mv .app.yaml.bak app.yaml; fi; \
 		exit $$status
 	$(DBX) bundle run -t $(TARGET) a2d_app $(PROFILE_FLAG)
+
+deploy-clean: frontend ## Deploy after a FULL sync — prunes stale workspace files
+	# `bundle deploy` uploads but never deletes, so assets from older builds pile up in
+	# the workspace source directory (356 files there vs 60 locally at one point).
+	# Harmless — index.html only references current hashes — but a full sync clears the
+	# accumulated cruft. Slower than deploy-dev, so it's a separate target.
+	@$(MAKE) --no-print-directory _deploy TARGET=dev FULL_SYNC=1
 
 bundle-validate: ## Validate DAB configuration
 	$(DBX) bundle validate

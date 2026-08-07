@@ -226,7 +226,7 @@ make deploy-prod     # → databricks bundle deploy -t prod
 make bundle-validate # validate the bundle before deploying
 ```
 
-If you need to deploy by hand instead, sync `src/`, `server/`, `frontend/dist/`, `demo/`, plus `app.yaml`, `pyproject.toml`, and `requirements.txt` to a workspace folder and run `databricks apps create` / `databricks apps deploy` against it.
+If you need to deploy by hand instead, run `make frontend` first (built assets are not committed), then sync `src/`, `server/`, `frontend/dist/`, `demo/`, plus `app.yaml`, `pyproject.toml`, and `requirements.txt` to a workspace folder and run `databricks apps create` / `databricks apps deploy` against it.
 
 **Environment variables** (all optional):
 
@@ -589,7 +589,7 @@ frontend/                  # React 19 + TypeScript + Tailwind 4
     components/            # UI components (workflow graph, code viewer, etc.)
     stores/                # Zustand state management
     lib/                   # API client, utilities
-  dist/                    # Pre-built assets (committed for Databricks App deployment)
+  dist/                    # Build output (NOT committed — `make frontend` / deploy builds it)
 
 demo/                      # Sample .yxmd workflows for testing
 tests/                     # pytest suite (1500+ tests, 85%+ coverage)
