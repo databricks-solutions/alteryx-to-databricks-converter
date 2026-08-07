@@ -37,7 +37,12 @@ Thumbs.db
 
 # Node / Frontend
 node_modules/
-# frontend/dist/ — keep built assets for Databricks App deployment
+# Built assets are NOT tracked. Vite regenerates content hashes on every build, so
+# committing dist meant each deploy dirtied 60+ files and — if you deployed before
+# committing — left the running app serving a build that no longer existed in git.
+# `make deploy-*` and CI both build it, and server/main.py degrades to an API-only
+# service with a clear warning when it's absent.
+frontend/dist/
 frontend/.vite/
 
 # Secrets
