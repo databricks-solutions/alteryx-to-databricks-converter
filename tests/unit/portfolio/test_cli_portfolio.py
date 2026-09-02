@@ -69,7 +69,7 @@ class TestPortfolioCommand:
         empty.mkdir()
         result = runner.invoke(app, ["portfolio", str(empty), "-q"])
         assert result.exit_code == 1
-        assert "No .yxmd files" in result.output
+        assert "No Alteryx files found" in result.output
 
     def test_single_file_accepted(self, tmp_path):
         result = runner.invoke(

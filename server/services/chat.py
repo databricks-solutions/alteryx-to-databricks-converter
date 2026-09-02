@@ -26,7 +26,7 @@ from a2d.advisor.llm_client import AdvisoryClient, resolve_client
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.pipeline import ConversionPipeline
 from server.settings import settings
-from server.utils.validation import sanitize_filename
+from server.utils.package import materialize_upload
 
 logger = logging.getLogger("a2d.server.services.chat")
 
@@ -106,10 +106,15 @@ def build_context(filename: str, content: bytes, output_format: str = "pyspark")
         raise ValueError(f"unknown output_format {output_format!r}") from exc
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / sanitize_filename(filename)
-        path.write_bytes(content)
+        # .yxzp is unzipped to its primary workflow (macros co-located); others pass through.
+        path, was_package = materialize_upload(content, filename, Path(tmpdir))
 
-        config = ConversionConfig(input_path=path, output_dir=Path(tmpdir) / "out", output_format=fmt)
+        config = ConversionConfig(
+            input_path=path,
+            output_dir=Path(tmpdir) / "out",
+            output_format=fmt,
+            expand_macros=was_package,
+        )
         result = ConversionPipeline(config).convert(path)
         generated_code = "\n".join(f.content for f in result.output.files)
 

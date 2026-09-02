@@ -45,3 +45,26 @@ def test_analyze_rejects_non_yxmd(client):
         files=[("files", ("readme.txt", b"hello", "text/plain"))],
     )
     assert resp.status_code == 400
+
+
+def test_analyze_accepts_yxzp_package(client, simple_yxzp):
+    resp = client.post(
+        "/api/analyze",
+        files=[("files", ("bundle.yxzp", simple_yxzp, "application/zip"))],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total_workflows"] == 1
+
+
+def test_analyze_isolates_one_corrupt_package(client, simple_yxmd):
+    # A corrupt .yxzp alongside a good workflow must not abort the whole request;
+    # the good file is still analyzed.
+    resp = client.post(
+        "/api/analyze",
+        files=[
+            ("files", ("good.yxmd", simple_yxmd, "application/xml")),
+            ("files", ("broken.yxzp", b"not a zip", "application/zip")),
+        ],
+    )
+    assert resp.status_code == 200
+    assert resp.json()["total_workflows"] >= 1

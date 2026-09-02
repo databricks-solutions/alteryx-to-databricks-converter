@@ -13,7 +13,7 @@ from pathlib import Path
 
 from a2d.portfolio.analyzer import PortfolioAnalyzer
 from a2d.portfolio.report import to_dict
-from server.utils.validation import sanitize_filename
+from server.utils.package import materialize_uploads
 
 logger = logging.getLogger("a2d.server.services.portfolio")
 
@@ -28,11 +28,8 @@ def analyze_portfolio(files: list[tuple[str, bytes]]) -> dict:
         raise ValueError("at least one workflow file is required")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        paths: list[Path] = []
-        for filename, content in files:
-            path = Path(tmpdir) / sanitize_filename(filename)
-            path.write_bytes(content)
-            paths.append(path)
+        # .yxzp packages are unzipped to their primary workflow; other files pass through.
+        paths = materialize_uploads(files, Path(tmpdir))
 
         report = PortfolioAnalyzer().analyze(paths)
         payload = to_dict(report)

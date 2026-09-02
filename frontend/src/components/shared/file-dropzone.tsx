@@ -16,7 +16,7 @@ export function FileDropzone({
   files,
   onFilesChange,
   multiple = false,
-  accept = ".yxmd",
+  accept = ".yxmd,.yxmc,.yxwz,.yxzp",
 }: FileDropzoneProps) {
   const onDrop = useCallback(
     (accepted: File[]) => {
@@ -29,9 +29,22 @@ export function FileDropzone({
     [files, onFilesChange, multiple],
   );
 
+  // react-dropzone wants MIME type -> extension list. Alteryx workflows/macros/
+  // apps are XML; a .yxzp package is a ZIP. Group each extension under the right
+  // MIME so both the browse dialog and drag-drop admit them.
+  const acceptMap = accept
+    .split(",")
+    .map((ext) => ext.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string[]>>((map, ext) => {
+      const mime = ext.toLowerCase() === ".yxzp" ? "application/zip" : "application/xml";
+      (map[mime] ??= []).push(ext);
+      return map;
+    }, {});
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { "application/xml": [accept] },
+    accept: acceptMap,
     multiple,
   });
 
@@ -69,8 +82,8 @@ export function FileDropzone({
           {isDragActive
             ? "Drop files here"
             : typeof window !== "undefined" && ("ontouchstart" in window || window.matchMedia("(pointer: coarse)").matches)
-              ? "Tap to browse for .yxmd files"
-              : "Drag & drop .yxmd files"}
+              ? "Tap to browse for Alteryx files"
+              : "Drag & drop Alteryx files"}
         </p>
         {!isDragActive && !("ontouchstart" in (typeof window !== "undefined" ? window : {})) && (
           <p className="text-xs text-[var(--fg-muted)] mt-1">

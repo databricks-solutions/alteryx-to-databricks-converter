@@ -10,7 +10,7 @@ from a2d.config import ConversionConfig, OutputFormat
 from a2d.parser.workflow_parser import WorkflowParser
 from a2d.pipeline import ConversionPipeline
 from a2d.review.builder import build_review_session
-from server.utils.validation import sanitize_filename
+from server.utils.package import materialize_upload
 
 logger = logging.getLogger("a2d.server.services.review")
 
@@ -27,10 +27,10 @@ def build_review(filename: str, content: bytes, output_format: str = "pyspark") 
         raise ValueError(f"unknown output_format {output_format!r}") from exc
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / sanitize_filename(filename)
-        path.write_bytes(content)
+        # .yxzp is unzipped to its primary workflow (macros co-located); others pass through.
+        path, was_package = materialize_upload(content, filename, Path(tmpdir))
 
-        config = ConversionConfig(output_format=fmt)
+        config = ConversionConfig(output_format=fmt, expand_macros=was_package)
         parsed = WorkflowParser().parse(path)
         dag = ConversionPipeline(config)._build_dag(parsed)
         session = build_review_session(dag, path.stem, output_format=fmt, config=config)

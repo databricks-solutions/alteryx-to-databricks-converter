@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 import tempfile
 import threading
@@ -19,6 +20,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.pipeline import ConversionPipeline, MultiFormatConversionResult
 from server.services.conversion import (
@@ -27,6 +30,7 @@ from server.services.conversion import (
     generate_ddl_dab_files,
 )
 from server.settings import settings
+from server.utils.package import materialize_upload
 from server.utils.validation import sanitize_filename
 
 logger = logging.getLogger("a2d.server.services.batch")
@@ -318,9 +322,16 @@ async def _run_batch(
             expand_macros=expand_macros,
         )
         pipeline = ConversionPipeline(config)
+        # A .yxzp bundles its macros; extraction co-locates them, so package-derived
+        # files convert with macro expansion. This is scoped to the package's own
+        # files — plain .yxmd uploads keep the caller's expand_macros setting rather
+        # than being forced on by a package elsewhere in the same batch. Built
+        # lazily, only if a package is actually present.
+        pkg_pipeline: ConversionPipeline | None = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            file_paths: list[tuple[str, Path]] = []
+            # (filename, workflow_path, was_package)
+            file_paths: list[tuple[str, Path, bool]] = []
             # Each upload gets its own subdirectory. sanitize_filename is lossy —
             # "sales@2024.yxmd" and "sales#2024.yxmd" both become
             # "sales_2024.yxmd" — so writing every upload into one directory let a
@@ -330,9 +341,19 @@ async def _run_batch(
             for index, (original_filename, content) in enumerate(files):
                 upload_dir = Path(tmpdir) / f"upload_{index}"
                 upload_dir.mkdir()
-                p = upload_dir / sanitize_filename(original_filename)
-                p.write_bytes(content)
-                file_paths.append((original_filename, p))
+                # .yxzp is unzipped to its primary workflow here; others pass through.
+                try:
+                    p, was_package = materialize_upload(content, original_filename, upload_dir)
+                except HTTPException:
+                    # A malformed package must not abort the whole batch. Write the
+                    # raw bytes so this one file fails conversion in isolation and is
+                    # reported as a failed file, like any other unparseable upload.
+                    p = upload_dir / sanitize_filename(original_filename)
+                    p.write_bytes(content)
+                    was_package = False
+                file_paths.append((original_filename, p, was_package))
+                if was_package and pkg_pipeline is None:
+                    pkg_pipeline = ConversionPipeline(dataclasses.replace(config, expand_macros=True))
 
             total_files = len(file_paths)
             successful_files = 0
@@ -343,12 +364,16 @@ async def _run_batch(
             total_warnings = 0
             errors_by_kind: dict[str, int] = {}
 
-            for idx, (original_filename, fp) in enumerate(file_paths, start=1):
+            for idx, (original_filename, fp, was_package) in enumerate(file_paths, start=1):
                 workflow_name = fp.stem
                 job.current_filename = original_filename
 
+                # Package-derived files convert with the macro-expanding pipeline;
+                # plain uploads use the base pipeline (caller's expand_macros).
+                use_pipeline = pkg_pipeline if (was_package and pkg_pipeline is not None) else pipeline
+
                 # Run the multi-format conversion in a thread (CPU-bound)
-                outcome = await asyncio.to_thread(_convert_one, pipeline, fp)
+                outcome = await asyncio.to_thread(_convert_one, use_pipeline, fp)
 
                 # DDL/DAB generation (per-file, mirrors single-file path)
                 extra_files: list[dict] = []

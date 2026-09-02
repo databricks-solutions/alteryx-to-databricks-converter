@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -163,24 +163,39 @@ class SyncResult:
         }
 
 
+# Alteryx source globs the incremental sweep tracks by default: workflows,
+# macros, analytic apps, and packages. A .yxzp is a ZIP of the others — its
+# ``convert_fn`` is responsible for extracting it (the CLI's does).
+_DEFAULT_SYNC_PATTERNS: tuple[str, ...] = ("**/*.yxmd", "**/*.yxwz", "**/*.yxmc", "**/*.yxzp")
+
+
 def sync_directory(
     directory: Path,
     convert_fn: Callable[[Path], list[str]],
     tracker: ManifestTracker,
     *,
-    pattern: str = "**/*.yxmd",
+    patterns: Sequence[str] | None = None,
+    pattern: str | None = None,
     prune: bool = True,
 ) -> SyncResult:
     """Convert only changed/new files under *directory*, updating *tracker*.
 
     ``convert_fn(path)`` performs the conversion and returns the generated file
     contents (used for the output fingerprint); it may raise to signal failure.
-    The manifest is saved once at the end.
+    ``patterns`` are the glob patterns to sweep (defaults to Alteryx workflows,
+    macros, analytic apps, and packages). ``pattern`` is a deprecated single-glob
+    alias kept for backward compatibility. The manifest is saved once at the end.
     """
     tracker.load()
     result = SyncResult()
 
-    files = sorted(directory.glob(pattern))
+    if patterns is not None:
+        globs: tuple[str, ...] = tuple(patterns)
+    elif pattern is not None:  # deprecated single-pattern form
+        globs = (pattern,)
+    else:
+        globs = _DEFAULT_SYNC_PATTERNS
+    files = sorted({p for g in globs for p in directory.glob(g)})
     seen: set[str] = set()
 
     for path in files:

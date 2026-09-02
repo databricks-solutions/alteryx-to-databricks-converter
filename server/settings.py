@@ -40,7 +40,15 @@ class Settings(BaseSettings):
     # Upload limits
     max_upload_size_bytes: int = 50 * 1024 * 1024  # 50 MB
     max_batch_files: int = 50
-    allowed_extensions: set[str] = {".yxmd"}
+    # Accepted upload extensions. ``.yxmd`` workflows, ``.yxmc`` macros, ``.yxwz``
+    # analytic apps, and ``.yxzp`` packages (a ZIP of the above). A ``.yxzp`` is
+    # unzipped server-side; the others are parsed directly.
+    allowed_extensions: set[str] = {".yxmd", ".yxmc", ".yxwz", ".yxzp"}
+
+    # .yxzp package-extraction guards (see a2d.packaging). Bound memory/disk
+    # against hostile or oversized archives.
+    max_package_members: int = 1024
+    max_package_extracted_bytes: int = 200 * 1024 * 1024  # 200 MB uncompressed
 
     # Deadline for a single conversion/analysis. Conversion is CPU-bound and runs
     # in a worker thread; without a deadline a client waits indefinitely on a

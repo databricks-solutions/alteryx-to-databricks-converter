@@ -13,7 +13,7 @@ from a2d.pipeline import (
     FormatConversionResult,
     MultiFormatConversionResult,
 )
-from server.utils.validation import sanitize_filename
+from server.utils.package import materialize_upload
 
 logger = logging.getLogger("a2d.server.services.conversion")
 
@@ -153,10 +153,15 @@ def convert_file(
 
     Returns a response dict matching ``ConversionResponse``.
     """
-    safe_name = sanitize_filename(filename)
     with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = Path(tmpdir) / safe_name
-        file_path.write_bytes(file_bytes)
+        # A .yxzp is unzipped here; .yxmd/.yxmc/.yxwz are written verbatim.
+        file_path, was_package = materialize_upload(file_bytes, filename, Path(tmpdir))
+        workflow_stem = file_path.stem
+
+        # A .yxzp bundles its macros; extraction co-locates them next to the
+        # workflow, so expand them even if the caller didn't ask — otherwise
+        # every macro call would surface as a gap.
+        effective_expand_macros = expand_macros or was_package
 
         # OutputFormat.PYSPARK is a placeholder — convert_all_formats does not
         # consult config.output_format; it iterates over all formats.
@@ -171,7 +176,7 @@ def convert_file(
             include_performance_hints=include_performance_hints,
             generate_ddl=generate_ddl,
             generate_dab=generate_dab,
-            expand_macros=expand_macros,
+            expand_macros=effective_expand_macros,
         )
         pipeline = ConversionPipeline(config)
         result: MultiFormatConversionResult = pipeline.convert_all_formats(file_path)
@@ -183,7 +188,7 @@ def convert_file(
         extra_files, ddl_dab_warnings = generate_ddl_dab_files(
             config,
             result,
-            Path(filename).stem,
+            workflow_stem,
             generate_ddl=generate_ddl,
             generate_dab=generate_dab,
         )
@@ -208,7 +213,7 @@ def convert_file(
             top_coverage = float(cov)
 
     response: dict = {
-        "workflow_name": Path(filename).stem,
+        "workflow_name": workflow_stem,
         "node_count": result.dag.node_count,
         "edge_count": result.dag.edge_count,
         "warnings": top_warnings,
