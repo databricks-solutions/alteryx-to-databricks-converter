@@ -129,7 +129,7 @@ export function HomePage() {
         <Card className="border-[var(--ring)]/20 bg-[var(--ring)]/5 p-4">
           <p className="text-sm font-medium text-[var(--fg)]">New here? Start with analysis</p>
           <p className="text-xs text-[var(--fg-muted)] mt-1">
-            Upload your .yxmd files on the{" "}
+            Upload your Alteryx files on the{" "}
             <Link to="/analyze" className="text-[var(--ring)] hover:underline">Analyze</Link> page
             to see a readiness report, then{" "}
             <Link to="/convert" className="text-[var(--ring)] hover:underline">Convert</Link> to generate code.

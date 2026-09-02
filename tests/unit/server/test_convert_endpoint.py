@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
+
 
 class TestMalformedInput:
     """Tests for handling corrupted, empty, and malformed XML input."""
@@ -49,6 +52,54 @@ def _assert_multi_format_shape(data: dict) -> None:
         assert "status" in fr
         assert "files" in fr
         assert "warnings" in fr
+
+
+class TestNonYxmdFormats:
+    """The App accepts .yxmc, .yxwz, and .yxzp — not just .yxmd."""
+
+    def test_convert_yxwz(self, client, simple_yxmd):
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("app.yxwz", simple_yxmd, "application/xml")},
+        )
+        assert resp.status_code == 200
+        _assert_multi_format_shape(resp.json())
+
+    def test_convert_yxmc(self, client, simple_yxmd):
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("macro.yxmc", simple_yxmd, "application/xml")},
+        )
+        assert resp.status_code == 200
+        _assert_multi_format_shape(resp.json())
+
+    def test_convert_yxzp_package(self, client, simple_yxzp):
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("bundle.yxzp", simple_yxzp, "application/zip")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        _assert_multi_format_shape(data)
+        # Primary workflow inside the package drives the reported name.
+        assert data["workflow_name"] == "simple_filter"
+
+    def test_convert_corrupt_yxzp_is_400(self, client):
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("broken.yxzp", b"not a zip", "application/zip")},
+        )
+        assert resp.status_code == 400
+
+    def test_convert_yxzp_without_workflow_is_400(self, client):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("only.yxmc", b"<AlteryxDocument><Nodes/></AlteryxDocument>")
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("nomain.yxzp", buf.getvalue(), "application/zip")},
+        )
+        assert resp.status_code == 400
 
 
 def test_convert_single_file(client, simple_yxmd):

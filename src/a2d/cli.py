@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
+import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,6 +33,62 @@ _FORMAT_LABELS: dict[str, str] = {
     "lakeflow": "Lakeflow Declarative Pipelines (SQL)",
     "designer": "Lakeflow Designer",
 }
+
+
+# Alteryx source suffixes the directory-scanning commands pick up. Workflows
+# (.yxmd), macros (.yxmc), and analytic apps (.yxwz) parse directly; a .yxzp is
+# a ZIP of these, extracted to its primary workflow (see a2d.packaging) with its
+# macros left co-located.
+_WORKFLOW_SUFFIXES: tuple[str, ...] = ("yxmd", "yxwz", "yxmc")
+
+
+def _glob_workflow_files(directory: Path) -> list[Path]:
+    """Return all Alteryx workflow/macro/package files under ``directory``."""
+    found: list[Path] = []
+    for suffix in (*_WORKFLOW_SUFFIXES, "yxzp"):
+        found.extend(directory.glob(f"**/*.{suffix}"))
+    return sorted(found)
+
+
+def _resolve_package_inputs(
+    paths: list[Path], stack: contextlib.ExitStack
+) -> tuple[list[Path], list[tuple[Path, str]]]:
+    """Replace any ``.yxzp`` in ``paths`` with its extracted primary workflow.
+
+    Each package is extracted into a temp directory whose lifetime is bound to
+    ``stack`` (so the files survive until the caller finishes with them).
+
+    Returns ``(resolved, failures)`` where ``failures`` lists the packages that
+    could not be extracted, as ``(path, reason)``. A package failure is never
+    fatal here — the caller decides whether to count it (dir-convert does, so a
+    corrupt package is not silently ignored) or simply skip it.
+    """
+    from a2d.packaging import PackageError, extract_primary_workflow, is_package
+
+    resolved: list[Path] = []
+    failures: list[tuple[Path, str]] = []
+    for p in paths:
+        if not is_package(p):
+            resolved.append(p)
+            continue
+        tmp = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+        try:
+            resolved.append(extract_primary_workflow(p, tmp))
+        except PackageError as exc:
+            console.print(f"[yellow]Skipping {p.name}: {exc}[/yellow]")
+            failures.append((p, str(exc)))
+    return resolved, failures
+
+
+def _input_has_package(input_path: Path) -> bool:
+    """True if the input is a ``.yxzp`` file or a directory containing one."""
+    from a2d.packaging import is_package
+
+    if input_path.is_file():
+        return is_package(input_path)
+    if input_path.is_dir():
+        return any(is_package(p) for p in input_path.glob("**/*.yxzp"))
+    return False
 
 
 def _version_callback(value: bool) -> None:
@@ -80,7 +139,9 @@ def main(
 @app.command()
 def convert(
     # -- Core I/O --
-    input_path: Path = typer.Argument(..., help="Path to .yxmd/.yxmc file or directory"),
+    input_path: Path = typer.Argument(
+        ..., help="Path to a .yxmd/.yxmc/.yxwz file, a .yxzp package, or a directory"
+    ),
     output_dir: Path = typer.Option(
         "./a2d-output", "--output-dir", "-o", help="Output directory", rich_help_panel="Core Options"
     ),
@@ -281,11 +342,30 @@ def convert(
         # PYSPARK is a sensible default, mirroring server/services/conversion.py.
         shared_cfg = _build_config(OutputFormat.PYSPARK)
 
+        from a2d.packaging import PackageError, extract_primary_workflow, is_package
+
+        # A .yxzp is a ZIP package: extract it to a temp dir (kept alive until
+        # conversion finishes) and convert its primary workflow. Extraction
+        # co-locates the package's macros, so expand them.
+        pkg_stack = contextlib.ExitStack()
+        workflow_path = input_path
+        if is_package(input_path):
+            tmp = Path(pkg_stack.enter_context(tempfile.TemporaryDirectory()))
+            try:
+                workflow_path = extract_primary_workflow(input_path, tmp)
+            except PackageError as e:
+                pkg_stack.close()
+                console.print(f"[red]{input_path.name}: {e}[/red]")
+                raise typer.Exit(code=1) from None
+            if not shared_cfg.expand_macros:
+                shared_cfg = dataclasses.replace(shared_cfg, expand_macros=True)
+
         from a2d.frontends import FrontendRegistry
 
         try:
-            source_frontend = FrontendRegistry.resolve(input_path, frontend)
+            source_frontend = FrontendRegistry.resolve(workflow_path, frontend)
         except KeyError as e:
+            pkg_stack.close()
             console.print(f"[red]{e}[/red]")
             raise typer.Exit(code=1) from None
 
@@ -293,11 +373,14 @@ def convert(
         try:
             with console.status(f"[bold]Converting {input_path.name} (all formats)...[/bold]"):
                 pipeline = ConversionPipeline(shared_cfg, frontend=source_frontend)
-                multi_result = pipeline.convert_all_formats(input_path)
+                multi_result = pipeline.convert_all_formats(workflow_path)
         except Exception as e:
             elapsed_total = time.monotonic() - t_total
             console.print(f"[red]Failed to parse {input_path.name} after {elapsed_total:.1f}s: {e}[/red]")
             raise typer.Exit(code=1) from e
+        finally:
+            # Input temp dir is safe to drop now — the DAG/result are in memory.
+            pkg_stack.close()
         elapsed_total = time.monotonic() - t_total
 
         # DDL/DAB are format-agnostic — generate ONCE and append into each
@@ -431,14 +514,14 @@ def convert(
             raise typer.Exit(code=1)
 
     elif input_path.is_dir():
-        yxmd_files = sorted(input_path.glob("**/*.yxmd"))
-        yxmd_count = len(yxmd_files)
-        if yxmd_count == 0:
-            console.print(f"[yellow]No .yxmd files found in {input_path}[/yellow]")
-            console.print("[dim]Ensure the directory contains Alteryx .yxmd workflow files.[/dim]")
+        raw_files = _glob_workflow_files(input_path)
+        file_count = len(raw_files)
+        if file_count == 0:
+            console.print(f"[yellow]No Alteryx files found in {input_path}[/yellow]")
+            console.print("[dim]Ensure the directory contains .yxmd/.yxmc/.yxwz files or .yxzp packages.[/dim]")
             raise typer.Exit(code=1)
 
-        console.print(f"Found {yxmd_count} .yxmd file{'s' if yxmd_count != 1 else ''} in {input_path}.")
+        console.print(f"Found {file_count} Alteryx file{'s' if file_count != 1 else ''} in {input_path}.")
         console.print(
             "[dim]Tip: Use -b (--batch) for per-file error tracking, coverage reports, and HTML summaries.[/dim]"
         )
@@ -447,6 +530,9 @@ def convert(
 
         # Single shared config — convert_all_formats is format-agnostic.
         shared_cfg = _build_config(OutputFormat.PYSPARK)
+        # Extracting a .yxzp co-locates its macros — expand them.
+        if _input_has_package(input_path) and not shared_cfg.expand_macros:
+            shared_cfg = dataclasses.replace(shared_cfg, expand_macros=True)
         pipeline = ConversionPipeline(shared_cfg)
 
         # Per-format success counts so the final status table is accurate.
@@ -455,29 +541,40 @@ def convert(
         files_processed = 0
         files_failed = 0
 
-        for yxmd in yxmd_files:
-            try:
-                multi_result = pipeline.convert_all_formats(yxmd)
-            except Exception as e:
+        pkg_stack = contextlib.ExitStack()
+        try:
+            wf_files, pkg_failures = _resolve_package_inputs(raw_files, pkg_stack)
+            # Packages that couldn't be extracted count as failed files (parity
+            # with an unparseable .yxmd) so the summary/report reflects them.
+            for pkg, reason in pkg_failures:
                 files_failed += 1
-                console.print(f"[red]Failed to parse {yxmd.name}: {e}[/red]")
                 for fmt in formats:
-                    per_format_errors[fmt.value].append(yxmd.name)
-                continue
-
-            files_processed += 1
-            for fmt in formats:
-                fr = multi_result.formats.get(fmt.value)
-                if fr is None or fr.status != "success" or fr.output is None:
-                    err = fr.error if fr and fr.error else "no output"
-                    per_format_errors[fmt.value].append(f"{yxmd.name}: {err}")
+                    per_format_errors[fmt.value].append(f"{pkg.name}: {reason}")
+            for yxmd in wf_files:
+                try:
+                    multi_result = pipeline.convert_all_formats(yxmd)
+                except Exception as e:
+                    files_failed += 1
+                    console.print(f"[red]Failed to parse {yxmd.name}: {e}[/red]")
+                    for fmt in formats:
+                        per_format_errors[fmt.value].append(yxmd.name)
                     continue
-                sub_out = output_dir / fmt.value / yxmd.stem
-                sub_out.mkdir(parents=True, exist_ok=True)
-                _write_output(fr.output, sub_out)
-                per_format_counts[fmt.value] += 1
 
-        console.print(f"\n[green]Processed {files_processed}/{len(yxmd_files)} workflow(s).[/green]")
+                files_processed += 1
+                for fmt in formats:
+                    fr = multi_result.formats.get(fmt.value)
+                    if fr is None or fr.status != "success" or fr.output is None:
+                        err = fr.error if fr and fr.error else "no output"
+                        per_format_errors[fmt.value].append(f"{yxmd.name}: {err}")
+                        continue
+                    sub_out = output_dir / fmt.value / yxmd.stem
+                    sub_out.mkdir(parents=True, exist_ok=True)
+                    _write_output(fr.output, sub_out)
+                    per_format_counts[fmt.value] += 1
+        finally:
+            pkg_stack.close()
+
+        console.print(f"\n[green]Processed {files_processed}/{file_count} workflow(s).[/green]")
 
         per_format_results = []
         for fmt in formats:
@@ -560,14 +657,19 @@ def analyze(
 
     analyzer = BatchAnalyzer()
     if input_path.is_file():
-        results = analyzer.analyze_files([input_path])
+        raw = [input_path]
     elif input_path.is_dir():
-        files = sorted(input_path.glob("**/*.yxmd"))
-        results = analyzer.analyze_files(files)
+        raw = _glob_workflow_files(input_path)
     else:
         console.print(f"[red]Error: {input_path} not found[/red]")
-        console.print("[dim]Check the path and ensure it points to a .yxmd file or directory.[/dim]")
+        console.print("[dim]Check the path and ensure it points to an Alteryx file or directory.[/dim]")
         raise typer.Exit(code=1)
+
+    # .yxzp packages are unzipped to their primary workflow before analysis;
+    # an unreadable package is skipped (reported inline) rather than aborting.
+    with contextlib.ExitStack() as pkg_stack:
+        files, _ = _resolve_package_inputs(raw, pkg_stack)
+        results = analyzer.analyze_files(files)
 
     report_gen = ReportGenerator()
     if format in ("html", "both"):
@@ -583,7 +685,9 @@ def analyze(
 
 @app.command()
 def portfolio(
-    input_path: Path = typer.Argument(..., help="Directory of .yxmd files to analyze as an estate"),
+    input_path: Path = typer.Argument(
+        ..., help="Directory of Alteryx files (.yxmd/.yxmc/.yxwz/.yxzp) to analyze as an estate"
+    ),
     output_dir: Path = typer.Option("./a2d-portfolio", "--output-dir", "-o", help="Report output directory"),
     format: str = typer.Option("html", help="Report format: html, json, both"),
     dashboard: bool = typer.Option(
@@ -611,19 +715,23 @@ def portfolio(
     from a2d.portfolio.report import print_portfolio_summary
 
     if input_path.is_dir():
-        files = sorted(input_path.glob("**/*.yxmd"))
+        raw_files = _glob_workflow_files(input_path)
     elif input_path.is_file():
-        files = [input_path]
+        raw_files = [input_path]
     else:
         console.print(f"[red]Error: {input_path} not found[/red]")
-        console.print("[dim]Portfolio analysis expects a directory of .yxmd files.[/dim]")
+        console.print("[dim]Portfolio analysis expects a directory of Alteryx files.[/dim]")
         raise typer.Exit(code=1)
 
-    if not files:
-        console.print(f"[red]No .yxmd files found under {input_path}[/red]")
+    if not raw_files:
+        console.print(f"[red]No Alteryx files found under {input_path}[/red]")
         raise typer.Exit(code=1)
 
-    report = PortfolioAnalyzer().analyze(files)
+    # .yxzp packages are unzipped to their primary workflow before analysis;
+    # an unreadable package is skipped (reported inline) rather than aborting.
+    with contextlib.ExitStack() as pkg_stack:
+        files, _ = _resolve_package_inputs(raw_files, pkg_stack)
+        report = PortfolioAnalyzer().analyze(files)
     print_portfolio_summary(report, console)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -887,6 +995,7 @@ def sync(
     fmt = formats[0]
 
     from a2d.incremental import ManifestTracker, sync_directory
+    from a2d.packaging import extract_primary_workflow, is_package
     from a2d.pipeline import ConversionPipeline
 
     cfg = ConversionConfig(
@@ -895,14 +1004,26 @@ def sync(
         output_format=fmt,
     )
     pipeline = ConversionPipeline(cfg)
+    # A .yxzp is extracted before conversion; its co-located macros expand. The
+    # macro-expanding pipeline is built lazily — only if a package is actually
+    # encountered — so a package-free sweep pays nothing for it.
+    pkg_pipeline: ConversionPipeline | None = None
 
     def _convert(path: Path) -> list[str]:
-        result = pipeline.convert(path)
-        sub = output_dir / fmt.value
-        sub.mkdir(parents=True, exist_ok=True)
-        for gen_file in result.output.files:
-            (sub / gen_file.filename).write_text(gen_file.content)
-        return [f.content for f in result.output.files]
+        nonlocal pkg_pipeline
+        with contextlib.ExitStack() as stack:
+            if is_package(path):
+                if pkg_pipeline is None:
+                    pkg_pipeline = ConversionPipeline(dataclasses.replace(cfg, expand_macros=True))
+                tmp = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+                result = pkg_pipeline.convert(extract_primary_workflow(path, tmp))
+            else:
+                result = pipeline.convert(path)
+            sub = output_dir / fmt.value
+            sub.mkdir(parents=True, exist_ok=True)
+            for gen_file in result.output.files:
+                (sub / gen_file.filename).write_text(gen_file.content)
+            return [f.content for f in result.output.files]
 
     tracker = ManifestTracker(manifest)
     sync_result = sync_directory(input_dir, _convert, tracker, prune=not no_prune)
@@ -1447,26 +1568,41 @@ def _run_batch_conversion(config: ConversionConfig, input_path: Path, output_dir
     from a2d.observability.batch import BatchOrchestrator
     from a2d.observability.report import OutcomeReportGenerator
 
-    file_paths = sorted(input_path.glob("**/*.yxmd"))
-    if not file_paths:
-        console.print(f"[yellow]No .yxmd files found in {input_path}[/yellow]")
+    raw_paths = _glob_workflow_files(input_path)
+    if not raw_paths:
+        console.print(f"[yellow]No Alteryx files found in {input_path}[/yellow]")
         return
+
+    # A .yxzp bundles its macros; extraction co-locates them, so expand macros
+    # for the batch when a package is present, mirroring the server.
+    if _input_has_package(input_path) and not config.expand_macros:
+        config = dataclasses.replace(config, expand_macros=True)
 
     orchestrator = BatchOrchestrator(config)
 
-    with Progress(
-        SpinnerColumn(),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Converting...", total=len(file_paths))
+    pkg_stack = contextlib.ExitStack()
+    try:
+        file_paths, _ = _resolve_package_inputs(raw_paths, pkg_stack)
+        if not file_paths:
+            console.print(f"[yellow]No Alteryx files found in {input_path}[/yellow]")
+            return
 
-        def on_progress(current: int, total: int, filename: str) -> None:
-            progress.update(task, completed=current, description=f"Converting {filename}")
+        with Progress(
+            SpinnerColumn(),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Converting...", total=len(file_paths))
 
-        batch_result = orchestrator.convert_batch(file_paths, progress_callback=on_progress)
+            def on_progress(current: int, total: int, filename: str) -> None:
+                progress.update(task, completed=current, description=f"Converting {filename}")
+
+            batch_result = orchestrator.convert_batch(file_paths, progress_callback=on_progress)
+    finally:
+        # Input temp dirs are safe to drop now — batch_result holds parsed data.
+        pkg_stack.close()
 
     # Write output files for successful conversions
     for fr in batch_result.file_results:
@@ -1511,26 +1647,41 @@ def _run_batch_multi_format(
     from a2d.observability.batch import BatchOrchestrator
     from a2d.observability.report import OutcomeReportGenerator
 
-    file_paths = sorted(input_path.glob("**/*.yxmd"))
-    if not file_paths:
-        console.print(f"[yellow]No .yxmd files found in {input_path}[/yellow]")
+    raw_paths = _glob_workflow_files(input_path)
+    if not raw_paths:
+        console.print(f"[yellow]No Alteryx files found in {input_path}[/yellow]")
         return [(fmt, False, "no files") for fmt in formats]
+
+    # A .yxzp bundles its macros; extraction co-locates them, so expand macros
+    # for the batch when a package is present, mirroring the server.
+    if _input_has_package(input_path) and not config.expand_macros:
+        config = dataclasses.replace(config, expand_macros=True)
 
     orchestrator = BatchOrchestrator(config)
 
-    with Progress(
-        SpinnerColumn(),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Converting...", total=len(file_paths))
+    pkg_stack = contextlib.ExitStack()
+    try:
+        file_paths, _ = _resolve_package_inputs(raw_paths, pkg_stack)
+        if not file_paths:
+            console.print(f"[yellow]No Alteryx files found in {input_path}[/yellow]")
+            return [(fmt, False, "no files") for fmt in formats]
 
-        def on_progress(current: int, total: int, filename: str) -> None:
-            progress.update(task, completed=current, description=f"Converting {filename}")
+        with Progress(
+            SpinnerColumn(),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Converting...", total=len(file_paths))
 
-        batch_result = orchestrator.convert_batch_multi_format(file_paths, progress_callback=on_progress)
+            def on_progress(current: int, total: int, filename: str) -> None:
+                progress.update(task, completed=current, description=f"Converting {filename}")
+
+            batch_result = orchestrator.convert_batch_multi_format(file_paths, progress_callback=on_progress)
+    finally:
+        # Input temp dirs are safe to drop now — batch_result holds parsed data.
+        pkg_stack.close()
 
     # Write output files: ALL requested formats per file, into per-format subdirs.
     requested = {f.value for f in formats}

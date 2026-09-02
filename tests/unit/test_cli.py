@@ -507,7 +507,7 @@ class TestConvertCommandEdgeCases:
             ],
         )
         assert result.exit_code != 0
-        assert "no .yxmd" in result.output.lower() or "not found" in result.output.lower()
+        assert "no alteryx files" in result.output.lower() or "not found" in result.output.lower()
 
     def test_convert_batch_mode_on_directory(self, tmp_path):
         wf_dir = tmp_path / "workflows"
@@ -817,3 +817,72 @@ class TestProfileCommand:
         assert data["row_count"] == 2
         assert "spark_schema_ddl" in data
         assert len(data["columns"]) == 2
+
+
+# ── Package (.yxzp) and non-.yxmd source handling ─────────────────────
+
+
+def _make_yxzp(path: Path, workflow_bytes: bytes, *, inner_name: str = "app.yxwz") -> None:
+    """Write a .yxzp package wrapping a single workflow."""
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(inner_name, workflow_bytes)
+
+
+class TestNonYxmdSources:
+    def test_convert_single_yxwz(self, tmp_path):
+        wf = tmp_path / "app.yxwz"
+        wf.write_bytes(SIMPLE_FIXTURE.read_bytes())
+        out = tmp_path / "out"
+        result = runner.invoke(app, ["convert", str(wf), "--output-dir", str(out)])
+        assert result.exit_code == 0, result.output
+        for fmt in ALL_FORMAT_DIRS:
+            assert (out / fmt).is_dir()
+
+    def test_convert_single_yxzp(self, tmp_path):
+        pkg = tmp_path / "bundle.yxzp"
+        _make_yxzp(pkg, SIMPLE_FIXTURE.read_bytes())
+        out = tmp_path / "out"
+        result = runner.invoke(app, ["convert", str(pkg), "--output-dir", str(out)])
+        assert result.exit_code == 0, result.output
+        for fmt in ALL_FORMAT_DIRS:
+            assert _output_files(out, fmt), f"no output for {fmt}"
+
+    def test_convert_corrupt_yxzp_exits_nonzero(self, tmp_path):
+        pkg = tmp_path / "broken.yxzp"
+        pkg.write_bytes(b"not a zip")
+        out = tmp_path / "out"
+        result = runner.invoke(app, ["convert", str(pkg), "--output-dir", str(out)])
+        assert result.exit_code != 0
+
+    def test_convert_directory_picks_up_yxwz_and_yxzp(self, tmp_path):
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.yxwz").write_bytes(SIMPLE_FIXTURE.read_bytes())
+        _make_yxzp(src / "b.yxzp", SIMPLE_FIXTURE.read_bytes())
+        out = tmp_path / "out"
+        result = runner.invoke(app, ["convert", str(src), "--output-dir", str(out)])
+        assert result.exit_code == 0, result.output
+        assert "Found 2 Alteryx file" in result.output
+
+    def test_analyze_single_yxzp(self, tmp_path):
+        pkg = tmp_path / "bundle.yxzp"
+        _make_yxzp(pkg, SIMPLE_FIXTURE.read_bytes())
+        out = tmp_path / "report"
+        result = runner.invoke(app, ["analyze", str(pkg), "--output-dir", str(out), "--format", "json"])
+        assert result.exit_code == 0, result.output
+        assert (out / "migration_report.json").exists()
+
+    def test_convert_dir_reports_corrupt_package_not_silently_dropped(self, tmp_path):
+        # A corrupt package in a directory alongside a good file must still be
+        # surfaced (counted/skipped-with-reason), not silently ignored.
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "good.yxmd").write_bytes(SIMPLE_FIXTURE.read_bytes())
+        (src / "broken.yxzp").write_bytes(b"not a zip")
+        out = tmp_path / "out"
+        result = runner.invoke(app, ["convert", str(src), "--output-dir", str(out)])
+        # Good file still converted; corrupt package reported.
+        assert "Skipping broken.yxzp" in result.output
+        assert (out / "pyspark").is_dir()

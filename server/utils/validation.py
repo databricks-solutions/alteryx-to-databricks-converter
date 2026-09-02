@@ -28,14 +28,21 @@ def sanitize_filename(filename: str) -> str:
 
 
 def validate_yxmd_file(file: UploadFile) -> None:
-    """Validate that an uploaded file is a .yxmd workflow."""
+    """Validate that an uploaded file is a supported Alteryx file.
+
+    Accepts any extension in ``settings.allowed_extensions`` — by default a
+    ``.yxmd`` workflow, ``.yxmc`` macro, ``.yxwz`` analytic app, or ``.yxzp``
+    package. The name is kept (rather than a more specific ``validate_package``)
+    because every upload route already calls it.
+    """
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
     suffix = PurePosixPath(file.filename).suffix.lower()
     if suffix not in settings.allowed_extensions:
+        allowed = ", ".join(sorted(settings.allowed_extensions))
         raise HTTPException(
             status_code=400,
-            detail=f"File {file.filename} must be a .yxmd workflow",
+            detail=f"File {file.filename} must be an Alteryx file ({allowed})",
         )
 
 

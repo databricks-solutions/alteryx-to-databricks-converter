@@ -14,7 +14,7 @@ from pathlib import Path
 from a2d.advisor import CostPerformanceAdvisor
 from a2d.config import ConversionConfig
 from a2d.pipeline import ConversionPipeline
-from server.utils.validation import sanitize_filename
+from server.utils.package import materialize_upload
 
 logger = logging.getLogger("a2d.server.services.advise")
 
@@ -32,10 +32,10 @@ def advise_workflow(filename: str, content: bytes, cloud: str = "aws") -> dict:
         raise ValueError(f"unknown cloud {cloud!r}; valid: {', '.join(VALID_CLOUDS)}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / sanitize_filename(filename)
-        path.write_bytes(content)
+        # .yxzp is unzipped to its primary workflow (macros co-located); others pass through.
+        path, was_package = materialize_upload(content, filename, Path(tmpdir))
 
-        config = ConversionConfig(cloud=normalized)  # type: ignore[arg-type]
+        config = ConversionConfig(cloud=normalized, expand_macros=was_package)  # type: ignore[arg-type]
         pipeline = ConversionPipeline(config)
         parsed = pipeline._frontend.parse(path)
         dag = pipeline._build_dag(parsed)

@@ -74,7 +74,7 @@ export function ConvertPage() {
     <div className="space-y-6">
       <PageHeader
         title="Convert Workflow"
-        description="Upload a single .yxmd file and generate equivalent Databricks code in all supported formats"
+        description="Upload a single Alteryx file (.yxmd, .yxmc, .yxwz, or a .yxzp package) and generate equivalent Databricks code in all supported formats"
       >
         {mutation.data && (
           <Button variant="secondary" size="sm" onClick={handleReset}>
@@ -89,7 +89,7 @@ export function ConvertPage() {
           {bridgeWorkflowName && (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--ring)]/30 bg-[var(--ring)]/5 px-4 py-3 text-sm text-[var(--fg)]">
               <ArrowRight className="h-4 w-4 text-[var(--ring)] shrink-0" />
-              Ready to convert <strong>{bridgeWorkflowName}</strong> from your analysis. Upload the .yxmd file below.
+              Ready to convert <strong>{bridgeWorkflowName}</strong> from your analysis. Upload the workflow file below.
             </div>
           )}
           <FileDropzone files={files} onFilesChange={setFiles} />
@@ -145,7 +145,7 @@ export function ConvertPage() {
               <p>The API server may be offline. Check that it is running and accessible.</p>
             )}
             {mutation.error.message.includes("422") && (
-              <p>The file may not be a valid .yxmd Alteryx workflow. Ensure you are uploading an unmodified .yxmd file.</p>
+              <p>The file may not be a valid Alteryx workflow. Ensure you are uploading an unmodified .yxmd, .yxmc, .yxwz, or .yxzp file.</p>
             )}
             {mutation.error.message.includes("413") && (
               <p>File is too large. Try a smaller workflow file.</p>

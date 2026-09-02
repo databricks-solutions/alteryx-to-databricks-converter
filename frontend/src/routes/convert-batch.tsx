@@ -111,7 +111,7 @@ export function ConvertBatchPage() {
     <div className="space-y-6">
       <PageHeader
         title="Batch Convert"
-        description="Upload multiple .yxmd files for batch conversion in all supported formats with real-time progress"
+        description="Upload multiple Alteryx files (.yxmd, .yxmc, .yxwz, or .yxzp packages) for batch conversion in all supported formats with real-time progress"
       >
         {status === "running" && (
           <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>

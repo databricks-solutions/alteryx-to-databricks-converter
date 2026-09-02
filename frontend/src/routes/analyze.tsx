@@ -65,7 +65,7 @@ export function AnalyzePage() {
     <div className="space-y-6">
       <PageHeader
         title="Analyze Workflows"
-        description="Upload .yxmd files to assess migration readiness and complexity"
+        description="Upload Alteryx files (.yxmd, .yxmc, .yxwz, or .yxzp packages) to assess migration readiness and complexity"
       >
         {displayData && (
           <div className="flex items-center gap-2">
@@ -141,7 +141,7 @@ export function AnalyzePage() {
               <p>Check that the API server is running and accessible.</p>
             )}
             {mutation.error.message.includes("422") && (
-              <p>The uploaded file may not be a valid .yxmd Alteryx workflow file.</p>
+              <p>The uploaded file may not be a valid Alteryx file (.yxmd, .yxmc, .yxwz, or .yxzp package).</p>
             )}
           </div>
           <Button variant="ghost" size="sm" className="mt-2" onClick={handleAnalyze}>

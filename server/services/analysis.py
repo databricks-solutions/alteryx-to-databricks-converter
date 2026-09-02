@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 
 from a2d.analyzer.batch import BatchAnalyzer
-from server.utils.validation import sanitize_filename
+from server.utils.package import materialize_uploads
 
 logger = logging.getLogger("a2d.server.services.analysis")
 
@@ -16,11 +16,8 @@ logger = logging.getLogger("a2d.server.services.analysis")
 def analyze_files(files: list[tuple[str, bytes]]) -> dict:
     """Analyze uploaded .yxmd files and return analysis dict."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        paths: list[Path] = []
-        for filename, content in files:
-            p = Path(tmpdir) / sanitize_filename(filename)
-            p.write_bytes(content)
-            paths.append(p)
+        # .yxzp packages are unzipped to their primary workflow; other files pass through.
+        paths = materialize_uploads(files, Path(tmpdir))
 
         analyzer = BatchAnalyzer()
         analyses = analyzer.analyze_files(paths)

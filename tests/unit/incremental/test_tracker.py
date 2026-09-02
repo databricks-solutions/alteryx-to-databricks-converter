@@ -118,3 +118,22 @@ class TestSyncDirectory:
         assert len(result.converted) == 1
         # The failed file is not recorded, so it retries next pass.
         assert tracker.needs_conversion(d / "a.yxmd") is True
+
+    def test_sweeps_all_workflow_suffixes_by_default(self, tmp_path):
+        d = tmp_path / "src"
+        d.mkdir()
+        _write(d / "a.yxmd", "<a/>")
+        _write(d / "b.yxwz", "<b/>")
+        _write(d / "c.yxmc", "<c/>")
+        _write(d / "ignore.txt", "x")
+        tracker = ManifestTracker(tmp_path / "m.json")
+        result = sync_directory(d, lambda p: ["code"], tracker)
+        assert len(result.converted) == 3
+
+    def test_deprecated_pattern_alias_still_accepted(self, tmp_path):
+        d = self._mk_dir(tmp_path)
+        _write(d / "app.yxwz", "<w/>")
+        tracker = ManifestTracker(tmp_path / "m.json")
+        # Legacy single-glob keyword must keep working (back-compat).
+        result = sync_directory(d, lambda p: ["code"], tracker, pattern="**/*.yxmd")
+        assert len(result.converted) == 2  # only the two .yxmd, not the .yxwz

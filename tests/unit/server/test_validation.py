@@ -2,11 +2,32 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from server.utils.validation import sanitize_filename
+from server.utils.validation import sanitize_filename, validate_yxmd_file
+
+
+class TestValidateExtension:
+    @pytest.mark.parametrize("ext", [".yxmd", ".yxmc", ".yxwz", ".yxzp"])
+    def test_accepts_supported_extensions(self, ext):
+        # No exception means accepted.
+        validate_yxmd_file(SimpleNamespace(filename=f"wf{ext}"))
+
+    def test_case_insensitive(self):
+        validate_yxmd_file(SimpleNamespace(filename="WF.YXZP"))
+
+    def test_rejects_unknown_extension(self):
+        with pytest.raises(HTTPException) as exc:
+            validate_yxmd_file(SimpleNamespace(filename="notes.txt"))
+        assert exc.value.status_code == 400
+
+    def test_requires_filename(self):
+        with pytest.raises(HTTPException) as exc:
+            validate_yxmd_file(SimpleNamespace(filename=""))
+        assert exc.value.status_code == 400
 
 
 class TestSanitizeFilename:
