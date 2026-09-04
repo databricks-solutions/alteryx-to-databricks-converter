@@ -2,6 +2,17 @@ bundle:
   name: a2d_migration_accelerator
 
 # ----------------------------------------------------------------------------
+# Sync
+# ----------------------------------------------------------------------------
+# The React SPA is served from frontend/dist, which is built at deploy time and
+# is gitignored (see .gitignore). `databricks bundle` honors .gitignore, so
+# without this explicit include the built dist is never uploaded and the App
+# keeps serving a stale build from an earlier deploy. Force-include it.
+sync:
+  include:
+    - frontend/dist/**
+
+# ----------------------------------------------------------------------------
 # Variables
 # ----------------------------------------------------------------------------
 # `provision_lakebase` and `lakebase_database_name` drive the optional database_instances
