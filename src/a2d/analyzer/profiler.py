@@ -155,24 +155,14 @@ class ProfilerConfig:
         return cls()
 
     @classmethod
-    def from_file(cls, path: Path) -> ProfilerConfig:
-        """Load overrides from a YAML or JSON file, merged over the defaults.
+    def from_mapping(cls, data: dict) -> ProfilerConfig:
+        """Build a config by merging a mapping of overrides over the defaults.
 
         Recognized keys: ``category_tiers`` (map), ``tool_overrides`` (map),
         ``hour_anchors`` (map), ``unsupported_tier``/``unknown_tier`` (str),
-        ``show_hours`` (bool). A tier value must be one of Low/Medium/High/Very High.
+        ``show_hours`` (bool). Tier values must be one of Low/Medium/High/Very High.
+        Shared by :meth:`from_file` (CLI) and the ``/api/assess`` endpoint (App).
         """
-        text = Path(path).read_text(encoding="utf-8")
-        if path.suffix.lower() in (".yaml", ".yml"):
-            try:
-                import yaml
-            except ImportError as exc:  # pragma: no cover - env-dependent
-                raise ImportError("PyYAML is required to read a YAML profiler config") from exc
-            data = yaml.safe_load(text) or {}
-        else:
-            import json
-
-            data = json.loads(text) or {}
         if not isinstance(data, dict):
             raise ValueError("profiler config must be a mapping")
 
@@ -188,11 +178,32 @@ class ProfilerConfig:
             cfg.show_hours = bool(data["show_hours"])
 
         valid = set(TIER_ORDER)
-        for label, mapping in (("category_tiers", cfg.category_tiers), ("tool_overrides", cfg.tool_overrides)):
+        for label, mapping in (
+            ("category_tiers", cfg.category_tiers),
+            ("tool_overrides", cfg.tool_overrides),
+            ("unsupported_tier", {"_": cfg.unsupported_tier}),
+            ("unknown_tier", {"_": cfg.unknown_tier}),
+        ):
             bad = {k: v for k, v in mapping.items() if v not in valid}
             if bad:
-                raise ValueError(f"invalid tier(s) in {label}: {bad}; must be one of {sorted(valid)}")
+                raise ValueError(f"invalid tier(s) in {label}: {sorted(set(bad.values()))}; must be one of {sorted(valid)}")
         return cfg
+
+    @classmethod
+    def from_file(cls, path: Path) -> ProfilerConfig:
+        """Load overrides from a YAML or JSON file, merged over the defaults."""
+        text = Path(path).read_text(encoding="utf-8")
+        if path.suffix.lower() in (".yaml", ".yml"):
+            try:
+                import yaml
+            except ImportError as exc:  # pragma: no cover - env-dependent
+                raise ImportError("PyYAML is required to read a YAML profiler config") from exc
+            data = yaml.safe_load(text) or {}
+        else:
+            import json
+
+            data = json.loads(text) or {}
+        return cls.from_mapping(data)
 
 
 def classify_tool(tool_type: str, *, is_unsupported: bool, config: ProfilerConfig | None = None) -> str:
