@@ -54,6 +54,11 @@ export function PortfolioPage() {
         )}
       </PageHeader>
 
+      <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
+        Note: this profiles workflow footprint, complexity, and cross-file dependencies. It does not measure data
+        volumes or row counts, which depend on the source systems.
+      </p>
+
       {!report && (
         <div className="space-y-4">
           <p className="text-sm text-[var(--fg-muted)]">

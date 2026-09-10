@@ -38,6 +38,7 @@ const HomePage = lazyWithRetry(() => import("@/routes/index").then((m) => ({ def
 const ConvertPage = lazyWithRetry(() => import("@/routes/convert").then((m) => ({ default: m.ConvertPage })));
 const ConvertBatchPage = lazyWithRetry(() => import("@/routes/convert-batch").then((m) => ({ default: m.ConvertBatchPage })));
 const AnalyzePage = lazyWithRetry(() => import("@/routes/analyze").then((m) => ({ default: m.AnalyzePage })));
+const AssessPage = lazyWithRetry(() => import("@/routes/assess").then((m) => ({ default: m.AssessPage })));
 const ToolsPage = lazyWithRetry(() => import("@/routes/tools").then((m) => ({ default: m.ToolsPage })));
 const AboutPage = lazyWithRetry(() => import("@/routes/about").then((m) => ({ default: m.AboutPage })));
 const HistoryPage = lazyWithRetry(() => import("@/routes/history").then((m) => ({ default: m.HistoryPage })));
@@ -86,6 +87,7 @@ const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", com
 const convertRoute = createRoute({ getParentRoute: () => rootRoute, path: "/convert", component: ConvertPage });
 const batchRoute = createRoute({ getParentRoute: () => rootRoute, path: "/convert/batch", component: ConvertBatchPage });
 const analyzeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/analyze", component: AnalyzePage });
+const assessRoute = createRoute({ getParentRoute: () => rootRoute, path: "/assess", component: AssessPage });
 const toolsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/tools", component: ToolsPage });
 const aboutRoute = createRoute({ getParentRoute: () => rootRoute, path: "/about", component: AboutPage });
 const historyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/history", component: HistoryPage });
@@ -101,6 +103,7 @@ const routeTree = rootRoute.addChildren([
   convertRoute,
   batchRoute,
   analyzeRoute,
+  assessRoute,
   toolsRoute,
   aboutRoute,
   historyRoute,
