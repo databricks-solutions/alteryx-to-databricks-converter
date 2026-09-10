@@ -11,6 +11,7 @@ from a2d.analyzer.profiler import (
     DEFAULT_CATEGORY_TIERS,
     DEFAULT_HOUR_ANCHORS,
     TIER_ORDER,
+    default_tool_tiers,
 )
 from server.services.assess import profile_estate
 from server.utils.deadline import run_with_timeout
@@ -28,6 +29,7 @@ async def assess_config_defaults() -> dict:
         "tiers": list(TIER_ORDER),
         "category_tiers": dict(DEFAULT_CATEGORY_TIERS),
         "hour_anchors": dict(DEFAULT_HOUR_ANCHORS),
+        "tools": default_tool_tiers(),
     }
 
 

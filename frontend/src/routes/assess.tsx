@@ -86,6 +86,7 @@ export function AssessPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [hours, setHours] = useState(false);
   const [categoryTiers, setCategoryTiers] = useState<Record<string, string>>({});
+  const [toolOverrides, setToolOverrides] = useState<Record<string, string>>({});
   const mutation = useAssess();
   const { data: defaults } = useAssessDefaults();
   const result = mutation.data;
@@ -99,12 +100,14 @@ export function AssessPage() {
 
   const runProfile = () => {
     if (files.length === 0) return;
-    // Only send category_tiers if the user changed something from the defaults.
-    const changed =
+    // Only send overrides that differ from the server defaults.
+    const categoryChanged =
       defaults &&
       Object.keys(categoryTiers).some((c) => categoryTiers[c] !== defaults.category_tiers[c]);
-    const config = changed ? { category_tiers: categoryTiers } : undefined;
-    mutation.mutate({ files, hours, config });
+    const config: Record<string, unknown> = {};
+    if (categoryChanged) config.category_tiers = categoryTiers;
+    if (Object.keys(toolOverrides).length > 0) config.tool_overrides = toolOverrides;
+    mutation.mutate({ files, hours, config: Object.keys(config).length ? config : undefined });
   };
 
   const reset = () => {
@@ -172,7 +175,13 @@ export function AssessPage() {
           </label>
 
           {defaults && (
-            <ProfilerSettings defaults={defaults} value={categoryTiers} onChange={setCategoryTiers} />
+            <ProfilerSettings
+              defaults={defaults}
+              value={categoryTiers}
+              onChange={setCategoryTiers}
+              toolOverrides={toolOverrides}
+              onToolOverridesChange={setToolOverrides}
+            />
           )}
 
           <div className="flex items-center gap-3">

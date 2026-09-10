@@ -50,6 +50,23 @@ def test_config_defaults_endpoint(client):
     assert data["tiers"] == ["Low", "Medium", "High", "Very High"]
     assert data["category_tiers"]["spatial"] == "High"
     assert "hour_anchors" in data
+    # The per-tool picker needs the tool list, each with a default tier.
+    assert isinstance(data["tools"], list) and len(data["tools"]) > 50
+    sample = data["tools"][0]
+    assert {"name", "category", "default"} <= set(sample)
+
+
+def test_assess_per_tool_override(client, simple_yxmd):
+    import json
+
+    files = [("files", ("simple_filter.yxmd", simple_yxmd, "application/xml"))]
+    base = client.post("/api/assess", files=files).json()["tool_difficulty"]["counts"]
+    over = client.post(
+        "/api/assess",
+        files=files,
+        data={"config": json.dumps({"tool_overrides": {"Filter": "Very High"}})},
+    ).json()["tool_difficulty"]["counts"]
+    assert over["Very High"] >= base["Very High"]
 
 
 def test_assess_config_override_shifts_tiers(client, simple_yxmd):
