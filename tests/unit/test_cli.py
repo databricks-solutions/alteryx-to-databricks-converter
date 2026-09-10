@@ -886,3 +886,44 @@ class TestNonYxmdSources:
         # Good file still converted; corrupt package reported.
         assert "Skipping broken.yxzp" in result.output
         assert (out / "pyspark").is_dir()
+
+
+class TestAssessCommand:
+    def test_assess_directory_console(self, tmp_path):
+        result = runner.invoke(app, ["assess", str(FIXTURES_DIR), "-q"])
+        assert result.exit_code == 0, result.output
+        assert "MIGRATION PROFILER" in result.output
+        assert "Tool Difficulty Breakdown" in result.output
+
+    def test_assess_single_file(self, tmp_path):
+        result = runner.invoke(app, ["assess", str(SIMPLE_FIXTURE), "-q"])
+        assert result.exit_code == 0, result.output
+
+    def test_assess_hours_opt_in(self, tmp_path):
+        no_hours = runner.invoke(app, ["assess", str(FIXTURES_DIR), "-q"])
+        assert "Estimated Effort" not in no_hours.output
+        with_hours = runner.invoke(app, ["assess", str(FIXTURES_DIR), "-q", "--hours"])
+        assert "Estimated Effort" in with_hours.output
+
+    def test_assess_writes_json_and_csv(self, tmp_path):
+        out = tmp_path / "prof"
+        result = runner.invoke(app, ["assess", str(FIXTURES_DIR), "-q", "--format", "all", "-o", str(out)])
+        assert result.exit_code == 0, result.output
+        assert (out / "migration_profile.json").is_file()
+        assert (out / "migration_profile.csv").is_file()
+
+    def test_assess_config_override(self, tmp_path):
+        cfg = tmp_path / "prof.yaml"
+        cfg.write_text("tool_overrides:\n  Filter: High\n")
+        result = runner.invoke(app, ["assess", str(FIXTURES_DIR), "-q", "--config", str(cfg)])
+        assert result.exit_code == 0, result.output
+
+    def test_assess_yxzp_package(self, tmp_path):
+        pkg = tmp_path / "bundle.yxzp"
+        _make_yxzp(pkg, SIMPLE_FIXTURE.read_bytes())
+        result = runner.invoke(app, ["assess", str(pkg), "-q"])
+        assert result.exit_code == 0, result.output
+
+    def test_assess_bad_format_exits_nonzero(self, tmp_path):
+        result = runner.invoke(app, ["assess", str(SIMPLE_FIXTURE), "-q", "--format", "xml"])
+        assert result.exit_code != 0

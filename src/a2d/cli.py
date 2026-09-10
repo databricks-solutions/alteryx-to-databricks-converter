@@ -746,6 +746,93 @@ def portfolio(
 
 
 @app.command()
+def assess(
+    input_path: Path = typer.Argument(
+        ..., help="Path to an Alteryx file (.yxmd/.yxmc/.yxwz/.yxzp) or a directory"
+    ),
+    output_dir: Path = typer.Option(
+        "./a2d-profile", "--output-dir", "-o", help="Where JSON/CSV artifacts are written (for --format json/csv/all)"
+    ),
+    format: str = typer.Option(
+        "console", "--format", "-f", help="Output: console (default), json, csv, or all"
+    ),
+    config: Path | None = typer.Option(
+        None, "--config", help="YAML/JSON profiler config: tier mappings, hour anchors (defaults are sensible)"
+    ),
+    hours: bool = typer.Option(
+        False, "--hours/--no-hours", help="Include model-based effort estimates in hours (OFF by default)"
+    ),
+    top: int = typer.Option(5, "--top", help="How many most-complex workflows to list"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Migration profiler — estate footprint, complexity, and tool-difficulty tiers.
+
+    Profiles an Alteryx estate the way the Databricks Lakebridge Analyzer profiles
+    other sources: portfolio totals, workflow-size distribution, migration difficulty
+    (Low/Medium/High/Very High), and a tool-by-difficulty breakdown. Reads all four
+    Alteryx formats (.yxmd/.yxmc/.yxwz and .yxzp packages). Effort *hours* are an
+    optional, model-based estimate (``--hours``); tier mappings and hour anchors are
+    configurable via ``--config`` while defaulting to sensible values.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    from a2d.analyzer.batch import BatchAnalyzer
+    from a2d.analyzer.profiler import ProfilerConfig, build_estate_profile, to_csv_rows
+
+    fmt = format.strip().lower()
+    if fmt not in ("console", "json", "csv", "all"):
+        console.print(f"[red]Unknown --format {format!r}. Use: console, json, csv, or all.[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        cfg = ProfilerConfig.from_file(config) if config else ProfilerConfig.default()
+    except (ValueError, ImportError, OSError) as e:
+        console.print(f"[red]Could not load profiler config: {e}[/red]")
+        raise typer.Exit(code=1) from None
+    # --hours forces the estimate on; a config may also enable it.
+    cfg.show_hours = hours or cfg.show_hours
+
+    if input_path.is_file():
+        raw = [input_path]
+    elif input_path.is_dir():
+        raw = _glob_workflow_files(input_path)
+    else:
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+    if not raw:
+        console.print(f"[yellow]No Alteryx files found under {input_path}[/yellow]")
+        raise typer.Exit(code=1)
+
+    # .yxzp packages are unzipped to their primary workflow; unreadable ones skipped.
+    with contextlib.ExitStack() as pkg_stack:
+        files, _ = _resolve_package_inputs(raw, pkg_stack)
+        analyses = BatchAnalyzer().analyze_files(files)
+
+    if not analyses:
+        console.print("[yellow]No workflows could be analyzed.[/yellow]")
+        raise typer.Exit(code=1)
+
+    profile = build_estate_profile(analyses, cfg)
+    _print_migration_profile(profile, top=top)
+
+    if fmt in ("json", "csv", "all"):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if fmt in ("json", "all"):
+            import json as _json
+
+            (output_dir / "migration_profile.json").write_text(_json.dumps(profile.to_dict(), indent=2))
+        if fmt in ("csv", "all"):
+            import csv as _csv
+            import io as _io
+
+            buf = _io.StringIO()
+            _csv.writer(buf).writerows(to_csv_rows(profile))
+            (output_dir / "migration_profile.csv").write_text(buf.getvalue())
+        console.print(f"\n[bold green]Profiler artifacts written[/bold green] to {output_dir}")
+
+
+@app.command()
 def validate(
     generated_code: Path = typer.Argument(..., help="Generated .py or .designer.ipynb file to validate"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
@@ -2194,6 +2281,91 @@ def _print_complexity_breakdown(results: list[WorkflowAnalysis]) -> None:
         )
 
     console.print(table)
+
+
+def _print_migration_profile(profile, top: int = 5) -> None:
+    """Render the Migration Profiler summary to the console."""
+    from a2d.analyzer.profiler import TIER_ORDER
+
+    _tier_color = {"Low": "green", "Medium": "yellow", "High": "red", "Very High": "bold red"}
+
+    console.print()
+    console.rule(f"[bold]MIGRATION PROFILER — {profile.total_workflows} WORKFLOW(S)[/bold]")
+
+    totals = Table(title="Portfolio Totals", show_header=False, box=None)
+    totals.add_column("k", style="dim")
+    totals.add_column("v", justify="right")
+    totals.add_row("Workflows", str(profile.total_workflows))
+    totals.add_row("Tools (nodes)", str(profile.total_tools))
+    totals.add_row("Unique tool types", str(profile.unique_tool_types))
+    totals.add_row("Connections", str(profile.total_connections))
+    totals.add_row("Expressions", str(profile.total_expressions))
+    totals.add_row("Data sources", str(profile.total_data_sources))
+    totals.add_row("Workflows with macros", str(profile.workflows_with_macros))
+    console.print(totals)
+
+    size = Table(title="Workflow Size Distribution", show_header=False, box=None)
+    size.add_column("k", style="dim")
+    size.add_column("v", justify="right")
+    size.add_row("Avg tools / workflow", f"{profile.avg_tools_per_workflow:.1f}")
+    size.add_row("Max tools", f"{profile.max_tools} ({profile.max_tools_workflow})")
+    size.add_row("Avg DAG depth", f"{profile.avg_dag_depth:.1f}")
+    size.add_row("Max DAG depth", f"{profile.max_dag_depth} ({profile.max_dag_depth_workflow})")
+    console.print(size)
+
+    # Migration difficulty distribution (workflow counts) with a simple bar.
+    diff = Table(title="Migration Difficulty Distribution (workflows)", show_header=False, box=None)
+    diff.add_column("level")
+    diff.add_column("count", justify="right")
+    diff.add_column("bar")
+    total_wf = max(profile.total_workflows, 1)
+    for level in TIER_ORDER:
+        count = profile.difficulty_distribution.get(level, 0)
+        bar = "█" * round((count / total_wf) * 40)
+        color = _tier_color.get(level, "white")
+        diff.add_row(f"[{color}]{level}[/{color}]", str(count), f"[{color}]{bar}[/{color}]")
+    console.print(diff)
+
+    # Tool-by-difficulty breakdown (tool instances).
+    tools = Table(title="Tool Difficulty Breakdown (tool instances)", show_header=True, box=None)
+    tools.add_column("Tier")
+    tools.add_column("Tools", justify="right")
+    tools.add_column("Example tool types", style="dim")
+    for tier in TIER_ORDER:
+        count = profile.tool_tier_counts.get(tier, 0)
+        types = profile.tool_tier_types.get(tier, [])
+        example = ", ".join(types[:6]) + ("…" if len(types) > 6 else "")
+        color = _tier_color.get(tier, "white")
+        tools.add_row(f"[{color}]{tier}[/{color}]", str(count), example)
+    console.print(tools)
+
+    if profile.total_hours is not None:
+        eff = Table(title="Estimated Effort (model-based — configurable)", show_header=False, box=None)
+        eff.add_column("k", style="dim")
+        eff.add_column("v", justify="right")
+        eff.add_row("Total hours", f"~{profile.total_hours:.0f}")
+        eff.add_row("Person-days", f"~{profile.total_hours / 8:.1f}")
+        eff.add_row("Person-weeks", f"~{profile.total_hours / 40:.1f}")
+        console.print(eff)
+        console.print("[dim]Hours are model-based estimates from configurable per-tier anchors, not a quote.[/dim]")
+
+    # Top N most complex workflows (profile.workflows is pre-sorted by score desc).
+    topn = Table(title=f"Top {top} Most Complex Workflows", show_header=True, box=None)
+    topn.add_column("Workflow", style="cyan")
+    topn.add_column("Level")
+    topn.add_column("Score", justify="right")
+    topn.add_column("Tools", justify="right")
+    topn.add_column("Coverage", justify="right")
+    for w in profile.workflows[: max(top, 0)]:
+        color = _tier_color.get(w.complexity_level, "white")
+        topn.add_row(
+            w.file_name,
+            f"[{color}]{w.complexity_level}[/{color}]",
+            f"{w.complexity_score:.1f}",
+            str(w.node_count),
+            f"{w.coverage_percentage:.0f}%",
+        )
+    console.print(topn)
 
 
 def _generate_ddl(result, config, output_dir: Path) -> None:

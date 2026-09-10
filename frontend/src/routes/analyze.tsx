@@ -85,6 +85,11 @@ export function AnalyzePage() {
         )}
       </PageHeader>
 
+      <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
+        Note: this profiles workflow footprint and complexity (tools, coverage, structure, dependencies). It does not
+        measure data volumes or row counts, which depend on the source systems.
+      </p>
+
       {!displayData && (
         <>
           <FileDropzone files={files} onFilesChange={setFiles} multiple />

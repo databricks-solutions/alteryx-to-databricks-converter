@@ -114,6 +114,13 @@ export const api = {
     return request<AnalysisResult>("/analyze", { method: "POST", body: fd });
   },
 
+  assess: (files: File[], hours = false) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    fd.append("hours", String(hours));
+    return request<AssessResult>("/assess", { method: "POST", body: fd });
+  },
+
   history: (limit = 50, offset = 0) =>
     request<HistoryListResponse>(`/history?limit=${limit}&offset=${offset}`),
 
@@ -356,6 +363,51 @@ export interface AnalysisResult {
   workflows: WorkflowAnalysis[];
   tool_frequency: Record<string, number>;
   unsupported_tools: string[];
+}
+
+export interface AssessWorkflow {
+  workflow_name: string;
+  file_name: string;
+  node_count: number;
+  connection_count: number;
+  unique_tool_types: number;
+  coverage_percentage: number;
+  complexity_level: string;
+  complexity_score: number;
+  unsupported_count: number;
+  expression_count: number;
+  max_dag_depth: number;
+  has_macros: boolean;
+  migration_priority: string;
+  estimated_effort: string;
+  estimated_hours: number | null;
+}
+
+export interface AssessResult {
+  totals: {
+    workflows: number;
+    tools: number;
+    connections: number;
+    expressions: number;
+    data_sources: number;
+    workflows_with_macros: number;
+    unique_tool_types: number;
+  };
+  size_distribution: {
+    avg_tools_per_workflow: number;
+    max_tools: number;
+    max_tools_workflow: string;
+    avg_dag_depth: number;
+    max_dag_depth: number;
+    max_dag_depth_workflow: string;
+  };
+  difficulty_distribution: Record<string, number>;
+  tool_difficulty: {
+    counts: Record<string, number>;
+    types: Record<string, string[]>;
+  };
+  total_hours: number | null;
+  workflows: AssessWorkflow[];
 }
 
 export interface HistoryListItem {

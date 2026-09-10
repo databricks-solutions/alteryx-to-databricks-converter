@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from a2d.__about__ import __version__
 from server.routers import (
     analyze,
+    assess,
     chat,
     convert,
     health,
@@ -128,6 +129,7 @@ app.include_router(health.router)
 app.include_router(tools.router)
 app.include_router(convert.router)
 app.include_router(analyze.router)
+app.include_router(assess.router)
 app.include_router(history.router)
 app.include_router(validate.router)
 app.include_router(review.router)
