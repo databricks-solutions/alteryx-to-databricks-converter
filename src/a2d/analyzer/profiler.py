@@ -224,6 +224,21 @@ def classify_tool(tool_type: str, *, is_unsupported: bool, config: ProfilerConfi
     return cfg.unknown_tier
 
 
+def default_tool_tiers() -> list[dict[str, str]]:
+    """Every known tool with its category and default (supported) difficulty tier.
+
+    Powers the App's optional per-tool override picker. The default is computed as
+    if the tool had a converter; a tool that is actually unsupported in a given
+    workflow is still forced to the unsupported tier at profiling time, regardless
+    of any per-tool override.
+    """
+    cfg = ProfilerConfig.default()
+    return [
+        {"name": name, "category": category, "default": classify_tool(name, is_unsupported=False, config=cfg)}
+        for name, category in sorted(TOOL_CATEGORY.items(), key=lambda kv: (kv[1], kv[0]))
+    ]
+
+
 @dataclass
 class WorkflowSize:
     """Per-workflow row for the profiler (Lakebridge-like object record)."""

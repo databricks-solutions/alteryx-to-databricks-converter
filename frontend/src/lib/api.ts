@@ -419,6 +419,7 @@ export interface AssessDefaults {
   tiers: string[];
   category_tiers: Record<string, string>;
   hour_anchors: Record<string, number>;
+  tools: { name: string; category: string; default: string }[];
 }
 
 export interface HistoryListItem {
