@@ -114,12 +114,17 @@ export const api = {
     return request<AnalysisResult>("/analyze", { method: "POST", body: fd });
   },
 
-  assess: (files: File[], hours = false) => {
+  assess: (files: File[], opts?: { hours?: boolean; config?: Record<string, unknown> }) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
-    fd.append("hours", String(hours));
+    fd.append("hours", String(opts?.hours ?? false));
+    if (opts?.config && Object.keys(opts.config).length > 0) {
+      fd.append("config", JSON.stringify(opts.config));
+    }
     return request<AssessResult>("/assess", { method: "POST", body: fd });
   },
+
+  assessDefaults: () => request<AssessDefaults>("/assess/config-defaults"),
 
   history: (limit = 50, offset = 0) =>
     request<HistoryListResponse>(`/history?limit=${limit}&offset=${offset}`),
@@ -408,6 +413,12 @@ export interface AssessResult {
   };
   total_hours: number | null;
   workflows: AssessWorkflow[];
+}
+
+export interface AssessDefaults {
+  tiers: string[];
+  category_tiers: Record<string, string>;
+  hour_anchors: Record<string, number>;
 }
 
 export interface HistoryListItem {

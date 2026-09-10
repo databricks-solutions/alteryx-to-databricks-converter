@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { PageHeader } from "@/components/layout/page-header";
 import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
 import { ToolDifficulty, DifficultyDistribution } from "@/components/assess/tool-difficulty";
+import { ProfilerSettings } from "@/components/assess/profiler-settings";
 import { tierColor } from "@/components/assess/tier-meta";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAssess } from "@/hooks/use-assess";
+import { useAssess, useAssessDefaults } from "@/hooks/use-assess";
 import type { AssessResult } from "@/lib/api";
 import {
   Workflow,
@@ -84,12 +85,26 @@ function StatRow({ label, value }: { label: string; value: string }) {
 export function AssessPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [hours, setHours] = useState(false);
+  const [categoryTiers, setCategoryTiers] = useState<Record<string, string>>({});
   const mutation = useAssess();
+  const { data: defaults } = useAssessDefaults();
   const result = mutation.data;
+
+  // Seed the tier editor from the server defaults once they arrive.
+  useEffect(() => {
+    if (defaults && Object.keys(categoryTiers).length === 0) {
+      setCategoryTiers({ ...defaults.category_tiers });
+    }
+  }, [defaults, categoryTiers]);
 
   const runProfile = () => {
     if (files.length === 0) return;
-    mutation.mutate({ files, hours });
+    // Only send category_tiers if the user changed something from the defaults.
+    const changed =
+      defaults &&
+      Object.keys(categoryTiers).some((c) => categoryTiers[c] !== defaults.category_tiers[c]);
+    const config = changed ? { category_tiers: categoryTiers } : undefined;
+    mutation.mutate({ files, hours, config });
   };
 
   const reset = () => {
@@ -155,6 +170,10 @@ export function AssessPage() {
               </span>
             </span>
           </label>
+
+          {defaults && (
+            <ProfilerSettings defaults={defaults} value={categoryTiers} onChange={setCategoryTiers} />
+          )}
 
           <div className="flex items-center gap-3">
             <Button onClick={runProfile} disabled={files.length === 0}>

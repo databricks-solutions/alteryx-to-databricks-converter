@@ -18,15 +18,25 @@ from server.utils.package import materialize_uploads
 logger = logging.getLogger("a2d.server.services.assess")
 
 
-def profile_estate(files: list[tuple[str, bytes]], *, show_hours: bool = False) -> dict:
+def profile_estate(
+    files: list[tuple[str, bytes]],
+    *,
+    show_hours: bool = False,
+    overrides: dict | None = None,
+) -> dict:
     """Profile uploaded workflows and return the estate-profile dict.
 
-    Raises :class:`ValueError` when nothing usable was supplied so the router can
-    answer 422 rather than returning an empty profile that looks like a result.
-    ``.yxzp`` packages are unzipped to their primary workflow first.
+    ``overrides`` is an optional mapping of profiler-config overrides (same shape
+    as the CLI ``--config`` file: ``category_tiers``, ``tool_overrides``, etc.),
+    merged over the defaults. Raises :class:`ValueError` when nothing usable was
+    supplied, or when an override is invalid, so the router can answer 4xx rather
+    than returning an empty profile. ``.yxzp`` packages are unzipped first.
     """
     if not files:
         raise ValueError("at least one workflow file is required")
+
+    cfg = ProfilerConfig.from_mapping(overrides) if overrides else ProfilerConfig.default()
+    cfg.show_hours = show_hours or cfg.show_hours
 
     with tempfile.TemporaryDirectory() as tmpdir:
         paths = materialize_uploads(files, Path(tmpdir))
@@ -35,8 +45,6 @@ def profile_estate(files: list[tuple[str, bytes]], *, show_hours: bool = False) 
     if not analyses:
         raise ValueError("no workflows could be analyzed")
 
-    cfg = ProfilerConfig.default()
-    cfg.show_hours = show_hours
     profile = build_estate_profile(analyses, cfg)
 
     logger.info(
