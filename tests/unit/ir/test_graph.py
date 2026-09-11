@@ -69,6 +69,20 @@ class TestAddNodesAndEdges:
         assert dag.node_count == 1
         assert dag.edge_count == 0
 
+    def test_duplicate_node_id_warns(self, caplog) -> None:
+        """Two nodes sharing an id (e.g. missing ToolIDs defaulting to 0) must not
+        silently collapse — the collision has to be surfaced as a warning."""
+        import logging
+
+        dag = WorkflowDAG()
+        dag.add_node(_make_read(0))
+        with caplog.at_level(logging.WARNING, logger="a2d.ir.graph"):
+            dag.add_node(_make_filter(0))
+        # The collision replaces the node (networkx keys by id), so it stays 1 —
+        # which is exactly why the warning matters.
+        assert dag.node_count == 1
+        assert any("Duplicate node id" in r.message for r in caplog.records)
+
     def test_add_edge(self) -> None:
         dag = _build_linear_dag()
         assert dag.node_count == 3

@@ -598,13 +598,14 @@ class TestEdgeCases:
         assert "df_2_duplicate" in content
 
     def test_record_id_node(self, generator: PySparkGenerator):
-        """RecordIDNode generates monotonically_increasing_id."""
+        """RecordIDNode assigns CONSECUTIVE ids via row_number (not the old
+        non-consecutive monotonically_increasing_id) from the configured start."""
         read = ReadNode(node_id=1, original_tool_type="Input", file_path="/data.csv", file_format="csv")
         rid = RecordIDNode(
             node_id=2,
             original_tool_type="RecordID",
             output_field="RowNum",
-            starting_value=1,
+            starting_value=100,
         )
 
         dag = WorkflowDAG()
@@ -614,8 +615,13 @@ class TestEdgeCases:
 
         output = generator.generate(dag)
         content = output.files[0].content
-        assert "monotonically_increasing_id" in content
+        # Must use a row_number() window for a contiguous sequence, and offset by
+        # (start - 1) so ids begin at the configured starting_value (100).
+        assert "F.row_number().over(" in content
+        assert "+ 99)" in content
         assert "RowNum" in content
+        # The bare non-consecutive form must not be the id expression.
+        assert 'withColumn("RowNum", F.monotonically_increasing_id()' not in content
 
     def test_stats_tracking(self, generator: PySparkGenerator):
         """Verify stats include total_nodes and unsupported_nodes."""

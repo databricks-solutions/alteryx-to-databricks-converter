@@ -63,7 +63,9 @@ class TestPacktParsing:
         parser = WorkflowParser()
         parsed = parser.parse(yxmd)
         assert len(parsed.nodes) > 0, f"{yxmd.name}: no nodes parsed"
-        assert len(parsed.connections) >= 0
+        # A multi-node Packt workflow must have wiring; `>= 0` was vacuous.
+        if len(parsed.nodes) > 1:
+            assert len(parsed.connections) > 0, f"{yxmd.name}: multi-node workflow parsed with no connections"
 
 
 # ── Phase 2: PySpark conversion + syntax validation ──────────────────

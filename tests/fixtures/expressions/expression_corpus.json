@@ -238,5 +238,39 @@
         "alteryx": "[A] * ([B] + [C])",
         "pyspark": "(F.col(\"A\") * (F.col(\"B\") + F.col(\"C\")))",
         "sql": "(`A` * (`B` + `C`))"
+    },
+    {
+        "description": "ToInteger uses the Column try_cast method (F.try_cast does not exist)",
+        "alteryx": "ToInteger([Qty])",
+        "pyspark": "(F.col(\"Qty\")).try_cast('int')",
+        "sql": "TRY_CAST(`Qty` AS INT)"
+    },
+    {
+        "description": "ToDate converts Alteryx strftime tokens to Spark patterns (format is a str for try_to_date)",
+        "alteryx": "ToDate([D], \"%Y-%m-%d\")",
+        "pyspark": "F.try_to_date(F.col(\"D\"), \"yyyy-MM-dd\")",
+        "sql": "TRY_TO_DATE(`D`, 'yyyy-MM-dd')"
+    },
+    {
+        "description": "ToDateTime wraps the format in F.lit (try_to_timestamp's format arg is a Column)",
+        "alteryx": "ToDateTime([TS], \"%Y-%m-%d %H:%M:%S\")",
+        "pyspark": "F.try_to_timestamp(F.col(\"TS\"), F.lit(\"yyyy-MM-dd HH:mm:ss\"))",
+        "sql": "TRY_TO_TIMESTAMP(`TS`, 'yyyy-MM-dd HH:mm:ss')"
+    },
+    {
+        "description": "DateTimeAdd preserves time via timestamp_add (not date_add which drops time)",
+        "alteryx": "DateTimeAdd([D], 5, \"days\")",
+        "pyspark": "F.timestamp_add(\"DAY\", F.lit(5), F.col(\"D\"))"
+    },
+    {
+        "description": "DateTimeAdd with a negative count and month unit",
+        "alteryx": "DateTimeAdd([D], -1, \"months\")",
+        "pyspark": "F.timestamp_add(\"MONTH\", F.lit((-1)), F.col(\"D\"))"
+    },
+    {
+        "description": "Replace is literal (F.replace), not regexp_replace, so metacharacters stay literal",
+        "alteryx": "Replace([Name], \".\", \"-\")",
+        "pyspark": "F.replace(F.col(\"Name\"), F.lit(\".\"), F.lit(\"-\"))",
+        "sql": "REPLACE(`Name`, '.', '-')"
     }
 ]

@@ -137,3 +137,23 @@ class TestResolvePathContainment:
         engine = MacroExpansionEngine()
         resolved = engine._resolve_path("helper.yxmc", workflow_dir)
         assert resolved == macro.resolve()
+
+    def test_symlink_escape_rejected(self, tmp_path):
+        # An in-root symlink pointing outside the trusted root must not resolve:
+        # containment is checked on the RESOLVED (symlink-followed) path.
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        secret = outside / "secret.yxmc"
+        secret.write_text("<x/>", encoding="utf-8")
+        workflow_dir = tmp_path / "wf"
+        workflow_dir.mkdir()
+        link = workflow_dir / "link.yxmc"
+        try:
+            link.symlink_to(secret)
+        except (OSError, NotImplementedError):
+            import pytest
+
+            pytest.skip("symlinks not supported on this platform")
+
+        engine = MacroExpansionEngine()
+        assert engine._resolve_path("link.yxmc", workflow_dir) is None
