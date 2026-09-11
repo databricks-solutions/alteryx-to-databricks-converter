@@ -145,14 +145,18 @@ function SortHeader({
   const alignClass = { left: "text-left", right: "text-right", center: "text-center" }[align];
   return (
     <th
-      className={`px-4 py-3 font-medium text-[var(--fg-muted)] cursor-pointer hover:text-[var(--fg)] select-none ${alignClass}`}
-      onClick={() => onSort(sortKey)}
+      className={`px-4 py-3 font-medium text-[var(--fg-muted)] select-none ${alignClass}`}
+      aria-sort={active ? (asc ? "ascending" : "descending") : "none"}
     >
-      <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className="inline-flex items-center gap-1 cursor-pointer hover:text-[var(--fg)]"
+      >
         {label}
         <ArrowUpDown className={`h-3 w-3 ${active ? "text-[var(--ring)]" : "opacity-30"}`} />
         {active && <span className="text-[10px]">{asc ? "asc" : "desc"}</span>}
-      </span>
+      </button>
     </th>
   );
 }

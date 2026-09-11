@@ -128,25 +128,23 @@ class TestWorkflowJsonSQL:
         config = ConversionConfig(output_format=OutputFormat.SQL)
         return WorkflowJsonGenerator(config)
 
-    def test_sql_falls_through_to_notebook(self, gen: WorkflowJsonGenerator, dag: WorkflowDAG):
-        """SQL format uses the default notebook task (not sql_task)."""
+    def test_sql_uses_sql_task_on_warehouse(self, gen: WorkflowJsonGenerator, dag: WorkflowDAG):
+        """SQL format runs as a sql_task on a warehouse, not a notebook task."""
         result = gen.generate(dag, "my_wf")
         job = _load_job(result.files[0].content)
         task = job["tasks"][0]
-        assert "notebook_task" in task
+        assert "sql_task" in task
+        assert "notebook_task" not in task
+        assert "warehouse_id" in task["sql_task"]
 
-    def test_cluster_config_present(self, gen: WorkflowJsonGenerator, dag: WorkflowDAG):
+    def test_sql_task_has_no_job_cluster(self, gen: WorkflowJsonGenerator, dag: WorkflowDAG):
+        """A SQL task runs on a warehouse, so it must not carry a job_cluster_key,
+        and the job should not declare an unused job_clusters block."""
         result = gen.generate(dag, "my_wf")
         job = _load_job(result.files[0].content)
-        assert len(job["job_clusters"]) == 1
-        cluster = job["job_clusters"][0]
-        # Tasks reference job_clusters via "main"; we used to call this
-        # "default_cluster" but renamed to align with the DAB generator.
-        assert cluster["job_cluster_key"] == "main"
-        assert "new_cluster" in cluster
-        # Tasks must reference the job_cluster_key (not embed an inline cluster).
         task = job["tasks"][0]
-        assert task["job_cluster_key"] == "main"
+        assert "job_cluster_key" not in task
+        assert "job_clusters" not in job
 
     def test_modern_jobs_api_shape(self, gen: WorkflowJsonGenerator, dag: WorkflowDAG):
         """Modern Jobs API (2.1+): no `format` key, queue+parameters present."""

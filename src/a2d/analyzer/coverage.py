@@ -19,6 +19,12 @@ class CoverageReport:
     unsupported_types: set[str]
     coverage_percentage: float
     per_tool_counts: dict[str, int] = field(default_factory=dict)
+    # Instance-weighted coverage: the share of tool INSTANCES (not distinct types)
+    # that are supported. The type-based `coverage_percentage` above treats one
+    # unsupported type the same whether it appears once or 1,000 times; this gives
+    # the complementary node-weighted view. Neither measures semantic correctness
+    # of the generated code — a supported type can still emit a caveated result.
+    instance_coverage_percentage: float = 100.0
 
 
 class CoverageAnalyzer:
@@ -48,6 +54,10 @@ class CoverageAnalyzer:
 
         coverage_percentage = len(supported_types) / len(unique_tool_types) * 100.0 if unique_tool_types else 100.0
 
+        # Instance-weighted: share of tool instances whose type is supported.
+        supported_instances = sum(c for t, c in per_tool_counts.items() if t in supported_types)
+        instance_coverage = supported_instances / total_nodes * 100.0 if total_nodes else 100.0
+
         return CoverageReport(
             total_nodes=total_nodes,
             unique_tool_types=unique_tool_types,
@@ -55,4 +65,5 @@ class CoverageAnalyzer:
             unsupported_types=unsupported_types,
             coverage_percentage=round(coverage_percentage, 1),
             per_tool_counts=per_tool_counts,
+            instance_coverage_percentage=round(instance_coverage, 1),
         )

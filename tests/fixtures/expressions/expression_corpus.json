@@ -212,7 +212,7 @@
     {
         "description": "Conversion: ToNumber (uses try_cast for Alteryx null-on-failure semantics)",
         "alteryx": "ToNumber([Amount])",
-        "pyspark": "F.try_cast(F.col(\"Amount\"), 'double')",
+        "pyspark": "(F.col(\"Amount\")).try_cast('double')",
         "sql": "TRY_CAST(`Amount` AS DOUBLE)"
     },
     {

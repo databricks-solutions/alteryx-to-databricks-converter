@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { useBatchStore } from "@/stores/batch";
 import { motion, AnimatePresence } from "motion/react";
 import { MetricCard } from "@/components/shared/metric-card";
@@ -98,13 +98,17 @@ export function BatchResults() {
           </thead>
           <tbody>
             {fileResults.map((fr, i) => {
-              const isExpanded = expandedRow === fr.workflow_name;
+              // Two uploads can share a workflow_name; a stable per-row id keeps
+              // their expand/tab state from colliding (wrong row expanding, shared
+              // active format).
+              const rowId = `${i}-${fr.file_name || fr.workflow_name}`;
+              const isExpanded = expandedRow === rowId;
               const formats = fr.formats ?? {};
               const hasAnyFiles = Object.values(formats).some(
                 (f) => f.status === "success" && f.files.length > 0,
               );
               const activeFormat =
-                activeFormatPerRow[fr.workflow_name] ||
+                activeFormatPerRow[rowId] ||
                 fr.best_format ||
                 FORMAT_ORDER.find(
                   (f) => formats[f]?.status === "success",
@@ -112,7 +116,7 @@ export function BatchResults() {
                 FORMAT_ORDER[0];
               return (
                 <motion.tr
-                  key={fr.workflow_name}
+                  key={rowId}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: Math.min(i * 0.03, 0.5) }}
@@ -120,7 +124,20 @@ export function BatchResults() {
                     "border-b border-[var(--border)] last:border-b-0 transition-colors",
                     hasAnyFiles && "cursor-pointer hover:bg-[var(--bg-sidebar)]/50",
                   )}
-                  onClick={() => hasAnyFiles && setExpandedRow(isExpanded ? null : fr.workflow_name)}
+                  onClick={() => hasAnyFiles && setExpandedRow(isExpanded ? null : rowId)}
+                  {...(hasAnyFiles
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        "aria-expanded": isExpanded,
+                        onKeyDown: (e: KeyboardEvent) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedRow(isExpanded ? null : rowId);
+                          }
+                        },
+                      }
+                    : {})}
                 >
                   <td className="px-4 py-3" colSpan={4}>
                     <div className="grid grid-cols-12 items-center gap-3">
@@ -200,7 +217,7 @@ export function BatchResults() {
                             onValueChange={(v) =>
                               setActiveFormatPerRow((prev) => ({
                                 ...prev,
-                                [fr.workflow_name]: v,
+                                [rowId]: v,
                               }))
                             }
                           >

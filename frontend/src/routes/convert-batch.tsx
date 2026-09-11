@@ -46,17 +46,22 @@ export function ConvertBatchPage() {
         "Conversion stopped. The file already in progress will finish; the rest were skipped.",
         "info",
       );
+      // Only tear down local state after the server confirmed the cancel.
+      // Doing this in `finally` (even on failure) discarded the job id, progress,
+      // and results while the server kept running — leaving the user with no way
+      // to see or retry the still-active job.
+      disconnect();
+      reset();
+      setFiles([]);
+      mutation.reset();
     } catch (e) {
       addToast(
         e instanceof Error ? `Could not stop the job: ${e.message}` : "Could not stop the job",
         "error",
       );
+      // Keep the job and its state so the user can retry the cancel.
     } finally {
       setCancelling(false);
-      disconnect();
-      reset();
-      setFiles([]);
-      mutation.reset();
     }
   };
 

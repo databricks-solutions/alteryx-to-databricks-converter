@@ -105,7 +105,15 @@ export function ReviewPage() {
     mutation.mutate({ file: files[0], outputFormat });
   };
 
+  // An in-progress edit whose draft diverges from the saved code would be lost
+  // on node switch / reset. Detect it and confirm before discarding.
+  const hasUnsavedEdit = () =>
+    editing && selectedNode != null && draft !== effectiveCode(selectedNode, selectedLocal);
+  const confirmDiscard = () =>
+    !hasUnsavedEdit() || window.confirm("You have an unsaved edit to this node. Discard it?");
+
   const handleReset = () => {
+    if (!confirmDiscard()) return;
     mutation.reset();
     setFiles([]);
     setSelectedId(null);
@@ -114,6 +122,8 @@ export function ReviewPage() {
   };
 
   const selectNode = (nodeId: number) => {
+    if (nodeId === selectedId) return;
+    if (!confirmDiscard()) return;
     setSelectedId(nodeId);
     setEditing(false);
   };

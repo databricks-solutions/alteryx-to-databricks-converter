@@ -40,6 +40,15 @@ _ID_BAND = 1_000_000
 _SKIP_TYPES = frozenset({"ToolContainer", "Tab"})
 
 
+def _is_within(path: Path, root: Path) -> bool:
+    """True if *path* is *root* itself or lies inside it (both already resolved)."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
 class MacroExpansionEngine:
     """Expand macro calls in a workflow by inlining referenced .yxmc DAGs."""
 
@@ -119,21 +128,51 @@ class MacroExpansionEngine:
         return definition
 
     def _resolve_path(self, macro_path: str, parent_dir: Path | None) -> Path | None:
-        """Find the .yxmc on disk. Tries absolute, parent-relative, then search paths."""
+        """Find the .yxmc on disk, confined to trusted roots.
+
+        Security: a workflow is untrusted input (uploaded to the hosted App), and
+        its macro references are attacker-controllable. Resolution is therefore
+        confined to the workflow's own directory plus any explicit ``search_paths``.
+        Absolute macro paths and any reference that escapes those roots (``..``,
+        symlink, etc.) are rejected, so a crafted workflow cannot read arbitrary
+        server files (e.g. ``/etc/passwd`` or ``../../secret.yxmc``).
+        """
         candidate = Path(macro_path)
-        tries: list[Path] = []
-        if candidate.is_absolute():
-            tries.append(candidate)
+
+        # Allowed roots, resolved once.
+        allowed_roots: list[Path] = []
         if parent_dir is not None:
-            tries.append(parent_dir / macro_path)
-            tries.append(parent_dir / candidate.name)
-        for base in self._search_paths:
-            tries.append(base / macro_path)
-            tries.append(base / candidate.name)
+            allowed_roots.append(parent_dir)
+        allowed_roots.extend(self._search_paths)
+        resolved_roots: list[Path] = []
+        for root in allowed_roots:
+            try:
+                resolved_roots.append(root.resolve())
+            except (OSError, RuntimeError):
+                continue
+        if not resolved_roots:
+            return None
+
+        # Candidate paths, always joined onto a trusted root. An absolute
+        # macro_path must never be joined verbatim (it would win over the root),
+        # so absolute references fall back to the basename inside each root.
+        name = candidate.name  # basename is always safe to join
+        tries: list[Path] = []
+        for root in resolved_roots:
+            if not candidate.is_absolute():
+                tries.append(root / macro_path)
+            tries.append(root / name)
 
         for t in tries:
-            if t.is_file():
-                return t
+            try:
+                resolved = t.resolve()
+            except (OSError, RuntimeError):
+                continue
+            # Must stay within one of the allowed roots after resolution.
+            if not any(_is_within(resolved, root) for root in resolved_roots):
+                continue
+            if resolved.is_file():
+                return resolved
         return None
 
     def _build_macro_dag(self, parsed: ParsedWorkflow) -> WorkflowDAG:

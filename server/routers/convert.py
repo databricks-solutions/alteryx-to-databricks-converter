@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import zipfile
+from pathlib import PurePosixPath
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -24,6 +26,17 @@ from server.utils.validation import read_upload, validate_and_read_files, valida
 logger = logging.getLogger("a2d.server.routers.convert")
 
 router = APIRouter(prefix="/api", tags=["convert"])
+
+
+def _safe_zip_component(name: str) -> str:
+    """Reduce an untrusted name to a single safe archive path component.
+
+    Strips any directory parts, leading dots, and characters outside a
+    conservative allow-list so it cannot traverse or start with ``.``/``..``.
+    """
+    base = PurePosixPath(str(name).replace("\\", "/")).name.strip().lstrip(".")
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", base)
+    return base or "workflow"
 
 
 @router.post("/convert", response_model=ConversionResponse)
@@ -151,7 +164,11 @@ async def batch_download(job_id: str) -> StreamingResponse:
         for fr in job.file_results:
             if not fr.get("success"):
                 continue
-            workflow_folder = fr["workflow_name"]
+            # workflow_name derives from parsed (untrusted) workflow content, so a
+            # value like ".." or "a/b" would produce a traversing archive entry
+            # ("../pyspark/x.py") that escapes on extraction. Reduce it to one safe
+            # component.
+            workflow_folder = _safe_zip_component(fr.get("workflow_name", ""))
             formats_dict = fr.get("formats") or {}
             for fmt_key, fmt_result in formats_dict.items():
                 if not isinstance(fmt_result, dict):
@@ -180,8 +197,14 @@ async def batch_download(job_id: str) -> StreamingResponse:
                                 f"workflows instead, or raise A2D_MAX_ZIP_SIZE_BYTES."
                             ),
                         )
+                    # Generated filenames may legitimately contain subdirs (e.g.
+                    # DAB "src/x.py"), so keep those, but reject absolute paths and
+                    # any ".." so the entry cannot escape its workflow folder.
+                    rel = PurePosixPath(str(f["filename"]).replace("\\", "/"))
+                    if rel.is_absolute() or ".." in rel.parts:
+                        rel = PurePosixPath(rel.name or "output")
                     zf.writestr(
-                        f"{workflow_folder}/{fmt_key}/{f['filename']}",
+                        f"{workflow_folder}/{fmt_key}/{rel}",
                         content,
                     )
                     if buf.tell() > max_bytes:

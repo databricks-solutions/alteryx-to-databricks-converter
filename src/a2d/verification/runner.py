@@ -7,7 +7,11 @@ compare the sink result against supplied golden output with the parity engine.
 Three modes, chosen by what the caller supplies:
 
 * **golden** — an expected-output DataFrame is given (exported from Alteryx).
-  The reference result is compared against it. This is true equivalence.
+  The reference result is compared against it. This verifies **IR-reference
+  parity**: it confirms the independent pandas reference executor reproduces the
+  Alteryx output. It does NOT execute the generated PySpark/SQL/DLT artifact, so
+  it is not proof that the generated code itself is equivalent — run the optional
+  Spark backend against the generated target for that.
 * **cross_check** — no golden output, but Spark is available. The pandas and
   Spark results are compared against each other (agreement of two independent
   implementations).

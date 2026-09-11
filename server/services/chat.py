@@ -44,6 +44,10 @@ class ChatSession:
     chat: MigrationChat
     created_at: float = field(default_factory=time.time)
     messages: list[dict] = field(default_factory=list)
+    # Guards against overlapping turns on one session: MigrationChat keeps a single
+    # transcript/history, and a concurrent turn (or a failed one that pops history)
+    # would corrupt it. Set/cleared under the module lock via begin_turn/end_turn.
+    busy: bool = False
 
     def record(self, role: str, content: str) -> dict:
         message = {"role": role, "content": content, "at": time.time()}
@@ -52,8 +56,10 @@ class ChatSession:
 
 
 _sessions: dict[str, ChatSession] = {}
-# Ids dropped by TTL/cap, kept so the API can answer 410 instead of 404.
+# Ids dropped by TTL/cap, kept so the API can answer 410 instead of 404. Bounded
+# (see _prune_locked) so it can't grow without limit over a long-lived server.
 _evicted: set[str] = set()
+_MAX_EVICTED = 4096
 _lock = threading.Lock()
 
 
@@ -82,6 +88,14 @@ def _prune_locked() -> None:
             del _sessions[sid]
             _evicted.add(sid)
         logger.warning("Chat session cap reached — evicted the oldest sessions")
+
+    # Bound the tombstone set so it can't grow without limit. Live session ids are
+    # never tombstones, so dropping the oldest tombstones only downgrades a future
+    # response from 410 Gone to 404 for very old sessions — acceptable.
+    if len(_evicted) > _MAX_EVICTED:
+        excess = len(_evicted) - _MAX_EVICTED
+        for sid in list(_evicted)[:excess]:
+            _evicted.discard(sid)
 
 
 def was_evicted(session_id: str) -> bool:
@@ -165,7 +179,29 @@ def create_session(
 
 def get_session(session_id: str) -> ChatSession | None:
     with _lock:
-        return _sessions.get(session_id)
+        session = _sessions.get(session_id)
+        # Enforce TTL on read too, not only at create time, so a session past its
+        # TTL is treated as gone even if no new session has triggered a prune.
+        if session is not None and session.created_at < time.time() - SESSION_TTL_SECONDS:
+            del _sessions[session_id]
+            _evicted.add(session_id)
+            return None
+        return session
+
+
+def begin_turn(session: ChatSession) -> bool:
+    """Mark a session busy for the duration of one turn. Returns False if a turn
+    is already in progress (caller should reject the overlapping request)."""
+    with _lock:
+        if session.busy:
+            return False
+        session.busy = True
+        return True
+
+
+def end_turn(session: ChatSession) -> None:
+    with _lock:
+        session.busy = False
 
 
 def clear_sessions() -> None:

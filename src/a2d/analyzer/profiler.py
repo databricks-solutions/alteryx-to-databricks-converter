@@ -73,6 +73,13 @@ DEFAULT_TOOL_OVERRIDES: dict[str, str] = {
     "DynamicSelect": MEDIUM,
     # transform: a plain record count is trivial.
     "CountRecords": LOW,
+    # preparation tools whose migration is not truly Low because the generated
+    # code carries semantic caveats a reviewer must check (dedup ordering /
+    # first-vs-arbitrary survivor, union-by-name vs by-position in SQL, inferred
+    # types). Bumped to Medium so the profiler doesn't understate the effort.
+    "Unique": MEDIUM,
+    "Union": MEDIUM,
+    "AutoField": MEDIUM,
     # join: Calgary is a proprietary indexed dataset join.
     "CalgaryJoin": HIGH,
     # developer: custom code has no deterministic equivalent — reimplementation.

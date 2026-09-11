@@ -142,6 +142,10 @@ class TestFilterNode:
         assert "df_2_true" in content
         assert "df_2_false" in content
         assert ".filter(" in content
+        # The False anchor must route rows whose predicate is NULL to itself
+        # (Alteryx sends false/null/error rows to False). Plain `~cond` would drop
+        # them under Spark's three-valued logic, so coalesce is required.
+        assert "F.coalesce(_filter_cond_2, F.lit(False))" in content
 
     def test_filter_node_empty_expression_does_not_crash(self, generator: PySparkGenerator):
         """A FilterNode with an empty expression should generate a passthrough, not crash."""
@@ -570,7 +574,8 @@ class TestEdgeCases:
         assert "allowMissingColumns=True" in content
 
     def test_unique_node(self, generator: PySparkGenerator):
-        """UniqueNode generates dropDuplicates and subtract."""
+        """UniqueNode splits first-vs-later occurrences with a row_number window
+        (subtract had set semantics and lost repeated duplicate rows)."""
         read = ReadNode(node_id=1, original_tool_type="Input Data", file_path="/data.csv", file_format="csv")
         unique = UniqueNode(
             node_id=2,
@@ -585,7 +590,9 @@ class TestEdgeCases:
 
         output = generator.generate(dag)
         content = output.files[0].content
-        assert "dropDuplicates" in content
+        assert "row_number()" in content
+        assert "Window.partitionBy" in content
+        assert "subtract" not in content
         assert "CustomerID" in content
         assert "df_2_unique" in content
         assert "df_2_duplicate" in content

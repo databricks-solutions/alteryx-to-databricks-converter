@@ -79,10 +79,20 @@ async def validate_and_read_files(files: list[UploadFile]) -> list[tuple[str, by
             detail=f"Too many files: maximum is {settings.max_batch_files}",
         )
 
+    # Bound total in-memory size across the whole batch, not just per file:
+    # max_batch_files * max_upload_size could otherwise buffer gigabytes at once.
+    max_total = settings.max_upload_size_bytes * settings.max_batch_files
     file_data: list[tuple[str, bytes]] = []
+    total = 0
     for f in files:
         validate_yxmd_file(f)
         content = await read_upload(f)
+        total += len(content)
+        if total > max_total:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Batch upload exceeds the total size limit of {max_total // (1024 * 1024)} MB.",
+            )
         file_data.append((f.filename, content))
 
     return file_data

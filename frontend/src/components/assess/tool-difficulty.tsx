@@ -31,7 +31,9 @@ export function ToolDifficulty({ counts, types }: ToolDifficultyProps) {
       <div
         className="flex h-3 w-full overflow-hidden rounded-full bg-[var(--bg-subtle,var(--border))]"
         role="img"
-        aria-label="Tool difficulty distribution"
+        aria-label={`Tool difficulty distribution: ${TIER_ORDER.map(
+          (t) => `${t} ${counts[t] ?? 0} (${pct(counts[t] ?? 0).toFixed(0)}%)`,
+        ).join(", ")}`}
       >
         {TIER_ORDER.map((tier) => {
           const width = pct(counts[tier] ?? 0);

@@ -257,26 +257,41 @@ class SQLGenerator(CodeGenerator):
                     # the user can manually translate.
                     expr = f"NULL /* TODO: {formula.expression} */"
                     warnings.append(f"SQL formula fallback: {formula.output_field}")
-                result = f"SELECT *, {expr} AS `{formula.output_field}` FROM ({result})"
+                # `SELECT *, expr AS field` is correct when the formula ADDS a field
+                # (the common case). When it UPDATES an existing field, SELECT * keeps
+                # the old column and this yields two same-named columns. The source
+                # schema is unknown here, so we cannot tell add from update — leave an
+                # inline note (not a warning: warning on every formula would cry wolf
+                # and depress the confidence score) pointing at the `* REPLACE` fix.
+                note = (
+                    f"/* If `{formula.output_field}` already exists (update, not add), use "
+                    f"SELECT * REPLACE ({expr} AS `{formula.output_field}`) to avoid a duplicate column. */ "
+                )
+                result = f"SELECT {note}*, {expr} AS `{formula.output_field}` FROM ({result})"
             return result, warnings
 
         if isinstance(node, SelectNode):
             inp = self._get_single_input(input_ctes)
-            cols = []
-            drops = set()
+            renames: list[tuple[str, str]] = []
+            drops: set[str] = set()
             for op in node.field_operations:
                 if not op.selected or op.action == FieldAction.DESELECT:
                     drops.add(op.field_name)
                 elif op.action == FieldAction.RENAME and op.rename_to:
-                    cols.append(f"`{op.field_name}` AS `{op.rename_to}`")
-            if drops and not cols:
-                # Use SELECT * EXCEPT pattern (Databricks SQL supports this)
-                drop_list = ", ".join(f"`{d}`" for d in drops)
-                return f"SELECT * EXCEPT ({drop_list}) FROM {inp}", warnings
-            if cols:
-                col_str = ", ".join(cols)
-                return f"SELECT *, {col_str} FROM {inp}", warnings
-            return f"SELECT * FROM {inp}", warnings
+                    renames.append((op.field_name, op.rename_to))
+            # Exclude both dropped columns AND the originals being renamed from `*`,
+            # then re-add the renamed columns explicitly. Excluding the renamed
+            # originals is what prevents the old bug where `SELECT *, old AS new`
+            # kept `old` as a duplicate; folding drops into the same projection is
+            # what prevents drops from being ignored whenever a rename was present.
+            except_cols = set(drops) | {old for old, _ in renames}
+            if not except_cols:
+                return f"SELECT * FROM {inp}", warnings
+            except_list = ", ".join(f"`{c}`" for c in sorted(except_cols))
+            select_parts = [f"* EXCEPT ({except_list})"]
+            for old, new in renames:
+                select_parts.append(f"`{old}` AS `{new}`")
+            return f"SELECT {', '.join(select_parts)} FROM {inp}", warnings
 
         if isinstance(node, SortNode):
             inp = self._get_single_input(input_ctes)
@@ -374,6 +389,18 @@ class SQLGenerator(CodeGenerator):
             if not tables:
                 return "SELECT 1 WHERE FALSE", warnings
             parts = [f"SELECT * FROM {t}" for t in tables]
+            # Spark SQL UNION ALL aligns BY POSITION. Alteryx defaults to aligning
+            # BY NAME ("auto"/"name" modes), so a positional union can silently put
+            # values in the wrong columns when input schemas differ in order. We
+            # cannot align by name here without the schemas; make the divergence
+            # visible instead of shipping a silent mismatch.
+            if node.mode in ("name", "auto"):
+                warnings.append(
+                    f"Union node {node.node_id}: Alteryx mode '{node.mode}' aligns columns BY NAME, but "
+                    "Spark SQL UNION ALL aligns BY POSITION. Ensure every input has the same column "
+                    "order and types, add explicit column lists to each SELECT, or use the PySpark "
+                    "output (which unions by name)."
+                )
             return " UNION ALL ".join(parts), warnings
 
         if isinstance(node, AppendFieldsNode):
@@ -397,29 +424,54 @@ class SQLGenerator(CodeGenerator):
             inp = self._get_single_input(input_ctes)
             gb = []
             aggs = []
+            # Simple 1:1 aggregate functions. COUNT_NON_NULL is COUNT(field) by
+            # definition (COUNT ignores nulls). The rest are handled explicitly below.
             sql_agg = {
                 AggAction.SUM: "SUM",
                 AggAction.COUNT: "COUNT",
-                AggAction.COUNT_DISTINCT: "COUNT(DISTINCT",
                 AggAction.MIN: "MIN",
                 AggAction.MAX: "MAX",
                 AggAction.AVG: "AVG",
                 AggAction.FIRST: "FIRST",
                 AggAction.LAST: "LAST",
+                AggAction.STD_DEV: "STDDEV",
+                AggAction.VARIANCE: "VARIANCE",
+                AggAction.MEDIAN: "MEDIAN",
+                AggAction.MODE: "MODE",
+                AggAction.COUNT_NON_NULL: "COUNT",
             }
             for a in node.aggregations:
+                alias = a.output_field_name or f"{a.action.value}_{a.field_name}"
                 if a.action == AggAction.GROUP_BY:
                     gb.append(f"`{a.field_name}`")
                 elif a.action == AggAction.COUNT_DISTINCT:
-                    alias = a.output_field_name or f"{a.action.value}_{a.field_name}"
                     aggs.append(f"COUNT(DISTINCT `{a.field_name}`) AS `{alias}`")
+                elif a.action == AggAction.COUNT_NULL:
+                    aggs.append(f"SUM(CASE WHEN `{a.field_name}` IS NULL THEN 1 ELSE 0 END) AS `{alias}`")
+                elif a.action == AggAction.CONCAT:
+                    sep = (a.separator or ",").replace("'", "''")
+                    aggs.append(f"ARRAY_JOIN(COLLECT_LIST(`{a.field_name}`), '{sep}') AS `{alias}`")
+                elif a.action == AggAction.PERCENTILE:
+                    p = a.percentile_value if a.percentile_value is not None else 0.5
+                    if a.percentile_value is None:
+                        warnings.append(
+                            f"Summarize node {node.node_id}: percentile for `{a.field_name}` had no value; "
+                            "defaulted to 0.5 (median). Set the intended percentile."
+                        )
+                    # Alteryx percentile uses 0-100; PERCENTILE() expects 0-1.
+                    frac = p / 100.0 if p > 1 else p
+                    aggs.append(f"PERCENTILE(`{a.field_name}`, {frac}) AS `{alias}`")
                 elif a.action in sql_agg:
-                    func = sql_agg[a.action]
-                    alias = a.output_field_name or f"{a.action.value}_{a.field_name}"
-                    aggs.append(f"{func}(`{a.field_name}`) AS `{alias}`")
+                    aggs.append(f"{sql_agg[a.action]}(`{a.field_name}`) AS `{alias}`")
                 else:
-                    alias = a.output_field_name or f"{a.action.value}_{a.field_name}"
-                    aggs.append(f"COUNT(`{a.field_name}`) AS `{alias}`")
+                    # Unsupported action (e.g. SpatialObjCombine): never silently
+                    # substitute COUNT — emit NULL and a blocking warning so the wrong
+                    # value can't slip through unnoticed.
+                    aggs.append(f"NULL AS `{alias}` /* TODO: unsupported Summarize action {a.action.value} */")
+                    warnings.append(
+                        f"Summarize node {node.node_id}: action '{a.action.value}' on `{a.field_name}` is not "
+                        "supported in generated SQL — emitted NULL. Implement it manually."
+                    )
 
             select_parts = gb + (aggs if aggs else ["COUNT(*) AS `count`"])
             select_str = ", ".join(select_parts)

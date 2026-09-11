@@ -34,6 +34,14 @@ class PackageError(Exception):
     """Raised when a ``.yxzp`` package cannot be safely extracted or resolved."""
 
 
+class PackageTooLargeError(PackageError):
+    """Raised when a package exceeds a size guard (member count or byte limit).
+
+    A subclass so callers can map it to HTTP 413 (Payload Too Large) while other
+    :class:`PackageError` causes (bad zip, no workflow, unsafe path) stay 400.
+    """
+
+
 def is_package(name: str | os.PathLike[str]) -> bool:
     """Return True if ``name`` has the ``.yxzp`` package suffix."""
     return PurePosixPath(str(name)).suffix.lower() == PACKAGE_SUFFIX
@@ -72,7 +80,7 @@ def extract_package(
     with archive as zf:
         infos = [i for i in zf.infolist() if not i.is_dir()]
         if len(infos) > max_members:
-            raise PackageError(f"package has too many entries (max {max_members})")
+            raise PackageTooLargeError(f"package has too many entries (max {max_members})")
         total = 0
         for info in infos:
             target = (dest_dir / info.filename).resolve()
@@ -86,7 +94,7 @@ def extract_package(
                         break
                     total += len(chunk)
                     if total > max_total_bytes:
-                        raise PackageError(
+                        raise PackageTooLargeError(
                             f"package expands beyond the {max_total_bytes // (1024 * 1024)} MB limit"
                         )
                     out.write(chunk)

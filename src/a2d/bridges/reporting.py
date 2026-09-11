@@ -95,6 +95,9 @@ class DashboardSpec:
                 {
                     "name": "page_1",
                     "displayName": "Overview",
+                    # AI/BI canvas pages require an explicit page type; without it
+                    # the dashboard can fail to parse/import.
+                    "pageType": "PAGE_TYPE_CANVAS",
                     "layout": layout,
                 }
             ],
@@ -117,7 +120,10 @@ def _widget_fields(w: DashboardWidget) -> list[dict]:
 
 def _widget_spec(w: DashboardWidget) -> dict:
     if w.widget_type == "table":
-        return {"version": 1, "widgetType": "table"}
+        # Table widgets use version 2 with explicit column encodings; version 1 is
+        # obsolete and can be rejected on import.
+        columns = [{"fieldName": f["name"], "displayName": f["name"]} for f in _widget_fields(w)]
+        return {"version": 2, "widgetType": "table", "encodings": {"columns": columns}}
     spec: dict = {"version": 3, "widgetType": w.widget_type, "encodings": {}}
     if w.x_field:
         spec["encodings"]["x"] = {"fieldName": w.x_field, "scale": {"type": "categorical"}}

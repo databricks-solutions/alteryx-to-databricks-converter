@@ -73,6 +73,24 @@ class TestNonYxmdFormats:
         assert resp.status_code == 200
         _assert_multi_format_shape(resp.json())
 
+    def test_convert_rejects_invalid_catalog_name(self, client, simple_yxmd):
+        # catalog/schema are interpolated into generated code + YAML, so a value
+        # with quotes/dots must be rejected (422), not passed through.
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("wf.yxmd", simple_yxmd, "application/xml")},
+            data={"catalog_name": 'evil"; DROP'},
+        )
+        assert resp.status_code == 422
+
+    def test_convert_rejects_invalid_schema_name(self, client, simple_yxmd):
+        resp = client.post(
+            "/api/convert",
+            files={"file": ("wf.yxmd", simple_yxmd, "application/xml")},
+            data={"schema_name": "bad name/with.dots"},
+        )
+        assert resp.status_code == 422
+
     def test_convert_yxzp_package(self, client, simple_yxzp):
         resp = client.post(
             "/api/convert",

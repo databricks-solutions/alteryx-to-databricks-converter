@@ -257,19 +257,17 @@ class DLTGenerator(CodeGenerator):
         # `dropDuplicates(key_fields)`, which expresses the dedup correctly — the
         # expectation added a plausible-looking constraint that did nothing useful.
 
-        if isinstance(node, DataCleansingNode):
-            for field_name in node.fields:
-                expectations.append(f'@dlt.expect("{field_name}_not_null", "`{field_name}` IS NOT NULL")')
-
-        if isinstance(node, SummarizeNode):
-            gb_fields = [a.field_name for a in node.aggregations if a.action == AggAction.GROUP_BY]
-            if gb_fields:
-                expectations.append(f'@dlt.expect("group_key_not_null", "`{gb_fields[0]}` IS NOT NULL")')
-
-        if isinstance(node, FilterNode) and node.expression and node.expression.strip():
-            safe_expr = node.expression.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", "")
-            expectations.append(f'@dlt.expect("filter_valid", "{safe_expr}")')
-
+        # No expectations are invented from ordinary tools. Pipeline expectations
+        # assert data-quality contracts; Alteryx tools like Data Cleansing,
+        # Summarize, and Filter do not declare such contracts:
+        #   - Data Cleansing does not assert fields are non-null (it fills/trims/
+        #     removes per its own config, handled in the node body).
+        #   - Summarize permits null grouping keys, so "group key not null" is false.
+        #   - Filter routes rows (True/False outputs) and is applied as .filter() in
+        #     the body; emitting its raw Alteryx predicate (e.g. "[Age] > 5") as an
+        #     expectation is both semantically wrong and invalid Spark SQL.
+        # Expectations should come only from explicit Alteryx validation/Test tools,
+        # which are not currently mapped — so none are emitted here.
         return expectations
 
     def _get_single_input_read(self, input_tables: dict[str, str]) -> str:
