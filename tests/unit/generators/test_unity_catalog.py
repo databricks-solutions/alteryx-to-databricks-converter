@@ -363,3 +363,58 @@ class TestDDLFormatMap:
 
     def test_xlsx_maps_to_csv(self):
         assert _DDL_FORMAT_MAP["xlsx"] == "CSV"
+
+
+class TestHostileIdentifierEscaping:
+    """Workflow metadata (paths, table/connection names) is untrusted and is
+    interpolated into DDL. Escaping must keep an injection payload contained in a
+    single statement so it can't run as extra SQL (review T8). Verified by parsing
+    the generated DDL with sqlglot: a successful injection would yield >1 statement
+    or a stray DROP as its own statement."""
+
+    @staticmethod
+    def _statements(ddl: str) -> list:
+        import sqlglot
+
+        # Strip the leading -- comment banner sqlglot would attach; parse the rest.
+        return [s for s in sqlglot.parse(ddl, read="databricks") if s is not None]
+
+    def test_single_quote_in_path_stays_one_statement(self, generator: UnityCatalogGenerator):
+        node = ReadNode(
+            node_id=1,
+            original_tool_type="Input Data",
+            file_path="/data/x'); DROP TABLE users; --.csv",
+            file_format="csv",
+        )
+        ddl = generator.generate_ddl(_make_dag_mock([node]))[0].content
+        stmts = self._statements(ddl)
+        assert len(stmts) == 1, f"injection escaped into {len(stmts)} statements"
+        assert not any(s.key == "drop" for s in stmts)
+        # The lone quote is doubled inside the literal.
+        assert "x'')" in ddl
+
+    def test_newline_in_path_stays_one_statement(self, generator: UnityCatalogGenerator):
+        node = ReadNode(
+            node_id=2,
+            original_tool_type="Input Data",
+            file_path="ok.parquet\nDROP TABLE users;",
+            file_format="parquet",
+        )
+        ddl = generator.generate_ddl(_make_dag_mock([node]))[0].content
+        stmts = self._statements(ddl)
+        assert len(stmts) == 1
+        assert not any(s.key == "drop" for s in stmts)
+
+    def test_hostile_table_name_reduced_to_safe_identifier(self, generator: UnityCatalogGenerator):
+        node = ReadNode(
+            node_id=3,
+            original_tool_type="Input Data",
+            source_type="database",
+            connection_string="prod",
+            table_name="orders`; DROP TABLE users; --",
+        )
+        ddl = generator.generate_ddl(_make_dag_mock([node]))[0].content
+        stmts = self._statements(ddl)
+        assert len(stmts) == 1
+        assert not any(s.key == "drop" for s in stmts)
+        assert "`" not in ddl  # the hostile backtick was stripped

@@ -12,12 +12,15 @@ from a2d.ir.nodes import (
     AggregationField,
     CommentNode,
     DynamicInputNode,
+    FieldAction,
+    FieldOperation,
     FilterNode,
     FormulaField,
     FormulaNode,
     JoinKey,
     JoinNode,
     ReadNode,
+    SelectNode,
     SortField,
     SortNode,
     SummarizeNode,
@@ -265,3 +268,56 @@ class TestSQLDynamicInput:
         assert "TODO" in sql
         assert "DynamicInput" in sql
         assert "PySpark" in sql
+
+
+class TestGeneratedSQLParses:
+    """T1 (lighter step): validate the SQL this generator emits is real,
+    parseable Databricks SQL, not just substring-checked. Uses sqlglot on the
+    per-node fragment (the full file's read_files() CTE is a valid Databricks
+    construct sqlglot doesn't yet parse, so we validate node bodies directly)."""
+
+    @staticmethod
+    def _parses(body: str) -> int:
+        import sqlglot
+
+        return len([s for s in sqlglot.parse(body, read="databricks") if s is not None])
+
+    def test_select_except_parses(self, generator: SQLGenerator):
+        node = SelectNode(
+            node_id=2,
+            original_tool_type="Select",
+            field_operations=[
+                FieldOperation(field_name="old", action=FieldAction.RENAME, rename_to="new", selected=True),
+                FieldOperation(field_name="junk", action=FieldAction.DESELECT, selected=False),
+            ],
+        )
+        body, _ = generator._generate_cte_body(node, {"Input": "src"})
+        assert "* EXCEPT" in body
+        assert self._parses(body) == 1
+
+    def test_summarize_real_aggregates_parse(self, generator: SQLGenerator):
+        node = SummarizeNode(
+            node_id=2,
+            original_tool_type="Summarize",
+            aggregations=[
+                AggregationField(field_name="g", action=AggAction.GROUP_BY),
+                AggregationField(field_name="v", action=AggAction.STD_DEV),
+                AggregationField(field_name="v", action=AggAction.MEDIAN),
+                AggregationField(field_name="v", action=AggAction.PERCENTILE, percentile_value=90),
+            ],
+        )
+        body, _ = generator._generate_cte_body(node, {"Input": "src"})
+        # No silent COUNT substitution and the real functions are present.
+        assert "STDDEV" in body and "MEDIAN" in body and "PERCENTILE" in body
+        assert self._parses(body) == 1
+
+    def test_union_parses(self, generator: SQLGenerator):
+        node = UnionNode(node_id=3, original_tool_type="Union", mode="position")
+        body, _ = generator._generate_cte_body(node, {"a": "src_a", "b": "src_b"})
+        assert "UNION ALL" in body
+        assert self._parses(body) == 1
+
+    def test_filter_parses(self, generator: SQLGenerator):
+        node = FilterNode(node_id=2, original_tool_type="Filter", expression="[Age] > 25")
+        body, _ = generator._generate_cte_body(node, {"Input": "src"})
+        assert self._parses(body) == 1
