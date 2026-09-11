@@ -167,6 +167,22 @@ class TestJobYml:
         assert f"{generator.config.dbr_version}.x-scala2.12" in job_yml.content
         assert 'spark_version: "3.5"' not in job_yml.content
 
+    def test_sql_output_uses_sql_task_no_cluster(self, generator: DABGenerator):
+        """A SQL GeneratedOutput must produce a sql_task (warehouse), a .sql source
+        file, and NO spark_python_task / job cluster (SQL is not valid Python)."""
+        output = _make_output(
+            [GeneratedFile(filename="wf.sql", content="SELECT 1", file_type="sql")]
+        )
+        files = generator.generate(None, "wf", output)
+
+        job_yml = _find_file(files, "resources/wf_job.yml")
+        assert "sql_task:" in job_yml.content
+        assert "warehouse_id" in job_yml.content
+        assert "spark_python_task" not in job_yml.content
+        assert "job_clusters:" not in job_yml.content
+        # Source file is emitted as .sql, not .py.
+        assert _find_file(files, "src/wf.sql") is not None
+
     def test_catalog_and_schema_parameters(self, generator: DABGenerator):
         """Job should include catalog and schema as parameters."""
         output = _make_output()

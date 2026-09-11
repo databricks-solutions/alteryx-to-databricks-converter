@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from lxml.etree import XMLSyntaxError
 
 from server.models.requests import ConversionOptions, conversion_options
 from server.models.responses import (
@@ -63,6 +64,10 @@ async def convert_single(
             generate_dab=opts.generate_dab,
             expand_macros=opts.expand_macros,
         )
+    except XMLSyntaxError as e:
+        # Empty/corrupt XML is a bad request, not a server fault.
+        logger.warning("Malformed XML in %s: %s", file.filename, e)
+        raise HTTPException(status_code=400, detail=f"File is not valid XML: {e}")
     except ValueError as e:
         logger.warning("Validation error converting %s: %s", file.filename, e)
         raise HTTPException(status_code=422, detail=str(e))

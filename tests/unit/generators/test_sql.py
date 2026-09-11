@@ -21,6 +21,7 @@ from a2d.ir.nodes import (
     SortField,
     SortNode,
     SummarizeNode,
+    UnionNode,
 )
 
 
@@ -72,6 +73,32 @@ class TestSQLFilterNode:
 
         assert "WHERE" in content
         assert "step_2_filter" in content
+
+
+class TestSQLUnionNode:
+    def _union_dag(self, mode: str) -> WorkflowDAG:
+        a = ReadNode(node_id=1, original_tool_type="Input Data", file_path="/a.csv", file_format="csv")
+        b = ReadNode(node_id=2, original_tool_type="Input Data", file_path="/b.csv", file_format="csv")
+        union = UnionNode(node_id=3, original_tool_type="Union", mode=mode)
+        dag = WorkflowDAG()
+        dag.add_node(a)
+        dag.add_node(b)
+        dag.add_node(union)
+        dag.add_edge(1, 3)
+        dag.add_edge(2, 3)
+        return dag
+
+    def test_union_by_name_mode_warns_positional(self, generator: SQLGenerator):
+        """Spark SQL UNION ALL is positional; an Alteryx by-name union must warn
+        that columns are aligned by position, not name."""
+        output = generator.generate(self._union_dag("name"))
+        warns = " ".join(output.warnings).lower()
+        assert "union" in warns and ("position" in warns or "by name" in warns)
+
+    def test_union_position_mode_no_warning(self, generator: SQLGenerator):
+        """Positional mode matches UNION ALL, so no misalignment warning."""
+        output = generator.generate(self._union_dag("position"))
+        assert not any("union" in w.lower() and "position" in w.lower() for w in output.warnings)
 
 
 class TestSQLJoinNode:

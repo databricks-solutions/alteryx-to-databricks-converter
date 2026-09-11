@@ -198,3 +198,39 @@ class TestEvictedSessionGone:
     def test_never_seen_session_still_returns_404(self, client, enabled):
         resp = client.post("/api/chat/deadbeef/message", json={"message": "hi"})
         assert resp.status_code == 404
+
+
+class TestTurnGuardAndEviction:
+    """Concurrency guard + bounded session/tombstone state (review M8)."""
+
+    def _start(self, client) -> str:
+        resp = client.post(
+            "/api/chat",
+            files={"file": ("message_passthrough.yxmd", _message_wf(), "application/xml")},
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["session_id"]
+
+    def test_begin_turn_rejects_overlapping_turn(self, client, enabled):
+        session = chat_service.get_session(self._start(client))
+        assert chat_service.begin_turn(session) is True
+        # A second turn while the first is in flight must be refused.
+        assert chat_service.begin_turn(session) is False
+        chat_service.end_turn(session)
+        # After the turn ends the session is usable again.
+        assert chat_service.begin_turn(session) is True
+        chat_service.end_turn(session)
+
+    def test_tombstone_set_is_bounded(self, client, enabled):
+        # Flood the tombstone set past its cap, then let a new session's prune run.
+        for i in range(chat_service._MAX_EVICTED + 200):
+            chat_service._evicted.add(f"ghost-{i}")
+        self._start(client)
+        assert len(chat_service._evicted) <= chat_service._MAX_EVICTED
+
+    def test_get_session_enforces_ttl_on_read(self, client, enabled):
+        session_id = self._start(client)
+        # Backdate beyond the TTL; the next read must treat it as gone (not return it).
+        chat_service.get_session(session_id).created_at = 0
+        assert chat_service.get_session(session_id) is None
+        assert chat_service.was_evicted(session_id) is True

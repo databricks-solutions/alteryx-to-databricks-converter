@@ -14,14 +14,15 @@ class TestMalformedInput:
             "/api/convert",
             files={"file": ("empty.yxmd", b"", "application/xml")},
         )
-        assert resp.status_code == 500
+        # Malformed/empty XML is a client error, not a 500.
+        assert resp.status_code == 400
 
     def test_convert_corrupted_xml(self, client):
         resp = client.post(
             "/api/convert",
             files={"file": ("bad.yxmd", b"<not valid xml!><<<", "application/xml")},
         )
-        assert resp.status_code == 500
+        assert resp.status_code == 400
 
     def test_convert_valid_xml_but_not_workflow(self, client):
         resp = client.post(
