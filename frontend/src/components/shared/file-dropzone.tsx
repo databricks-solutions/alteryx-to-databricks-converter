@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { useDropzone } from "react-dropzone";
+import { useCallback, useState } from "react";
+import { useDropzone, type FileRejection } from "react-dropzone";
 import { Upload, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/cn";
@@ -18,13 +18,35 @@ export function FileDropzone({
   multiple = false,
   accept = ".yxmd,.yxmc,.yxwz,.yxzp",
 }: FileDropzoneProps) {
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const fileKey = (f: File) => `${f.name}-${f.size}-${f.lastModified}`;
+
   const onDrop = useCallback(
-    (accepted: File[]) => {
+    (accepted: File[], rejections: FileRejection[]) => {
+      const messages: string[] = [];
+      if (rejections.length > 0) {
+        const names = rejections.map((r) => r.file.name).join(", ");
+        messages.push(`Skipped (unsupported type or too large): ${names}`);
+      }
       if (multiple) {
-        onFilesChange([...files, ...accepted]);
-      } else {
+        const existing = new Set(files.map(fileKey));
+        const deduped: File[] = [];
+        let dupes = 0;
+        for (const f of accepted) {
+          if (existing.has(fileKey(f))) {
+            dupes += 1;
+          } else {
+            existing.add(fileKey(f));
+            deduped.push(f);
+          }
+        }
+        if (dupes > 0) messages.push(`${dupes} duplicate file${dupes === 1 ? "" : "s"} skipped.`);
+        if (deduped.length > 0) onFilesChange([...files, ...deduped]);
+      } else if (accepted.length > 0) {
         onFilesChange(accepted.slice(0, 1));
       }
+      setNotice(messages.length > 0 ? messages.join(" ") : null);
     },
     [files, onFilesChange, multiple],
   );
@@ -91,6 +113,12 @@ export function FileDropzone({
           </p>
         )}
       </div>
+
+      {notice && (
+        <p role="status" className="text-xs text-amber-500">
+          {notice}
+        </p>
+      )}
 
       {/* File list */}
       <AnimatePresence>

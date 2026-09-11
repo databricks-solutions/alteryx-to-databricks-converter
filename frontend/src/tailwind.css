@@ -21,6 +21,11 @@
   --fg-muted: #64748b;
   --border: #e2e8f0;
   --ring: #2563eb;
+  /* Darker status foregrounds for text on the pale /10 badge tints — the raw
+     success/warning colors fall below WCAG AA on a near-white background. */
+  --badge-success-fg: #15803d;
+  --badge-warning-fg: #a16207;
+  --badge-destructive-fg: #b91c1c;
 }
 
 .dark {
@@ -31,6 +36,10 @@
   --fg-muted: #94a3b8;
   --border: #1e293b;
   --ring: #3b82f6;
+  /* Lighter status foregrounds read better on the dark badge tints. */
+  --badge-success-fg: #4ade80;
+  --badge-warning-fg: #facc15;
+  --badge-destructive-fg: #f87171;
 }
 
 body {

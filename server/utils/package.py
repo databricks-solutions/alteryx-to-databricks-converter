@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from a2d.packaging import PackageError, extract_primary_workflow, is_package
+from a2d.packaging import PackageError, PackageTooLargeError, extract_primary_workflow, is_package
 from server.settings import settings
 from server.utils.validation import sanitize_filename
 
@@ -35,6 +35,9 @@ def materialize_upload(content: bytes, filename: str, dest_dir: Path) -> tuple[P
                 max_members=settings.max_package_members,
                 max_total_bytes=settings.max_package_extracted_bytes,
             )
+        except PackageTooLargeError as exc:
+            # Size-guard breach is a payload problem, not a malformed request.
+            raise HTTPException(status_code=413, detail=f"{filename}: {exc}") from exc
         except PackageError as exc:
             raise HTTPException(status_code=400, detail=f"{filename}: {exc}") from exc
         return workflow_path, True
@@ -44,7 +47,11 @@ def materialize_upload(content: bytes, filename: str, dest_dir: Path) -> tuple[P
     return path, False
 
 
-def materialize_uploads(files: list[tuple[str, bytes]], base_dir: Path) -> list[Path]:
+def materialize_uploads(
+    files: list[tuple[str, bytes]],
+    base_dir: Path,
+    skipped: list[str] | None = None,
+) -> list[Path]:
     """Materialize many uploads, each into its own subdirectory of ``base_dir``.
 
     Per-file subdirectories keep distinct uploads from colliding after
@@ -54,6 +61,9 @@ def materialize_uploads(files: list[tuple[str, bytes]], base_dir: Path) -> list[
     A ``.yxzp`` that cannot be extracted is skipped (and logged), not fatal: the
     batch analyzers this feeds don't isolate a per-file parse error, so one bad
     package would otherwise abort the whole multi-file analyze/portfolio request.
+    Pass ``skipped`` to receive the names of any dropped files so the caller can
+    surface them (silently omitting files makes estate totals look complete when
+    they are not).
     """
     paths: list[Path] = []
     for index, (filename, content) in enumerate(files):
@@ -63,6 +73,8 @@ def materialize_uploads(files: list[tuple[str, bytes]], base_dir: Path) -> list[
             workflow_path, _ = materialize_upload(content, filename, sub)
         except HTTPException as exc:
             logger.warning("Skipping unreadable package %s: %s", filename, exc.detail)
+            if skipped is not None:
+                skipped.append(filename)
             continue
         paths.append(workflow_path)
     return paths

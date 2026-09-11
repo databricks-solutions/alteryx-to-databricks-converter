@@ -137,6 +137,7 @@ export function ProfilerSettings({
                       </span>
                       <select
                         value={current}
+                        aria-label={`Difficulty tier for ${labelFor(cat)}`}
                         onChange={(e) => onChange({ ...value, [cat]: e.target.value })}
                         className="rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2 py-1 text-xs text-[var(--fg)]"
                       >
@@ -188,6 +189,7 @@ export function ProfilerSettings({
                             <span className="flex items-center gap-1.5">
                               <select
                                 value={tier}
+                                aria-label={`Difficulty tier for ${tool}`}
                                 onChange={(e) => setOverrideTier(tool, e.target.value)}
                                 className="rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2 py-1 text-xs text-[var(--fg)]"
                               >
@@ -215,6 +217,7 @@ export function ProfilerSettings({
                     <div className="flex items-center gap-2">
                       <select
                         value={pickTool}
+                        aria-label="Add a tool override"
                         onChange={(e) => setPickTool(e.target.value)}
                         className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--bg-card)] px-2 py-1.5 text-xs text-[var(--fg)]"
                       >

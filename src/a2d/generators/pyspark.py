@@ -601,7 +601,7 @@ class PySparkGenerator(CodeGenerator):
                     lines += [
                         f"_filter_cond_{node.node_id} = {expr}",
                         f"{out_true} = {inp}.filter(_filter_cond_{node.node_id})",
-                        f"{out_false} = {inp}.filter(~(_filter_cond_{node.node_id}))",
+                        f"{out_false} = {inp}.filter(~F.coalesce(_filter_cond_{node.node_id}, F.lit(False)))",
                     ]
                 elif need_true:
                     lines += [f"{out_true} = {inp}  # passthrough — replace with correct filter"]
@@ -615,17 +615,21 @@ class PySparkGenerator(CodeGenerator):
                 return NodeCodeResult(code_lines=lines, output_vars=output_vars_local, warnings=warnings)
 
             if need_true and need_false:
-                # Both branches needed — use a shared condition variable
+                # Both branches needed — use a shared condition variable. The False
+                # anchor uses ~coalesce(cond, False) so rows whose predicate is NULL
+                # are routed to False (Alteryx sends false/null/error rows there);
+                # plain ~cond would drop them under Spark's three-valued logic.
                 lines = [
                     f"_filter_cond_{node.node_id} = {expr}",
                     f"{out_true} = {inp}.filter(_filter_cond_{node.node_id})",
-                    f"{out_false} = {inp}.filter(~(_filter_cond_{node.node_id}))",
+                    f"{out_false} = {inp}.filter(~F.coalesce(_filter_cond_{node.node_id}, F.lit(False)))",
                 ]
             elif need_true:
                 lines = [f"{out_true} = {inp}.filter({expr})"]
             else:
-                # Only false branch needed (rare)
-                lines = [f"{out_false} = {inp}.filter(~({expr}))"]
+                # Only false branch needed (rare). Route null-predicate rows here too
+                # (Alteryx sends false/null/error rows to the False anchor).
+                lines = [f"{out_false} = {inp}.filter(~F.coalesce({expr}, F.lit(False)))"]
 
         output_vars: dict[str, str] = {"Output": out_true}
         if need_true:
@@ -829,11 +833,25 @@ class PySparkGenerator(CodeGenerator):
         out_unique = f"df_{node.node_id}_unique"
         out_dup = f"df_{node.node_id}_duplicate"
 
-        keys_repr = repr(node.key_fields) if node.key_fields else "[]"
-
+        # Alteryx Unique routes the FIRST row per key to Unique and every later
+        # occurrence to Duplicate. `subtract` (whole-row set difference) got this
+        # wrong: identical repeated rows collapse and the Duplicate output comes
+        # back empty. Rank per key and split on row number instead. The ordering
+        # key is monotonically_increasing_id() as a best-effort stand-in for
+        # Alteryx's input order (Spark has no inherent row order).
+        rn = f"_rn_{node.node_id}"
+        ranked = f"_ranked_{node.node_id}"
+        # No key fields selected means whole-row uniqueness.
+        part = repr(node.key_fields) if node.key_fields else f"{inp}.columns"
+        warnings = [
+            f"Unique node {node.node_id}: duplicate detection orders by monotonically_increasing_id() "
+            "as a proxy for Alteryx input order; supply a deterministic sort key if exact ordering matters."
+        ]
         lines = [
-            f"{out_unique} = {inp}.dropDuplicates({keys_repr})",
-            f"{out_dup} = {inp}.subtract({out_unique})",
+            f"_uw_{node.node_id} = Window.partitionBy(*{part}).orderBy(F.monotonically_increasing_id())",
+            f'{ranked} = {inp}.withColumn("{rn}", F.row_number().over(_uw_{node.node_id}))',
+            f'{out_unique} = {ranked}.filter(F.col("{rn}") == 1).drop("{rn}")',
+            f'{out_dup} = {ranked}.filter(F.col("{rn}") > 1).drop("{rn}")',
         ]
         return NodeCodeResult(
             code_lines=lines,
@@ -842,6 +860,7 @@ class PySparkGenerator(CodeGenerator):
                 "Duplicate": out_dup,
                 "Output": out_unique,
             },
+            warnings=warnings,
         )
 
     def _generate_RecordIDNode(self, node: RecordIDNode, input_vars: dict[str, str]) -> NodeCodeResult:
@@ -849,10 +868,26 @@ class PySparkGenerator(CodeGenerator):
         out_var = f"df_{node.node_id}"
         start = node.starting_value
 
-        lines = [f'{out_var} = {inp}.withColumn("{node.output_field}", F.monotonically_increasing_id() + {start})']
+        # Alteryx Record ID assigns CONSECUTIVE integers from the configured start.
+        # monotonically_increasing_id() is unique but non-consecutive and
+        # partition-dependent, so it does not match. Use row_number() over a global
+        # ordering to produce a contiguous sequence. A global window moves data to a
+        # single partition (unavoidable for a global sequence); the ordering key is a
+        # best-effort proxy for Alteryx input order.
+        warnings = [
+            f"Record ID node {node.node_id}: uses a global row_number() ordered by "
+            "monotonically_increasing_id() to produce consecutive IDs; supply a deterministic "
+            "sort key for reproducible ordering, and note the global window forces a single partition."
+        ]
+        lines = [
+            f"_rid_w_{node.node_id} = Window.orderBy(F.monotonically_increasing_id())",
+            f'{out_var} = {inp}.withColumn("{node.output_field}", '
+            f"F.row_number().over(_rid_w_{node.node_id}) + {start - 1})",
+        ]
         return NodeCodeResult(
             code_lines=lines,
             output_vars={"Output": out_var},
+            warnings=warnings,
         )
 
     def _generate_MultiRowFormulaNode(self, node: MultiRowFormulaNode, input_vars: dict[str, str]) -> NodeCodeResult:
@@ -1135,6 +1170,21 @@ class PySparkGenerator(CodeGenerator):
                     drops_post.append(f'"{drop_name}"')
             if drops_post:
                 post_ops.append(f"    .drop({', '.join(drops_post)})")
+
+            # Same-named columns on both inputs make an unqualified post-join
+            # rename/drop ambiguous: withColumnsRenamed/drop by bare name would hit
+            # both occurrences, whereas Alteryx selects per side. Warn rather than
+            # silently touch the wrong column.
+            left_names = {op.field_name for op in node.select_left}
+            right_names = {op.field_name for op in node.select_right}
+            touched = {old for old, _ in renames} | {d.strip('"') for d in drops_post}
+            ambiguous = sorted((left_names & right_names) & touched)
+            if ambiguous:
+                warnings.append(
+                    f"Join node {node.node_id}: field(s) {ambiguous} exist on both inputs; the post-join "
+                    "rename/drop is by unqualified name and may affect the wrong side — qualify the column "
+                    "(alias left/right) and review manually."
+                )
 
             if post_ops:
                 chain_body = "\n".join(post_ops)

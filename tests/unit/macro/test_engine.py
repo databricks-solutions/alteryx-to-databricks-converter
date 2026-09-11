@@ -103,3 +103,37 @@ class TestPipelineIntegration:
 
         assert any(isinstance(n, UnsupportedNode) for n in dag_off.all_nodes())
         assert not any(isinstance(n, UnsupportedNode) for n in dag_on.all_nodes())
+
+
+class TestResolvePathContainment:
+    """Security: macro references are untrusted and must stay within trusted roots."""
+
+    def test_absolute_path_outside_roots_rejected(self, tmp_path):
+        # A macro living outside the workflow dir / search paths must not resolve,
+        # even when addressed by absolute path.
+        outside = tmp_path / "secret.yxmc"
+        outside.write_text("<x/>", encoding="utf-8")
+        workflow_dir = tmp_path / "wf"
+        workflow_dir.mkdir()
+
+        engine = MacroExpansionEngine()
+        assert engine._resolve_path(str(outside), workflow_dir) is None
+
+    def test_parent_traversal_rejected(self, tmp_path):
+        outside = tmp_path / "secret.yxmc"
+        outside.write_text("<x/>", encoding="utf-8")
+        workflow_dir = tmp_path / "wf"
+        workflow_dir.mkdir()
+
+        engine = MacroExpansionEngine()
+        assert engine._resolve_path("../secret.yxmc", workflow_dir) is None
+
+    def test_relative_macro_within_root_resolves(self, tmp_path):
+        workflow_dir = tmp_path / "wf"
+        workflow_dir.mkdir()
+        macro = workflow_dir / "helper.yxmc"
+        macro.write_text("<x/>", encoding="utf-8")
+
+        engine = MacroExpansionEngine()
+        resolved = engine._resolve_path("helper.yxmc", workflow_dir)
+        assert resolved == macro.resolve()

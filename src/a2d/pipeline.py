@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from a2d.config import ConversionConfig, OutputFormat
@@ -279,10 +279,13 @@ class ConversionPipeline:
             t_fmt = time.monotonic()
             try:
                 gen_class = _GENERATOR_CLASSES[fmt]
-                # Generators read self.config.output_format implicitly in some places,
-                # but accept the shared config; pass it as-is. The generator class
-                # determines the format, not the config field.
-                generator = gen_class(self.config)
+                # Some generators (notably WorkflowJsonGenerator) branch on
+                # config.output_format. Give each format its own config so the
+                # orchestration JSON matches THIS format (a DLT/SQL download must
+                # not carry a PySpark notebook task). The code generator class
+                # already fixes the format, but the config must agree.
+                fmt_config = replace(self.config, output_format=fmt)
+                generator = gen_class(fmt_config)
                 generator.metadata = {"confidence": pre_score}
                 output = generator.generate(dag, workflow_name)
                 generator.metadata["stats"] = output.stats
@@ -290,7 +293,7 @@ class ConversionPipeline:
                 # Append orchestration JSON if configured (once per format)
                 if self.config.generate_orchestration:
                     try:
-                        wf_gen = WorkflowJsonGenerator(self.config)
+                        wf_gen = WorkflowJsonGenerator(fmt_config)
                         wf_output = wf_gen.generate(dag, workflow_name)
                         output.files.extend(wf_output.files)
                     except Exception as wf_exc:  # pragma: no cover - defensive

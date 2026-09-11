@@ -34,6 +34,27 @@ _F_COL_RE = re.compile(r'^F\.col\("(.+?)"\)$')
 # Pre-compiled regex for extracting F.lit("value") strings
 _F_LIT_STR_RE = re.compile(r'^F\.lit\("(.*)"\)$')
 
+# Alteryx DateTimeAdd/DateTimeDiff units -> canonical Databricks dateadd() units.
+# Both singular and plural Alteryx spellings map to the singular keyword.
+_DATEADD_UNITS = {
+    "year": "YEAR",
+    "years": "YEAR",
+    "quarter": "QUARTER",
+    "quarters": "QUARTER",
+    "month": "MONTH",
+    "months": "MONTH",
+    "week": "WEEK",
+    "weeks": "WEEK",
+    "day": "DAY",
+    "days": "DAY",
+    "hour": "HOUR",
+    "hours": "HOUR",
+    "minute": "MINUTE",
+    "minutes": "MINUTE",
+    "second": "SECOND",
+    "seconds": "SECOND",
+}
+
 # Map Alteryx comparison operators to PySpark operators
 _CMP_MAP = {
     "=": "==",
@@ -173,9 +194,12 @@ class PySparkTranslator(BaseExpressionTranslator):
         for i, arg_str in enumerate(translated_args):
             result = result.replace(f"{{{i}}}", arg_str)
 
-        # Strip any unsubstituted trailing-optional placeholders (e.g. ", {1}")
-        # so 1-arg calls to functions with an optional 2nd arg work cleanly.
-        result = re.sub(r",\s*\{\d+\}", "", result)
+        # Strip any unsubstituted trailing-optional placeholders so 1-arg calls to
+        # functions with an optional 2nd arg (ToDate/ToDateTime/ToString) work
+        # cleanly. Matches either a bare ", {1}" or a wrapped ", F.lit({1})" —
+        # consuming the closing paren ONLY for the F.lit wrapper, never the host
+        # function's own paren.
+        result = re.sub(r",\s*(?:\{\d+\}|F\.lit\(\{\d+\}\))", "", result)
 
         return result
 
@@ -208,31 +232,23 @@ class PySparkTranslator(BaseExpressionTranslator):
         # Strip surrounding quotes to get the plain unit value
         unit_val = unit_arg.strip("\"'").lower()
 
-        if unit_val in ("day", "days"):
-            return f"F.date_add({date_expr}, {count_expr})"
-        if unit_val in ("month", "months"):
-            return f"F.add_months({date_expr}, {count_expr})"
-        if unit_val in ("year", "years"):
-            return f"F.add_months({date_expr}, ({count_expr}) * 12)"
-        # General fallback: use Databricks dateadd SQL function.
-        # Extract column names from F.col("name") so the SQL expression is self-contained
-        # (no f-string with embedded Column objects which break both syntax and runtime).
-        col_match = _F_COL_RE.match(date_expr)
-        if col_match:
-            col_name = col_match.group(1).replace("`", "\\`")
-            count_match = _F_COL_RE.match(count_expr)
-            if count_match:
-                count_sql = f"`{count_match.group(1)}`"
-            else:
-                count_sql = count_expr  # literal number
-            return f'F.expr("dateadd({unit_val}, {count_sql}, `{col_name}`)")'
-        # Cannot inline a complex expression into SQL — emit a TODO comment embedded
-        # in a lit(None) so the notebook at least parses cleanly.
-        self._warnings.append(
-            f"DateTimeAdd with unit {unit_arg!r} and complex date expression "
-            f"requires manual adjustment: dateadd({unit_arg}, {count_expr}, <date>)"
-        )
-        return f"F.lit(None)  # TODO: DateTimeAdd({date_expr}, {count_expr}, {unit_arg})"
+        # Alteryx DateTimeAdd preserves the full datetime (time-of-day included).
+        # F.timestamp_add(unit, quantity, ts) is timestamp-preserving and, unlike
+        # date_add()/add_months() (which return DATE and drop the time) or a
+        # col-extracted F.expr("dateadd(...)") (which can't take a complex date
+        # expression like current_timestamp()), it accepts arbitrary Column
+        # arguments for every unit.
+        unit = _DATEADD_UNITS.get(unit_val)
+        if unit is None:
+            self._warnings.append(
+                f"DateTimeAdd unit {unit_arg!r} is not recognized; emitted verbatim into timestamp_add()"
+            )
+            unit = unit_val.upper()
+
+        # timestamp_add's quantity must be a Column: wrap a bare numeric literal in
+        # F.lit; a column/expression argument is already a Column, so pass it through.
+        quantity = f"F.lit({count_expr})" if re.fullmatch(r"\(?-?\d+(?:\.\d+)?\)?", count_expr.strip()) else count_expr
+        return f'F.timestamp_add("{unit}", {quantity}, {date_expr})'
 
     @staticmethod
     def _to_sql_ref(pyspark_expr: str) -> str:

@@ -104,19 +104,26 @@ async def send_message(session_id: str, message: str = Body(..., embed=True)) ->
     if not text:
         raise HTTPException(status_code=422, detail="message must not be empty")
 
-    session.record("user", text)
+    # One turn at a time per session: the chat keeps a single transcript/history,
+    # so overlapping turns (or a failed one that pops history) would corrupt it.
+    if not chat_service.begin_turn(session):
+        raise HTTPException(status_code=409, detail="A turn is already in progress for this session.")
     try:
-        reply = await run_with_timeout(session.chat.ask, text, label="Assistant reply")
-    except LLMRequestError as e:
-        logger.warning("Chat turn failed for %s: %s", session_id, e)
-        raise HTTPException(status_code=502, detail=f"Model endpoint error: {e}") from None
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Unexpected error on chat turn")
-        raise HTTPException(status_code=500, detail="Internal chat error") from None
+        session.record("user", text)
+        try:
+            reply = await run_with_timeout(session.chat.ask, text, label="Assistant reply")
+        except LLMRequestError as e:
+            logger.warning("Chat turn failed for %s: %s", session_id, e)
+            raise HTTPException(status_code=502, detail=f"Model endpoint error: {e}") from None
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Unexpected error on chat turn")
+            raise HTTPException(status_code=500, detail="Internal chat error") from None
 
-    session.record("assistant", reply)
+        session.record("assistant", reply)
+    finally:
+        chat_service.end_turn(session)
     return {"session_id": session_id, "reply": reply}
 
 

@@ -2,9 +2,29 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
-from fastapi import Form
+from fastapi import Form, HTTPException
+
+# Unity Catalog catalog/schema names: letters, digits, underscore; a leading
+# letter or underscore. These values are interpolated into generated code
+# (saveAsTable("catalog.schema.table")) and YAML, so an unvalidated value with
+# quotes/newlines could break or inject into the generated artifact.
+_UC_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_uc_identifier(value: str, field_name: str) -> str:
+    value = (value or "").strip()
+    if not _UC_IDENTIFIER_RE.match(value):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid {field_name} {value!r}: use a Unity Catalog identifier "
+                "(letters, digits, underscore; starting with a letter or underscore)."
+            ),
+        )
+    return value
 
 
 @dataclass
@@ -38,8 +58,8 @@ def conversion_options(
 ) -> ConversionOptions:
     """FastAPI dependency that collects shared conversion form params."""
     return ConversionOptions(
-        catalog_name=catalog_name,
-        schema_name=schema_name,
+        catalog_name=_validate_uc_identifier(catalog_name, "catalog_name"),
+        schema_name=_validate_uc_identifier(schema_name, "schema_name"),
         include_comments=include_comments,
         include_expression_audit=include_expression_audit,
         include_performance_hints=include_performance_hints,

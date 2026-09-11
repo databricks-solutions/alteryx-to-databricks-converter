@@ -84,13 +84,14 @@ _register("TrimLeft", "F.ltrim({0})", "LTRIM({0})", 1, 1, notes="2-arg form (tri
 _register("TrimRight", "F.rtrim({0})", "RTRIM({0})", 1, 1, notes="2-arg form (trim character) not supported")
 _register(
     "Replace",
-    "F.regexp_replace({0}, {1}, {2})",
+    # Alteryx Replace() is LITERAL string replacement. F.replace (Spark 3.5+) is
+    # literal too, unlike regexp_replace which would treat metacharacters in the
+    # search string as a regex. SQL REPLACE() is already literal.
+    "F.replace({0}, {1}, {2})",
     "REPLACE({0}, {1}, {2})",
     3,
     3,
-    notes="Alteryx Replace() is literal string replacement. Uses regexp_replace which is "
-    "equivalent for non-regex characters (covers 99% of usage). If the search string "
-    "contains regex metacharacters (.*+?[]{}^$|\\), manual escaping may be needed.",
+    notes="Literal string replacement (matches Alteryx). Requires DBR 14+ / Spark 3.5+.",
 )
 _register(
     "ReplaceFirst",
@@ -167,7 +168,7 @@ _register("ATAN2", "F.atan2({0}, {1})", "ATAN2({0}, {1})", 2, 2)
 # ---------------------------------------------------------------------------
 _register(
     "ToNumber",
-    "F.try_cast({0}, 'double')",
+    "({0}).try_cast('double')",
     "TRY_CAST({0} AS DOUBLE)",
     1,
     1,
@@ -175,7 +176,7 @@ _register(
 )
 _register(
     "ToInteger",
-    "F.try_cast({0}, 'int')",
+    "({0}).try_cast('int')",
     "TRY_CAST({0} AS INT)",
     1,
     1,
@@ -196,7 +197,10 @@ _register(
 )
 _register(
     "ToDateTime",
-    "F.try_to_timestamp({0}, {1})",
+    # try_to_timestamp's format arg is a Column, so a bare string would be read as a
+    # column name — wrap it in F.lit (matches DateTimeParse). ToDate is different:
+    # try_to_date's format is a plain str, so it stays unwrapped.
+    "F.try_to_timestamp({0}, F.lit({1}))",
     "TRY_TO_TIMESTAMP({0}, {1})",
     1,
     2,
@@ -568,18 +572,18 @@ _register(
 _register("IF", "F.when({0}, {1}).otherwise({2})", "CASE WHEN {0} THEN {1} ELSE {2} END", 3, 3, notes="Alias for IIF")
 _register(
     "ToInt32",
-    "F.try_cast({0}, 'int')",
+    "({0}).try_cast('int')",
     "TRY_CAST({0} AS INT)",
     1,
     1,
     notes="Alias for ToInteger; null-on-failure (Alteryx semantics)",
 )
 _register(
-    "ToInt64", "F.try_cast({0}, 'long')", "TRY_CAST({0} AS BIGINT)", 1, 1, notes="null-on-failure (Alteryx semantics)"
+    "ToInt64", "({0}).try_cast('long')", "TRY_CAST({0} AS BIGINT)", 1, 1, notes="null-on-failure (Alteryx semantics)"
 )
 _register(
     "ToDouble",
-    "F.try_cast({0}, 'double')",
+    "({0}).try_cast('double')",
     "TRY_CAST({0} AS DOUBLE)",
     1,
     1,

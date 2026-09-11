@@ -896,7 +896,7 @@ def verify(
         None,
         "--expected",
         "-e",
-        help="Golden expected-output CSV exported from Alteryx (enables true equivalence check)",
+        help="Golden expected-output CSV exported from Alteryx (enables the IR-reference parity check)",
     ),
     no_spark: bool = typer.Option(False, "--no-spark", help="Skip the Spark cross-check even if a JVM is available"),
     json_out: Path | None = typer.Option(
@@ -916,7 +916,7 @@ def verify(
 
     Modes (chosen automatically by what you supply):
 
-      - golden          : compare reference result to --expected  (true equivalence)
+      - golden          : compare reference result to --expected  (IR-reference parity)
       - cross_check     : compare pandas vs Spark results          (needs a JVM)
       - reference_only  : produce the reference result, nothing to diff against
 

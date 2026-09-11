@@ -70,21 +70,26 @@ class WorkflowJsonGenerator(CodeGenerator):
     def generate(self, dag: WorkflowDAG, workflow_name: str = "workflow") -> GeneratedOutput:
         warnings: list[str] = []
 
-        # Determine notebook path based on output format
+        # Determine the task type and whether it uses a job cluster. Only a
+        # notebook/spark task runs on a job cluster; a SQL task runs on a
+        # warehouse and a DLT task references a pipeline, so neither should carry
+        # a job_clusters block (an unused/contradictory cluster fails validation).
+        needs_job_cluster = False
         if self.config.output_format == OutputFormat.DLT:
             notebook_path = f"/Workspace/Shared/a2d/{workflow_name}_dlt"
             task = self._build_dlt_task(workflow_name, notebook_path)
-        elif self.config.output_format == OutputFormat.LAKEFLOW:
+        elif self.config.output_format in (OutputFormat.LAKEFLOW, OutputFormat.SQL):
             notebook_path = f"/Workspace/Shared/a2d/{workflow_name}_lakeflow.sql"
             task = self._build_sql_task(workflow_name, notebook_path)
         else:
             notebook_path = f"/Workspace/Shared/a2d/{workflow_name}"
             task = self._build_notebook_task(workflow_name, notebook_path)
+            needs_job_cluster = True
 
         # Cloud-aware node_type_id (driven by ConversionConfig.cloud).
         node_type_id = self.config.node_type_id
 
-        job_definition = {
+        job_definition: dict = {
             "name": f"a2d_{workflow_name}",
             "description": f"Migrated from Alteryx workflow: {workflow_name}.yxmd",
             "tags": {
@@ -93,7 +98,9 @@ class WorkflowJsonGenerator(CodeGenerator):
                 "original_workflow": f"{workflow_name}.yxmd",
             },
             "tasks": [task],
-            "job_clusters": [
+        }
+        if needs_job_cluster:
+            job_definition["job_clusters"] = [
                 {
                     "job_cluster_key": _DEFAULT_JOB_CLUSTER_KEY,
                     "new_cluster": {
@@ -106,15 +113,14 @@ class WorkflowJsonGenerator(CodeGenerator):
                         },
                     },
                 }
-            ],
-            # Concurrency control. Recommended default per the Jobs API 2.2
-            # docs — without it, queued runs are dropped instead of held.
-            "queue": {"enabled": True},
-            # Placeholder for job-level parameters. Empty by default; users
-            # can add `{ "name": "...", "default": "..." }` entries here.
-            "parameters": [],
-            "max_concurrent_runs": 1,
-        }
+            ]
+        # Concurrency control. Recommended default per the Jobs API 2.2
+        # docs — without it, queued runs are dropped instead of held.
+        job_definition["queue"] = {"enabled": True}
+        # Placeholder for job-level parameters. Empty by default; users
+        # can add `{ "name": "...", "default": "..." }` entries here.
+        job_definition["parameters"] = []
+        job_definition["max_concurrent_runs"] = 1
 
         # Strict JSON — operator notes go into the sibling README so any
         # downstream consumer (jq, json.loads, CI linting) can parse this
@@ -160,10 +166,12 @@ class WorkflowJsonGenerator(CodeGenerator):
 
     @staticmethod
     def _build_sql_task(workflow_name: str, sql_path: str) -> dict:
+        # A SQL task runs on a SQL warehouse, NOT a job cluster. Declaring
+        # job_cluster_key alongside warehouse_id is a contradictory compute
+        # config that fails Jobs validation, so it is intentionally absent.
         return {
             "task_key": f"{workflow_name}_lakeflow",
             "description": f"Run Lakeflow SQL: {workflow_name}",
-            "job_cluster_key": _DEFAULT_JOB_CLUSTER_KEY,
             "sql_task": {
                 "file": {"path": sql_path},
                 "warehouse_id": "PLACEHOLDER_WAREHOUSE_ID",

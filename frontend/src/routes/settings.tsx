@@ -15,7 +15,7 @@ const CODE_GEN_OPTIONS: CheckboxOption[] = [
   {
     key: "includeComments",
     label: "Include comments",
-    description: "Add explanatory comments and performance hints to generated code",
+    description: "Add explanatory comments to generated code",
     preview: "# Step 3: FilterNode — High Value Only\nhigh_value_df = df.filter(F.col(\"Amount\") > 100)",
   },
   {
@@ -42,8 +42,9 @@ const EXTRAS_OPTIONS: CheckboxOption[] = [
   {
     key: "generateDdl",
     label: "Unity Catalog DDL",
-    description: "Generate CREATE TABLE / EXTERNAL TABLE DDL for Unity Catalog",
-    preview: "CREATE TABLE main.default.regional_summary (\n  SalesRegion STRING, TotalSales DOUBLE\n) USING DELTA;",
+    description: "Generate Unity Catalog CREATE TABLE DDL (external file sources use CREATE TABLE AS SELECT read_files(...))",
+    preview:
+      "CREATE TABLE main.default.regional_summary\n  USING DELTA\n  AS SELECT * FROM read_files('/path/data.csv', format => 'csv');",
   },
   {
     key: "generateDab",

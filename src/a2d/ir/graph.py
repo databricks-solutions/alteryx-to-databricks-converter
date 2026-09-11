@@ -41,7 +41,24 @@ class WorkflowDAG:
     # ── Mutation ────────────────────────────────────────────────────────
 
     def add_node(self, ir_node: IRNode) -> None:
-        """Add an IR node to the graph."""
+        """Add an IR node to the graph.
+
+        A duplicate ``node_id`` would silently replace the existing node (and its
+        ``ir`` payload), corrupting the DAG while still "succeeding" — most often
+        when two source nodes share an id (e.g. missing ToolIDs both defaulting to
+        0). Warn loudly so the collision is visible instead of producing quietly
+        wrong output.
+        """
+        if ir_node.node_id in self._graph:
+            existing = self._graph.nodes[ir_node.node_id].get("ir")
+            existing_type = getattr(existing, "original_tool_type", type(existing).__name__)
+            logger.warning(
+                "Duplicate node id %s: replacing %s with %s — the source workflow likely has "
+                "missing or non-unique ToolIDs; the DAG may be incorrect.",
+                ir_node.node_id,
+                existing_type,
+                ir_node.original_tool_type,
+            )
         self._graph.add_node(ir_node.node_id, ir=ir_node)
 
     def remove_node(self, node_id: int) -> None:

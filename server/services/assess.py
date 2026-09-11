@@ -38,8 +38,9 @@ def profile_estate(
     cfg = ProfilerConfig.from_mapping(overrides) if overrides else ProfilerConfig.default()
     cfg.show_hours = show_hours or cfg.show_hours
 
+    skipped: list[str] = []
     with tempfile.TemporaryDirectory() as tmpdir:
-        paths = materialize_uploads(files, Path(tmpdir))
+        paths = materialize_uploads(files, Path(tmpdir), skipped=skipped)
         analyses = BatchAnalyzer().analyze_files(paths)
 
     if not analyses:
@@ -48,9 +49,14 @@ def profile_estate(
     profile = build_estate_profile(analyses, cfg)
 
     logger.info(
-        "Profiled estate: %d workflow(s), %d tools, hours=%s",
+        "Profiled estate: %d workflow(s), %d tools, hours=%s, skipped=%d",
         profile.total_workflows,
         profile.total_tools,
         show_hours,
+        len(skipped),
     )
-    return profile.to_dict()
+    result = profile.to_dict()
+    # Surface any files that could not be read so the totals aren't mistaken for
+    # a complete estate.
+    result["skipped_files"] = skipped
+    return result

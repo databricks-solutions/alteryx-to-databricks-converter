@@ -51,6 +51,9 @@ function toCsv(result: AssessResult): string {
     "estimated_effort",
     "estimated_hours",
   ];
+  // RFC-4180 quoting: workflow names can contain commas, quotes, or newlines,
+  // which would otherwise shift columns or corrupt the export.
+  const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
   const rows = result.workflows.map((w) =>
     [
       w.workflow_name,
@@ -68,9 +71,11 @@ function toCsv(result: AssessResult): string {
       w.migration_priority,
       w.estimated_effort,
       w.estimated_hours ?? "",
-    ].join(","),
+    ]
+      .map(esc)
+      .join(","),
   );
-  return [header.join(","), ...rows].join("\n");
+  return [header.map(esc).join(","), ...rows].join("\n");
 }
 
 function StatRow({ label, value }: { label: string; value: string }) {
@@ -113,6 +118,12 @@ export function AssessPage() {
   const reset = () => {
     setFiles([]);
     mutation.reset();
+    // Also clear customized profiler settings so a fresh run starts from the
+    // defaults rather than silently reusing the previous run's assumptions.
+    // categoryTiers re-seeds from server defaults via the effect above.
+    setHours(false);
+    setCategoryTiers({});
+    setToolOverrides({});
   };
 
   return (

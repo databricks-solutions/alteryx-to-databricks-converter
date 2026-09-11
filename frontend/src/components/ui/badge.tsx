@@ -3,9 +3,9 @@ import { cn } from "@/lib/cn";
 
 const variants = {
   default: "bg-[var(--ring)]/10 text-[var(--ring)]",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning",
-  destructive: "bg-destructive/10 text-destructive",
+  success: "bg-success/10 text-[var(--badge-success-fg)]",
+  warning: "bg-warning/10 text-[var(--badge-warning-fg)]",
+  destructive: "bg-destructive/10 text-[var(--badge-destructive-fg)]",
   secondary: "bg-[var(--border)] text-[var(--fg-muted)]",
 };
 

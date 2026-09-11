@@ -158,12 +158,14 @@ class TestJobYml:
         assert "../src/my_wf.py" in job_yml.content
 
     def test_spark_version_from_config(self, generator: DABGenerator):
-        """Job should use spark_version from config."""
+        """Job cluster should use the DBR runtime key (not the bare Spark version)."""
         output = _make_output()
         files = generator.generate(None, "wf", output)
 
         job_yml = _find_file(files, "resources/wf_job.yml")
-        assert "3.5" in job_yml.content
+        # A valid cluster runtime key like "14.3.x-scala2.12", never the raw "3.5".
+        assert f"{generator.config.dbr_version}.x-scala2.12" in job_yml.content
+        assert 'spark_version: "3.5"' not in job_yml.content
 
     def test_catalog_and_schema_parameters(self, generator: DABGenerator):
         """Job should include catalog and schema as parameters."""
@@ -345,7 +347,7 @@ class TestFindMainCode:
 
         result = DABGenerator._find_main_code(output)
 
-        assert result == "print('hello')"
+        assert result == ("print('hello')", False)
 
     def test_finds_sql_file(self):
         output = _make_output(
@@ -356,7 +358,7 @@ class TestFindMainCode:
 
         result = DABGenerator._find_main_code(output)
 
-        assert result == "SELECT 1"
+        assert result == ("SELECT 1", True)
 
     def test_skips_json_files(self):
         output = _make_output(
@@ -367,7 +369,7 @@ class TestFindMainCode:
 
         result = DABGenerator._find_main_code(output)
 
-        assert result is None
+        assert result == (None, False)
 
     def test_returns_first_matching_file(self):
         """If multiple Python/SQL files, returns the first one."""
@@ -380,14 +382,14 @@ class TestFindMainCode:
 
         result = DABGenerator._find_main_code(output)
 
-        assert result == "a = 1"
+        assert result == ("a = 1", False)
 
     def test_empty_output_returns_none(self):
         output = _make_output([])
 
         result = DABGenerator._find_main_code(output)
 
-        assert result is None
+        assert result == (None, False)
 
     def test_json_extension_python_type_excluded(self):
         """Files with .json extension but python type should be excluded."""
@@ -399,7 +401,7 @@ class TestFindMainCode:
 
         result = DABGenerator._find_main_code(output)
 
-        assert result is None
+        assert result == (None, False)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

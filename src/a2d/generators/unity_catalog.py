@@ -124,6 +124,12 @@ class UnityCatalogGenerator:
                 # Docs: https://docs.databricks.com/aws/en/sql/language-manual/functions/read_files.html
                 rf_fmt = _READ_FILES_FORMAT.get(fmt, fmt.lower())
                 return (
+                    f"-- NOTE: this is a one-time INGESTION into a managed Delta table, not a\n"
+                    f"-- live link to the source file. Unlike an Alteryx Input (which re-reads\n"
+                    f"-- the source each run), this table is NOT refreshed when '{node.file_path}'\n"
+                    f"-- changes. For recurring loads, schedule this as an incremental pipeline\n"
+                    f"-- (e.g. read_files + streaming table / MERGE), or define a view if the\n"
+                    f"-- source must be read live.\n"
                     f"CREATE TABLE IF NOT EXISTS {fq_name}\n"
                     f"  USING DELTA\n"
                     f"  AS SELECT * FROM read_files(\n"
