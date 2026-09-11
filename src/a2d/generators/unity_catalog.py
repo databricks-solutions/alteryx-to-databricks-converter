@@ -44,6 +44,27 @@ _READ_FILES_FORMAT = {
 }
 
 
+def _safe_identifier(name: str) -> str:
+    """Reduce an untrusted name to a safe SQL identifier (alnum + underscore).
+
+    Table/connection names come from workflow metadata and are interpolated into
+    DDL as identifiers; without this, a crafted name could inject SQL.
+    """
+    clean = "".join(c if c.isalnum() or c == "_" else "_" for c in (name or "")).strip("_")
+    return clean or "table"
+
+
+def _lit(value: str) -> str:
+    """Escape a value for a single-quoted SQL string literal (path in read_files/LOCATION)."""
+    return (value or "").replace("\\", "\\\\").replace("'", "''")
+
+
+def _cmt(value: str) -> str:
+    """Neutralize a value placed in a ``--`` line comment: a newline would end the
+    comment and turn the remainder into executable SQL."""
+    return (value or "").replace("\r", " ").replace("\n", " ")
+
+
 class UnityCatalogGenerator:
     """Generate DDL statements for Unity Catalog tables."""
 
@@ -98,13 +119,13 @@ class UnityCatalogGenerator:
         if node.source_type == "database" or node.connection_string:
             # Database source — resolve via connection mapping
             conn_name = node.connection_string or "default"
-            table_name = node.table_name or f"table_{node.node_id}"
+            table_name = _safe_identifier(node.table_name) if node.table_name else f"table_{node.node_id}"
             fq_name = self._mapping.resolve(conn_name, table_name)
 
             return (
                 f"CREATE TABLE IF NOT EXISTS {fq_name} (\n"
                 f"  -- Schema to be defined based on source data\n"
-                f"  -- Source: {conn_name}\n"
+                f"  -- Source: {_cmt(conn_name)}\n"
                 f");"
             )
         elif node.file_path:
@@ -115,7 +136,7 @@ class UnityCatalogGenerator:
 
             if fmt == "DELTA":
                 return (
-                    f"CREATE TABLE IF NOT EXISTS {fq_name}\n  -- Migrated from file: {node.file_path}\n  USING DELTA\n;"
+                    f"CREATE TABLE IF NOT EXISTS {fq_name}\n  -- Migrated from file: {_cmt(node.file_path)}\n  USING DELTA\n;"
                 )
             else:
                 # Modern pattern: ingest non-Delta files via read_files() into a
@@ -126,31 +147,33 @@ class UnityCatalogGenerator:
                 return (
                     f"-- NOTE: this is a one-time INGESTION into a managed Delta table, not a\n"
                     f"-- live link to the source file. Unlike an Alteryx Input (which re-reads\n"
-                    f"-- the source each run), this table is NOT refreshed when '{node.file_path}'\n"
+                    f"-- the source each run), this table is NOT refreshed when '{_cmt(node.file_path)}'\n"
                     f"-- changes. For recurring loads, schedule this as an incremental pipeline\n"
                     f"-- (e.g. read_files + streaming table / MERGE), or define a view if the\n"
                     f"-- source must be read live.\n"
                     f"CREATE TABLE IF NOT EXISTS {fq_name}\n"
                     f"  USING DELTA\n"
                     f"  AS SELECT * FROM read_files(\n"
-                    f"    '{node.file_path}',\n"
+                    f"    '{_lit(node.file_path)}',\n"
                     f"    format => '{rf_fmt}'\n"
                     f"  )\n"
-                    f"  -- Original file: {node.file_path}\n;"
+                    f"  -- Original file: {_cmt(node.file_path)}\n;"
                 )
         return None
 
     def _write_node_ddl(self, node: WriteNode) -> str | None:
         """Generate DDL for a WriteNode."""
         conn_name = node.connection_string or "default"
-        table_name = node.table_name or self._table_name_from_path(node.file_path, node.node_id)
+        table_name = _safe_identifier(node.table_name) if node.table_name else self._table_name_from_path(
+            node.file_path, node.node_id
+        )
         fq_name = self._mapping.resolve(conn_name, table_name)
 
         return (
             f"CREATE TABLE IF NOT EXISTS {fq_name} (\n"
             f"  -- Schema to be defined based on output data\n"
-            f"  -- Destination: {node.file_path or node.connection_string}\n"
-            f"  -- Write mode: {node.write_mode}\n"
+            f"  -- Destination: {_cmt(node.file_path or node.connection_string)}\n"
+            f"  -- Write mode: {_cmt(node.write_mode)}\n"
             f") USING DELTA;"
         )
 
@@ -169,8 +192,8 @@ class UnityCatalogGenerator:
                 return (
                     f"CREATE TABLE IF NOT EXISTS {fq_name}\n"
                     f"  USING DELTA\n"
-                    f"  LOCATION '{location}'\n"
-                    f"  -- Provider: {node.provider};"
+                    f"  LOCATION '{_lit(location)}'\n"
+                    f"  -- Provider: {_cmt(node.provider)};"
                 )
             # Non-Delta: ingest via read_files() (UC Volumes-friendly modern pattern).
             rf_fmt = _READ_FILES_FORMAT.get(fmt, fmt.lower())
@@ -178,10 +201,10 @@ class UnityCatalogGenerator:
                 f"CREATE TABLE IF NOT EXISTS {fq_name}\n"
                 f"  USING DELTA\n"
                 f"  AS SELECT * FROM read_files(\n"
-                f"    '{location}',\n"
+                f"    '{_lit(location)}',\n"
                 f"    format => '{rf_fmt}'\n"
                 f"  )\n"
-                f"  -- Provider: {node.provider};"
+                f"  -- Provider: {_cmt(node.provider)};"
             )
         elif isinstance(node, DynamicInputNode):
             table_name = f"dynamic_input_{node.node_id}"
@@ -189,7 +212,7 @@ class UnityCatalogGenerator:
 
             return (
                 f"CREATE TABLE IF NOT EXISTS {fq_name}\n"
-                f"  -- Dynamic input from: {node.file_path_pattern or node.template_query}\n"
+                f"  -- Dynamic input from: {_cmt(node.file_path_pattern or node.template_query)}\n"
                 f"  USING DELTA;"
             )
         return None
@@ -200,6 +223,6 @@ class UnityCatalogGenerator:
         if not file_path:
             return f"table_{node_id}"
         stem = Path(file_path).stem
-        # Sanitize to valid identifier
-        clean = "".join(c if c.isalnum() or c == "_" else "_" for c in stem).strip("_")
-        return clean or f"table_{node_id}"
+        # Sanitize to a valid identifier.
+        clean = _safe_identifier(stem)
+        return clean if clean != "table" else f"table_{node_id}"

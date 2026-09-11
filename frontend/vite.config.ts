@@ -24,11 +24,12 @@ export default defineConfig({
     },
   },
   test: {
-    // Node environment is enough: the tested modules are pure logic (warning
-    // parsing, deploy-status rules) with no DOM. Add jsdom if component tests
-    // are introduced later.
+    // Default to a fast node environment for pure-logic tests (warning parsing,
+    // deploy-status, CSV). Component tests opt into jsdom per-file with a
+    // `// @vitest-environment jsdom` docblock at the top of the file.
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    setupFiles: ["src/test-setup.ts"],
   },
   build: {
     outDir: "dist",
