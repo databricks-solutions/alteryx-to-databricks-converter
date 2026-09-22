@@ -21,6 +21,7 @@ from server.routers import (
     health,
     history,
     insights,
+    readiness,
     review,
     tools,
     validate,
@@ -135,6 +136,7 @@ app.include_router(validate.router)
 app.include_router(review.router)
 app.include_router(chat.router)
 app.include_router(insights.router)
+app.include_router(readiness.router)
 
 # WebSocket
 app.include_router(ws_batch.router)

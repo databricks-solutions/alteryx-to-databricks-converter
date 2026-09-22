@@ -45,7 +45,7 @@ Large organizations use Alteryx to build data pipelines visually. Moving those p
 
 - **What you save:** weeks of manual rewriting per workflow
 - **What you get:** PySpark notebooks, Spark Declarative Pipelines (DLT), Databricks SQL, Lakeflow Designer pipelines, and Workflow JSON — every conversion produces all five formats in one run, available via CLI, web upload, or Databricks Apps deployment
-- **What it handles:** 158 Alteryx tool types via 113 converters, 141 formula functions, 5 output formats, 12 CLI commands, database connections, expressions, joins, aggregations, and more
+- **What it handles:** 158 Alteryx tool types via 113 converters, 141 formula functions, 5 output formats, 15 CLI commands, database connections, expressions, joins, aggregations, and more
 
 > **You do not need Alteryx installed** to run this tool.
 
@@ -247,7 +247,9 @@ If you need to deploy by hand instead, run `make frontend` first (built assets a
 
 See the full [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**v1.5** (latest) — Lakeflow Designer output, confidence scoring, complexity analysis, connection mapping, expression audit, performance hints, Unity Catalog DDL, DAB generation, multi-format default (every conversion emits all 5 formats), cloud-portable Workflow JSON / DAB via `--cloud aws|azure|gcp`, categorized warnings + 3-tier deploy-readiness banner, and more. 141 expression functions, 1006 tests.
+**Latest** — Migration **savings & ROI estimator** (`a2d savings` + **Assess → Savings**): a configurable, numbers-based business case (Alteryx licenses retired, developer rewrite time saved, net of Databricks run cost, plus maintenance) with payback and ROI. Plus a **migration readiness questionnaire** (`a2d readiness` + **Assess → Readiness**): a deterministic, Alteryx→Databricks-centric self-assessment across estate, people, platform, and governance that returns tailored tips and can pre-answer the estate questions from your actual workflows.
+
+**v1.5** — Lakeflow Designer output, confidence scoring, complexity analysis, connection mapping, expression audit, performance hints, Unity Catalog DDL, DAB generation, multi-format default (every conversion emits all 5 formats), cloud-portable Workflow JSON / DAB via `--cloud aws|azure|gcp`, categorized warnings + 3-tier deploy-readiness banner, and more. 141 expression functions, 1006 tests.
 
 ---
 
@@ -340,13 +342,16 @@ All warnings include remediation hints with 50+ specific recommendations. The JS
 
 ## CLI Reference
 
-a2d provides 12 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
+a2d provides 15 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
 
 | Command | Purpose |
 |---|---|
 | `convert` | Convert workflows — emits PySpark, Spark Declarative Pipelines (DLT), SQL, Lakeflow and Designer code in one run; use `-f` to filter |
 | `analyze` | Generate migration readiness reports (HTML/JSON) |
 | `portfolio` | Analyze a whole estate — cross-workflow dependencies, shared macros, and a migration-wave plan |
+| `assess` | Migration profiler — estate footprint, complexity, and tool-by-difficulty tiers |
+| `savings` | Estimate migration savings, payback, and ROI (configurable cost assumptions) |
+| `readiness` | Score migration readiness with a tailored Alteryx→Databricks questionnaire |
 | `validate` | Check generated Python syntax |
 | `verify` | Check a workflow produces **semantically equivalent** results on sample data (see below) |
 | `suggest` | Write AI suggestions for what the converter couldn't convert (opt-in; see [AI assistant](#ai-assistant-opt-in)) |
@@ -424,6 +429,50 @@ joins, cross joins, persist/repartition, sequential joins).
 Derived from the workflow's **shape** (node count, DAG depth, shuffle/spatial/ML
 operations), not your data volumes. It's a planning aid, not a benchmark or a quote.
 Also available in the web UI at **Validate → Advisor**.
+
+### Migration savings & ROI (`a2d savings`)
+
+```bash
+a2d savings ./workflows/ --rate 120 --seats 25
+```
+
+Builds the migration business case. It grounds the numbers in what the converter
+found — workflow count, per-workflow effort tier, and coverage — then applies
+**configurable** cost assumptions to estimate:
+
+- **Alteryx licenses retired** (Designer seats + Server) — usually the biggest line.
+- **Developer rewrite time saved** — the manual-rewrite hours the converter automates
+  (from the same Low 2h / Med 8h / High 16h / Very High 40h effort model the profiler
+  uses) × your loaded hourly rate.
+- **Databricks run cost** — the new DBU/compute cost to run the migrated pipelines,
+  **subtracted** so the savings figure is net, not inflated.
+- **Ongoing maintenance / opex** reduced by consolidating onto one platform.
+
+It reports net annual savings, a **payback period**, and **ROI** over a configurable
+horizon. Tune every input via `--config` (YAML/JSON) or the `--rate` / `--seats` /
+`--automation` / `--horizon` flags. Deterministic and offline — a planning estimate,
+not a quote; the money defaults are illustrative placeholders you replace with your
+real numbers. Also in the web UI at **Assess → Savings**.
+
+### Migration readiness questionnaire (`a2d readiness`)
+
+```bash
+a2d readiness --dump-questions questions.yaml   # scaffold a blank template
+a2d readiness --answers questions.yaml          # score your answers
+a2d readiness --from-estate ./workflows/        # pre-answer the estate questions
+```
+
+An Alteryx→Databricks-centric **self-assessment** that scores organizational
+readiness across four dimensions — estate & workflow profile, people & skills,
+platform & data landscape, and governance & sponsorship — and returns tailored,
+prioritized tips (each pointing at the Databricks construct or a2d feature to reach
+for). A deterministic weighted rubric, no language model.
+
+Answer non-interactively with `--answers FILE`, `--interactive` for a terminal
+walkthrough, and/or `--from-estate PATH` to pre-answer the estate questions from your
+actual workflows. Weights and tier thresholds are tunable via `--config`. Distinct
+from `a2d assess`, which profiles the *files*; this scores *human* answers. Also in
+the web UI at **Assess → Readiness**.
 
 ### Incremental re-conversion (`a2d sync`)
 
@@ -552,7 +601,7 @@ make clean       # Remove build artifacts
 
 ```
 src/a2d/
-  cli.py                   # Typer CLI (12 commands)
+  cli.py                   # Typer CLI (15 commands)
   config.py                # Configuration dataclasses
   pipeline.py              # Orchestration: Parse → Convert → Generate
   connections.py           # YAML connection mapping (Alteryx → Unity Catalog)
@@ -577,15 +626,17 @@ src/a2d/
 
 server/                    # FastAPI backend
   main.py                  # App entry point
-  routers/                 # REST endpoints (analyze, convert, chat, health, history,
+  routers/                 # REST endpoints (analyze, assess, convert, chat, health,
+                           #   history, insights [portfolio/advise/savings], readiness,
                            #   review, tools, validate)
   services/                # Business logic
   websocket/               # Real-time batch progress
 
 frontend/                  # React 19 + TypeScript + Tailwind 4
   src/
-    routes/                # 11 pages (convert, batch, analyze, history, tools,
-                           #   validate, review, chat, settings, about, home)
+    routes/                # 15 pages (convert, batch, analyze, assess, portfolio,
+                           #   savings, readiness, advise, history, tools, validate,
+                           #   review, chat, settings, about, home)
     components/            # UI components (workflow graph, code viewer, etc.)
     stores/                # Zustand state management
     lib/                   # API client, utilities

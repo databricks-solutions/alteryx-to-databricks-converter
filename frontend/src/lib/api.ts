@@ -195,6 +195,36 @@ export const api = {
     fd.append("cloud", cloud);
     return request<AdvisorReport>("/advise", { method: "POST", body: fd });
   },
+
+  // ── Savings / ROI estimator ──────────────────────────────────────────
+
+  savings: (files: File[], config?: Record<string, unknown>) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    if (config && Object.keys(config).length > 0) {
+      fd.append("config", JSON.stringify(config));
+    }
+    return request<SavingsReport>("/savings", { method: "POST", body: fd });
+  },
+
+  savingsDefaults: () => request<CostAssumptions>("/savings/config-defaults"),
+
+  // ── Readiness questionnaire ──────────────────────────────────────────
+
+  readinessQuestions: () => request<ReadinessQuestions>("/readiness/questions"),
+
+  readinessScore: (answers: Record<string, string>, config?: Record<string, unknown>) =>
+    request<ReadinessResult>("/readiness/score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers, config }),
+    }),
+
+  readinessPrefill: (files: File[]) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    return request<ReadinessPrefill>("/readiness/prefill", { method: "POST", body: fd });
+  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -627,4 +657,117 @@ export interface AdvisorReport {
   node_count: number;
   max_depth: number;
   summary: Record<string, unknown>;
+}
+
+// ── Savings / ROI ──────────────────────────────────────────────────────
+
+export interface CostAssumptions {
+  currency: string;
+  designer_seats: number;
+  designer_cost_per_seat_year: number;
+  server_licenses: number;
+  server_cost_per_license_year: number;
+  developer_hourly_rate: number;
+  automation_factor: number | null;
+  review_hours_per_workflow: number;
+  dbu_price: number;
+  dbu_per_workflow_run: number;
+  runs_per_month: number;
+  annual_maintenance_savings: number;
+  analysis_horizon_years: number;
+  hour_anchors: Record<string, number>;
+}
+
+export interface SavingsLine {
+  key: string;
+  label: string;
+  amount: number;
+  kind: "one_time" | "annual";
+  direction: "saving" | "cost" | "investment";
+}
+
+export interface SavingsReport {
+  currency: string;
+  estate: {
+    workflow_count: number;
+    total_manual_hours: number;
+    hours_by_level: Record<string, number>;
+    workflows_by_level: Record<string, number>;
+    mean_coverage_pct: number;
+  };
+  assumptions: CostAssumptions;
+  lines: SavingsLine[];
+  headline: {
+    automation_factor_effective: number;
+    dev_hours_avoided: number;
+    dev_time_saved: number;
+    migration_investment: number;
+    alteryx_license_savings: number;
+    maintenance_savings: number;
+    databricks_run_cost: number;
+    net_annual_savings: number;
+    cumulative_net: number;
+    payback_months: number | null;
+    roi_pct: number | null;
+  };
+  disclaimer: string;
+  skipped_files?: string[];
+}
+
+// ── Readiness questionnaire ────────────────────────────────────────────
+
+export interface ReadinessOption {
+  value: string;
+  label: string;
+  score: number;
+  tip: string | null;
+}
+
+export interface ReadinessQuestion {
+  id: string;
+  dimension: string;
+  prompt: string;
+  weight: number;
+  options: ReadinessOption[];
+}
+
+export interface ReadinessQuestions {
+  dimensions: {
+    id: string;
+    label: string;
+    questions: ReadinessQuestion[];
+  }[];
+  config_defaults: {
+    dimension_weights: Record<string, number>;
+    tiers: { name: string; min_score: number }[];
+    tip_score_threshold: number;
+  };
+}
+
+export interface ReadinessTip {
+  question_id: string;
+  dimension: string;
+  dimension_label: string;
+  prompt: string;
+  answer: string;
+  score: number;
+  tip: string;
+}
+
+export interface ReadinessResult {
+  overall_score: number;
+  tier: string;
+  dimension_scores: Record<string, number>;
+  dimension_labels: Record<string, string>;
+  tips: ReadinessTip[];
+  answered: number;
+  total_questions: number;
+  unanswered: string[];
+  disclaimer: string;
+}
+
+export interface ReadinessPrefill {
+  answers: Record<string, string>;
+  workflow_count: number;
+  skipped_files: string[];
 }
