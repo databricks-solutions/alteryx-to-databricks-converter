@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. Follows [Keep a Changelog](https://keepachangelog.com/) format.
 
+## [Unreleased]
+
+### Added
+- **Migration savings / ROI estimator** — `a2d savings <path>` (CLI), `POST /api/savings` + `GET /api/savings/config-defaults` (API), and **Assess → Savings** (App). Combines facts derived from the estate (workflow count, per-workflow effort tier, coverage) with **configurable** cost assumptions — Alteryx licenses retired, developer rewrite time saved, Databricks run cost (subtracted, so the figure is net), and ongoing maintenance — into net annual savings, payback period, and ROI. New engine package `src/a2d/savings/` (`CostAssumptions` / `SavingsCalculator` / `SavingsReport`, with the same `default`/`from_mapping`/`from_file` config contract as `ProfilerConfig`). Deterministic and offline — a planning estimate, not a quote; money defaults are illustrative placeholders. CLI flags `--config`/`--rate`/`--seats`/`--automation`/`--horizon`.
+- **Migration readiness questionnaire** — `a2d readiness` (CLI), `GET /api/readiness/questions` + `POST /api/readiness/score` + `POST /api/readiness/prefill` (API), and **Assess → Readiness** (App). A deterministic, weighted, Alteryx→Databricks-centric self-assessment across four dimensions (estate & workflow profile, people & skills, platform & data landscape, governance & sponsorship) that returns tailored, prioritized tips. New engine package `src/a2d/questionnaire/` (question bank + scoring + `QuestionnaireConfig`); can pre-answer the estate questions from an uploaded workflow set (`prefill_from_estate`). CLI supports `--answers`, `--dump-questions`, `--from-estate`, `--interactive`, `--config`. No language model involved — named distinctly from the file-based `analyzer/readiness.py`.
+
 ## [2.0.0] - 2026-04-28
 
 > Major release — significant API and code-output changes since 1.5.0. Bumped from 1.5.0 directly to 2.0.0 to signal the breadth of breaking changes (Workflow JSON shape, expression registry semantics, generated-code patterns, deployment topology).

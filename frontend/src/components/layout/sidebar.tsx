@@ -17,6 +17,8 @@ import {
   Network,
   Gauge,
   Ruler,
+  PiggyBank,
+  ClipboardList,
   Settings,
 } from "lucide-react";
 import { useState } from "react";
@@ -49,6 +51,8 @@ const navGroups: NavGroup[] = [
       { to: "/analyze", label: "Analyze", icon: BarChart3 },
       { to: "/portfolio", label: "Portfolio", icon: Network },
       { to: "/assess", label: "Profiler", icon: Ruler },
+      { to: "/readiness", label: "Readiness", icon: ClipboardList },
+      { to: "/savings", label: "Savings", icon: PiggyBank },
       { to: "/tools", label: "Tools", icon: Grid3X3 },
     ],
   },

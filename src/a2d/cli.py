@@ -139,9 +139,7 @@ def main(
 @app.command()
 def convert(
     # -- Core I/O --
-    input_path: Path = typer.Argument(
-        ..., help="Path to a .yxmd/.yxmc/.yxwz file, a .yxzp package, or a directory"
-    ),
+    input_path: Path = typer.Argument(..., help="Path to a .yxmd/.yxmc/.yxwz file, a .yxzp package, or a directory"),
     output_dir: Path = typer.Option(
         "./a2d-output", "--output-dir", "-o", help="Output directory", rich_help_panel="Core Options"
     ),
@@ -747,15 +745,11 @@ def portfolio(
 
 @app.command()
 def assess(
-    input_path: Path = typer.Argument(
-        ..., help="Path to an Alteryx file (.yxmd/.yxmc/.yxwz/.yxzp) or a directory"
-    ),
+    input_path: Path = typer.Argument(..., help="Path to an Alteryx file (.yxmd/.yxmc/.yxwz/.yxzp) or a directory"),
     output_dir: Path = typer.Option(
         "./a2d-profile", "--output-dir", "-o", help="Where JSON/CSV artifacts are written (for --format json/csv/all)"
     ),
-    format: str = typer.Option(
-        "console", "--format", "-f", help="Output: console (default), json, csv, or all"
-    ),
+    format: str = typer.Option("console", "--format", "-f", help="Output: console (default), json, csv, or all"),
     config: Path | None = typer.Option(
         None, "--config", help="YAML/JSON profiler config: tier mappings, hour anchors (defaults are sensible)"
     ),
@@ -1319,6 +1313,374 @@ def _print_advisor_report(report) -> None:
             h.suggestion,
         )
     console.print(table)
+
+
+@app.command()
+def savings(
+    input_path: Path = typer.Argument(..., help="Path to an Alteryx file (.yxmd/.yxmc/.yxwz/.yxzp) or a directory"),
+    config: Path | None = typer.Option(
+        None, "--config", help="YAML/JSON cost assumptions (defaults are illustrative placeholders, not quotes)"
+    ),
+    rate: float | None = typer.Option(None, "--rate", help="Developer loaded hourly rate (overrides config)"),
+    seats: int | None = typer.Option(None, "--seats", help="Alteryx Designer seats retired (overrides config)"),
+    automation: float | None = typer.Option(
+        None, "--automation", help="Automation factor 0..1 (default: derived from estate coverage)"
+    ),
+    horizon: float | None = typer.Option(None, "--horizon", help="Analysis horizon in years (overrides config)"),
+    format: str = typer.Option("console", "--format", "-f", help="Output: console (default), json, or all"),
+    output_dir: Path = typer.Option(
+        "./a2d-savings", "--output-dir", "-o", help="Where JSON is written (for --format json/all)"
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Estimate migration savings, payback, and ROI for an Alteryx estate.
+
+    Combines facts the converter derives from your workflows (count, per-workflow
+    effort tier, coverage) with **configurable** cost assumptions — Alteryx licenses
+    retired, developer rewrite time saved, the new Databricks run cost (subtracted,
+    so the number is net), and ongoing maintenance — into a business case with a
+    payback period and ROI. Deterministic and offline: a planning estimate, not a
+    quote. Tune every input via ``--config`` (YAML/JSON) or the ``--rate`` / ``--seats``
+    / ``--automation`` / ``--horizon`` flags.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    from a2d.analyzer.batch import BatchAnalyzer
+    from a2d.savings import CostAssumptions, SavingsCalculator
+
+    fmt = format.strip().lower()
+    if fmt not in ("console", "json", "all"):
+        console.print(f"[red]Unknown --format {format!r}. Use: console, json, or all.[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        assumptions = CostAssumptions.from_file(config) if config else CostAssumptions.default()
+    except (ValueError, ImportError, OSError) as e:
+        console.print(f"[red]Could not load savings config: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    # Flag overrides take precedence over the config file. Validate each here —
+    # direct attribute assignment bypasses CostAssumptions' own non-negative checks.
+    if rate is not None:
+        if rate < 0:
+            console.print(f"[red]--rate must be non-negative, got {rate}[/red]")
+            raise typer.Exit(code=1)
+        assumptions.developer_hourly_rate = rate
+    if seats is not None:
+        if seats < 0:
+            console.print(f"[red]--seats must be non-negative, got {seats}[/red]")
+            raise typer.Exit(code=1)
+        assumptions.designer_seats = float(seats)
+    if automation is not None:
+        if not 0.0 <= automation <= 1.0:
+            console.print(f"[red]--automation must be between 0 and 1, got {automation}[/red]")
+            raise typer.Exit(code=1)
+        assumptions.automation_factor = automation
+    if horizon is not None:
+        if horizon <= 0:
+            console.print(f"[red]--horizon must be positive, got {horizon}[/red]")
+            raise typer.Exit(code=1)
+        assumptions.analysis_horizon_years = horizon
+
+    if input_path.is_file():
+        raw = [input_path]
+    elif input_path.is_dir():
+        raw = _glob_workflow_files(input_path)
+    else:
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+    if not raw:
+        console.print(f"[yellow]No Alteryx files found under {input_path}[/yellow]")
+        raise typer.Exit(code=1)
+
+    with contextlib.ExitStack() as pkg_stack:
+        files, _ = _resolve_package_inputs(raw, pkg_stack)
+        analyses = BatchAnalyzer().analyze_files(files)
+
+    if not analyses:
+        console.print("[yellow]No workflows could be analyzed.[/yellow]")
+        raise typer.Exit(code=1)
+
+    report = SavingsCalculator().compute(analyses, assumptions)
+    _print_savings_report(report)
+
+    if fmt in ("json", "all"):
+        import json as _json
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "savings_report.json").write_text(_json.dumps(report.to_dict(), indent=2))
+        console.print(f"\n[bold green]Savings report written[/bold green] to {output_dir}")
+
+
+def _fmt_money(currency: str, amount: float) -> str:
+    """Format a money amount with a thousands separator and currency prefix."""
+    return f"{currency} {amount:,.0f}"
+
+
+def _print_savings_report(report) -> None:
+    """Render the savings / ROI estimate to the console."""
+    cur = report.currency
+    est = report.estate
+    console.print()
+    console.rule(f"[bold]Migration savings estimate — {est.workflow_count} workflow(s)[/bold]")
+
+    if report.payback_months is None:
+        payback = "—"
+    elif report.payback_months <= 0:
+        payback = "immediate"
+    else:
+        payback = f"{report.payback_months:.1f} mo"
+    roi = "—" if report.roi_pct is None else f"{report.roi_pct:,.0f}%"
+
+    console.print(
+        f"[bold]Net annual savings:[/bold] [green]{_fmt_money(cur, report.net_annual_savings)}[/green] · "
+        f"[bold]Payback:[/bold] [cyan]{payback}[/cyan] · "
+        f"[bold]{report.assumptions.analysis_horizon_years:g}-yr ROI:[/bold] [cyan]{roi}[/cyan]"
+    )
+    console.print(
+        f"[dim]Estate: {est.total_manual_hours:g}h manual-rewrite baseline · "
+        f"mean coverage {est.mean_coverage_pct:.0f}% · "
+        f"automation factor {report.automation_factor_effective:.0%} → "
+        f"{report.dev_hours_avoided:g}h avoided[/dim]"
+    )
+
+    table = Table(title="Savings breakdown")
+    table.add_column("Line")
+    table.add_column("Amount", justify="right")
+    table.add_column("When")
+    table.add_column("Effect")
+    effect_color = {"saving": "green", "cost": "red", "investment": "yellow"}
+    for line in report.lines:
+        color = effect_color.get(line.direction, "white")
+        table.add_row(
+            line.label,
+            _fmt_money(cur, line.amount),
+            "one-time" if line.kind == "one_time" else "annual",
+            f"[{color}]{line.direction}[/{color}]",
+        )
+    console.print(table)
+
+    console.print(
+        f"\n[dim]{report.disclaimer}\n"
+        f"Assumptions used — rate {_fmt_money(cur, report.assumptions.developer_hourly_rate)}/h, "
+        f"{report.assumptions.designer_seats:g} Designer seat(s), "
+        f"{report.assumptions.server_licenses:g} Server license(s), "
+        f"horizon {report.assumptions.analysis_horizon_years:g}y. "
+        f"Edit these with --config / --rate / --seats / --automation / --horizon.[/dim]"
+    )
+
+
+def _readiness_yaml_template() -> str:
+    """A commented YAML answer template listing each question and its options."""
+    from a2d.questionnaire import DIMENSIONS, questions_by_dimension
+
+    lines = [
+        "# a2d migration-readiness questionnaire — fill in each value below.",
+        "# Score with:  a2d readiness --answers this-file.yaml",
+        "",
+    ]
+    grouped = questions_by_dimension()
+    for dim, label in DIMENSIONS.items():
+        lines.append(f"# ── {label} ──")
+        for q in grouped.get(dim, []):
+            opts = " | ".join(o.value for o in q.options)
+            lines.append(f"# {q.prompt}")
+            lines.append(f"#   options: {opts}")
+            lines.append(f'{q.id}: ""')
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _prompt_readiness_answers(prefilled: dict[str, str]) -> dict[str, str]:
+    """Interactively prompt for each question at the terminal."""
+    from a2d.questionnaire import DIMENSIONS, questions_by_dimension
+
+    collected: dict[str, str] = {}
+    grouped = questions_by_dimension()
+    for dim, label in DIMENSIONS.items():
+        console.rule(f"[bold]{label}[/bold]")
+        for q in grouped.get(dim, []):
+            console.print(f"[bold]{q.prompt}[/bold]")
+            for opt in q.options:
+                console.print(f"  [cyan]{opt.value}[/cyan] — {opt.label}")
+            default = prefilled.get(q.id) or ""
+            valid = {o.value for o in q.options}
+            while True:
+                ans = typer.prompt("  answer (or blank to skip)", default=default, show_default=bool(default))
+                ans = (ans or "").strip()
+                if ans == "" or ans in valid:
+                    break
+                console.print(f"  [red]invalid — choose one of: {', '.join(sorted(valid))}[/red]")
+            if ans:
+                collected[q.id] = ans
+    return collected
+
+
+@app.command()
+def readiness(
+    answers: Path | None = typer.Option(
+        None, "--answers", help="YAML/JSON file of {question_id: option_value} answers"
+    ),
+    dump_questions: Path | None = typer.Option(
+        None, "--dump-questions", help="Write a blank answer template (YAML/JSON) and exit"
+    ),
+    from_estate: Path | None = typer.Option(
+        None, "--from-estate", help="Pre-answer the estate questions from an Alteryx file/dir"
+    ),
+    config: Path | None = typer.Option(
+        None, "--config", help="YAML/JSON: dimension_weights, tiers, tip_score_threshold"
+    ),
+    interactive: bool = typer.Option(False, "--interactive", help="Prompt for each answer at the terminal"),
+    format: str = typer.Option("console", "--format", "-f", help="Output: console (default), json, or all"),
+    output_dir: Path = typer.Option(
+        "./a2d-readiness", "--output-dir", "-o", help="Where JSON is written (for --format json/all)"
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Migration-readiness questionnaire — a smart, Alteryx→Databricks self-assessment.
+
+    Scores organizational readiness across four dimensions (estate & workflow
+    profile, people & skills, platform & data landscape, governance & sponsorship)
+    and returns tailored tips. Deterministic and offline — a static weighted rubric,
+    no language model.
+
+    Answer non-interactively with ``--answers FILE`` (scaffold one via
+    ``--dump-questions``), ``--interactive`` for a terminal walkthrough, and/or
+    ``--from-estate PATH`` to pre-answer the estate questions from your actual
+    workflows. Weights and tier thresholds are tunable via ``--config``. Distinct
+    from ``a2d assess`` (which profiles the *files*); this scores *human* answers.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    import json as _json
+
+    from a2d.questionnaire import QuestionnaireConfig, prefill_from_estate, score
+
+    fmt = format.strip().lower()
+    if fmt not in ("console", "json", "all"):
+        console.print(f"[red]Unknown --format {format!r}. Use: console, json, or all.[/red]")
+        raise typer.Exit(code=1)
+
+    # Scaffold mode: write a blank template and exit.
+    if dump_questions is not None:
+        dump_questions.parent.mkdir(parents=True, exist_ok=True)
+        if dump_questions.suffix.lower() in (".yaml", ".yml"):
+            dump_questions.write_text(_readiness_yaml_template())
+        else:
+            from a2d.questionnaire import blank_answers
+
+            dump_questions.write_text(_json.dumps(blank_answers(), indent=2))
+        console.print(f"[green]Blank questionnaire template written to {dump_questions}[/green]")
+        console.print("[dim]Fill it in, then run: a2d readiness --answers <file>[/dim]")
+        return
+
+    try:
+        cfg = QuestionnaireConfig.from_file(config) if config else QuestionnaireConfig.default()
+    except (ValueError, ImportError, OSError) as e:
+        console.print(f"[red]Could not load questionnaire config: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    collected: dict[str, str] = {}
+
+    if from_estate is not None:
+        from a2d.analyzer.batch import BatchAnalyzer
+
+        if from_estate.is_file():
+            raw = [from_estate]
+        elif from_estate.is_dir():
+            raw = _glob_workflow_files(from_estate)
+        else:
+            console.print(f"[red]Error: {from_estate} not found[/red]")
+            raise typer.Exit(code=1)
+        with contextlib.ExitStack() as pkg_stack:
+            files, _ = _resolve_package_inputs(raw, pkg_stack)
+            analyses = BatchAnalyzer().analyze_files(files)
+        prefilled = prefill_from_estate(analyses)
+        collected.update(prefilled)
+        console.print(f"[dim]Pre-filled {len(prefilled)} estate answer(s) from {from_estate}[/dim]")
+
+    if answers is not None:
+        try:
+            text = answers.read_text(encoding="utf-8")
+            if answers.suffix.lower() in (".yaml", ".yml"):
+                import yaml
+
+                loaded = yaml.safe_load(text) or {}
+            else:
+                loaded = _json.loads(text) or {}
+        except (OSError, ValueError, ImportError) as e:
+            console.print(f"[red]Could not read answers file: {e}[/red]")
+            raise typer.Exit(code=1) from None
+        if not isinstance(loaded, dict):
+            console.print("[red]Answers file must be a mapping of question_id -> value.[/red]")
+            raise typer.Exit(code=1)
+        collected.update({k: v for k, v in loaded.items() if v not in (None, "")})
+
+    if interactive:
+        collected.update(_prompt_readiness_answers(collected))
+
+    if not collected:
+        console.print(
+            "[yellow]No answers provided.[/yellow] Use --answers FILE, --interactive, or --from-estate. "
+            "Scaffold a template with --dump-questions."
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        result = score(collected, cfg)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    _print_readiness_result(result)
+
+    if fmt in ("json", "all"):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "readiness_report.json").write_text(_json.dumps(result.to_dict(), indent=2))
+        console.print(f"\n[bold green]Readiness report written[/bold green] to {output_dir}")
+
+
+def _print_readiness_result(result, top_tips: int = 8) -> None:
+    """Render the readiness score, per-dimension bars, and tips to the console."""
+    console.print()
+    console.rule("[bold]Migration readiness assessment[/bold]")
+    tier_color = {"Advanced": "green", "Ready": "green", "Developing": "yellow", "Not Ready": "red"}.get(
+        result.tier, "cyan"
+    )
+    console.print(
+        f"[bold]Overall readiness:[/bold] [{tier_color}]{result.overall_score:.0f}/100 — {result.tier}[/{tier_color}]  "
+        f"[dim]({result.answered}/{result.total_questions} answered)[/dim]"
+    )
+
+    table = Table(title="By dimension")
+    table.add_column("Dimension")
+    table.add_column("Score", justify="right")
+    table.add_column("")
+    for dim, label in result.dimension_labels.items():
+        if dim not in result.dimension_scores:
+            continue
+        s = result.dimension_scores[dim]
+        filled = round(s / 10)
+        bar = "█" * filled + "░" * (10 - filled)
+        color = "green" if s >= 70 else "yellow" if s >= 45 else "red"
+        table.add_row(label, f"{s:.0f}", f"[{color}]{bar}[/{color}]")
+    console.print(table)
+
+    if result.tips:
+        console.print(f"\n[bold]Top recommendations[/bold] ([dim]{len(result.tips)} total, weakest first[/dim])")
+        for tip in result.tips[:top_tips]:
+            console.print(f"  [yellow]•[/yellow] [dim]({tip['dimension_label']})[/dim] {tip['tip']}")
+        if len(result.tips) > top_tips:
+            console.print(f"  [dim]… {len(result.tips) - top_tips} more (see --format json)[/dim]")
+    else:
+        console.print("\n[green]No gaps flagged — the answers indicate strong readiness across the board.[/green]")
+
+    if result.unanswered:
+        console.print(
+            f"\n[dim]{len(result.unanswered)} question(s) unanswered — score reflects only what was answered.[/dim]"
+        )
 
 
 @app.command()

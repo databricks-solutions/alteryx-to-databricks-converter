@@ -11,12 +11,15 @@ return JSON. Nothing is persisted.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from a2d.savings import CostAssumptions
 from server.services.advise import advise_workflow
 from server.services.portfolio import analyze_portfolio
+from server.services.savings import estimate_savings
 from server.utils.deadline import run_with_timeout
 from server.utils.validation import read_upload, validate_and_read_files, validate_yxmd_file
 
@@ -76,3 +79,54 @@ async def advise(
     except Exception:
         logger.exception("Unexpected error in advisory")
         raise HTTPException(status_code=500, detail="Internal advisory error") from None
+
+
+@router.get("/savings/config-defaults")
+async def savings_config_defaults() -> dict:
+    """Default cost assumptions for the App's savings form to render from.
+
+    The money values are illustrative placeholders, not quotes — the form is
+    expected to let the user replace them with real contract numbers.
+    """
+    return CostAssumptions.default().to_dict()
+
+
+@router.post("/savings")
+async def savings(
+    files: list[UploadFile] = File(...),
+    config: str | None = Form(None),
+) -> dict:
+    """Estimate migration savings, payback, and ROI for an uploaded estate.
+
+    ``config`` is an optional JSON string of cost-assumption overrides (same shape
+    as the CLI ``--config`` file: ``developer_hourly_rate``, ``designer_seats``,
+    ``automation_factor``, ...), merged over the defaults. Deterministic — a
+    planning estimate, not a quote.
+    """
+    file_data = await validate_and_read_files(files)
+
+    overrides: dict | None = None
+    if config:
+        try:
+            parsed = json.loads(config)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid config JSON: {e}") from None
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=400, detail="config must be a JSON object")
+        overrides = parsed
+
+    logger.info("Savings estimate over %d workflow(s) (custom_config=%s)", len(file_data), overrides is not None)
+    try:
+        return await run_with_timeout(
+            lambda fd: estimate_savings(fd, overrides),
+            file_data,
+            label=f"Savings estimate of {len(file_data)} workflow(s)",
+        )
+    except ValueError as e:
+        logger.warning("Validation error in savings estimate: %s", e)
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Unexpected error in savings estimate")
+        raise HTTPException(status_code=500, detail="Internal savings error") from None

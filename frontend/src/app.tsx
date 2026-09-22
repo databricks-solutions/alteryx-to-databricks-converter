@@ -47,6 +47,8 @@ const ReviewPage = lazyWithRetry(() => import("@/routes/review").then((m) => ({ 
 const ChatPage = lazyWithRetry(() => import("@/routes/chat").then((m) => ({ default: m.ChatPage })));
 const PortfolioPage = lazyWithRetry(() => import("@/routes/portfolio").then((m) => ({ default: m.PortfolioPage })));
 const AdvisePage = lazyWithRetry(() => import("@/routes/advise").then((m) => ({ default: m.AdvisePage })));
+const SavingsPage = lazyWithRetry(() => import("@/routes/savings").then((m) => ({ default: m.SavingsPage })));
+const ReadinessPage = lazyWithRetry(() => import("@/routes/readiness").then((m) => ({ default: m.ReadinessPage })));
 const SettingsPage = lazyWithRetry(() => import("@/routes/settings").then((m) => ({ default: m.SettingsPage })));
 
 function RouteLoading() {
@@ -96,6 +98,8 @@ const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/revie
 const chatRoute = createRoute({ getParentRoute: () => rootRoute, path: "/chat", component: ChatPage });
 const portfolioRoute = createRoute({ getParentRoute: () => rootRoute, path: "/portfolio", component: PortfolioPage });
 const adviseRoute = createRoute({ getParentRoute: () => rootRoute, path: "/advise", component: AdvisePage });
+const savingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/savings", component: SavingsPage });
+const readinessRoute = createRoute({ getParentRoute: () => rootRoute, path: "/readiness", component: ReadinessPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 
 const routeTree = rootRoute.addChildren([
@@ -112,6 +116,8 @@ const routeTree = rootRoute.addChildren([
   chatRoute,
   portfolioRoute,
   adviseRoute,
+  savingsRoute,
+  readinessRoute,
   settingsRoute,
 ]);
 
