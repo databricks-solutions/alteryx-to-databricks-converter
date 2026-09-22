@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import type { ValidateResponse } from "@/lib/api";
 import { CheckCircle, XCircle, Loader2, Play, Trash2 } from "lucide-react";
 
-export function ValidatePage() {
+export function ValidatePage({ embedded = false }: { embedded?: boolean }) {
   const [code, setCode] = useState("");
   const [result, setResult] = useState<ValidateResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,17 +35,27 @@ export function ValidatePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Validate Code"
-        description="Check syntax of converted workflows"
-      >
-        {result && (
+      {!embedded && (
+        <PageHeader
+          title="Validate Code"
+          description="Check syntax of converted workflows"
+        >
+          {result && (
+            <Button variant="ghost" size="sm" onClick={handleClear}>
+              <Trash2 className="h-4 w-4" />
+              Clear
+            </Button>
+          )}
+        </PageHeader>
+      )}
+      {embedded && result && (
+        <div className="flex justify-end">
           <Button variant="ghost" size="sm" onClick={handleClear}>
             <Trash2 className="h-4 w-4" />
             Clear
           </Button>
-        )}
-      </PageHeader>
+        </div>
+      )}
 
       {/* Code input */}
       <Card>

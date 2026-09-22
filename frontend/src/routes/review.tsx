@@ -57,7 +57,7 @@ function effectiveCode(node: ReviewNode, local: LocalDecision | undefined): stri
   return node.generated_code;
 }
 
-export function ReviewPage() {
+export function ReviewPage({ embedded = false }: { embedded?: boolean }) {
   const [files, setFiles] = useState<File[]>([]);
   const [outputFormat, setOutputFormat] = useState<FormatId>("pyspark");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -169,17 +169,27 @@ export function ReviewPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Review Workspace"
-        description="Inspect each node's generated code beside the workflow canvas, then accept, edit, or reject before exporting"
-      >
-        {session && (
+      {!embedded && (
+        <PageHeader
+          title="Review Workspace"
+          description="Inspect each node's generated code beside the workflow canvas, then accept, edit, or reject before exporting"
+        >
+          {session && (
+            <Button variant="secondary" size="sm" onClick={handleReset}>
+              <RotateCcw className="h-4 w-4" />
+              Review Another
+            </Button>
+          )}
+        </PageHeader>
+      )}
+      {embedded && session && (
+        <div className="flex justify-end">
           <Button variant="secondary" size="sm" onClick={handleReset}>
             <RotateCcw className="h-4 w-4" />
             Review Another
           </Button>
-        )}
-      </PageHeader>
+        </div>
+      )}
 
       {!session && (
         <div className="space-y-4">

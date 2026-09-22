@@ -11,36 +11,39 @@ import {
   Boxes,
   Code,
   Database,
-  Layers,
+  PiggyBank,
+  ClipboardCheck,
   Zap,
-  Clock,
   FileCheck,
 } from "lucide-react";
 
+// The four beats of the migration journey, in order — so the landing page tells
+// the story the sidebar groups imply (Assess → make the case → Convert → Review),
+// with the exec-facing business case surfaced up front rather than buried.
 const quickActions = [
   {
     icon: BarChart3,
-    title: "Analyze",
-    description: "Assess migration readiness of your workflows",
-    to: "/analyze",
+    title: "Assess",
+    description: "Profile readiness, tool difficulty, and dependencies — upload once, explore every view",
+    to: "/assess",
+  },
+  {
+    icon: PiggyBank,
+    title: "Business Case",
+    description: "Estimate savings, payback, and ROI, and score your migration readiness",
+    to: "/business-case",
   },
   {
     icon: ArrowRightLeft,
     title: "Convert",
-    description: "Generate PySpark, Spark Declarative Pipelines, SQL, Lakeflow SQL, and Lakeflow Designer in one shot — best format auto-flagged",
+    description: "Generate PySpark, Spark Declarative Pipelines, SQL, Lakeflow SQL, and Designer in one shot",
     to: "/convert",
   },
   {
-    icon: Layers,
-    title: "Batch Convert",
-    description: "Convert multiple workflows at once with progress tracking",
-    to: "/convert/batch",
-  },
-  {
-    icon: Clock,
-    title: "History",
-    description: "Browse past conversions",
-    to: "/history",
+    icon: ClipboardCheck,
+    title: "Review & Validate",
+    description: "Inspect generated code node-by-node, then accept, edit, or check its syntax",
+    to: "/review",
   },
 ];
 
@@ -73,8 +76,8 @@ export function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
           >
-            Enterprise-grade migration accelerator. Analyze, convert, and track
-            your workflow migration in one place.
+            Enterprise-grade migration accelerator. Assess your estate, build the
+            business case, convert to Databricks, and review the results — in one place.
           </motion.p>
           <motion.div
             className="mt-6 flex gap-3"
@@ -83,11 +86,11 @@ export function HomePage() {
             transition={{ delay: 0.3 }}
           >
             <Link
-              to="/analyze"
+              to="/assess"
               className="inline-flex items-center gap-2 rounded-lg bg-white/20 hover:bg-white/30 px-4 py-2 text-sm font-medium transition-colors"
             >
               <BarChart3 className="h-4 w-4" />
-              Start with Analysis
+              Assess your estate
             </Link>
             <Link
               to="/convert"
@@ -130,8 +133,8 @@ export function HomePage() {
           <p className="text-sm font-medium text-[var(--fg)]">New here? Start with analysis</p>
           <p className="text-xs text-[var(--fg-muted)] mt-1">
             Upload your Alteryx files on the{" "}
-            <Link to="/analyze" className="text-[var(--ring)] hover:underline">Analyze</Link> page
-            to see a readiness report, then{" "}
+            <Link to="/assess" className="text-[var(--ring)] hover:underline">Assess</Link> page
+            to see readiness, difficulty, and dependencies, then{" "}
             <Link to="/convert" className="text-[var(--ring)] hover:underline">Convert</Link> to generate code.
           </p>
         </Card>

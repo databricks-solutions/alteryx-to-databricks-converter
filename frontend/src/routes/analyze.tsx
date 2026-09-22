@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { PageHeader } from "@/components/layout/page-header";
 import { FileDropzone } from "@/components/shared/file-dropzone";
@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalysis } from "@/hooks/use-analysis";
-import { useAnalysisStore } from "@/stores/analysis";
+import { useEstateStore, isStale } from "@/stores/estate";
 import { useConvertBridge } from "@/stores/convert-bridge";
 import { downloadAnalysisCSV } from "@/lib/csv";
 import { motion } from "motion/react";
@@ -25,70 +25,80 @@ import {
   Gauge,
   Download,
   AlertTriangle,
-  History,
   RotateCcw,
 } from "lucide-react";
 
-export function AnalyzePage() {
-  const [files, setFiles] = useState<File[]>([]);
-  const [restoredData, setRestoredData] = useState<AnalysisResult | null>(null);
+export function AnalyzePage({ embedded = false }: { embedded?: boolean }) {
+  const files = useEstateStore((s) => s.files);
+  const setFiles = useEstateStore((s) => s.setFiles);
+  const stored = useEstateStore((s) => s.results.analyze);
+  const saveResult = useEstateStore((s) => s.saveResult);
+  const clearResult = useEstateStore((s) => s.clearResult);
   const mutation = useAnalysis();
-  const lastResult = useAnalysisStore((s) => s.lastResult);
-  const lastAnalyzedAt = useAnalysisStore((s) => s.lastAnalyzedAt);
-  const saveAnalysis = useAnalysisStore((s) => s.save);
   const setBridgeWorkflow = useConvertBridge((s) => s.setWorkflowName);
   const navigate = useNavigate();
 
-  // Persist successful analysis results. saveAnalysis is a stable Zustand action.
+  // Persist successful analysis results to the shared estate store.
   useEffect(() => {
-    if (mutation.data) {
-      saveAnalysis(mutation.data);
-    }
-  }, [mutation.data, saveAnalysis]);
+    if (mutation.data) saveResult("analyze", mutation.data);
+  }, [mutation.data, saveResult]);
 
-  // Fresh result takes priority, then restored from storage
-  const displayData: AnalysisResult | null = mutation.data ?? restoredData;
+  // Fresh result wins; otherwise fall back to the persisted one so navigating
+  // away and back (or reloading) doesn't discard the report.
+  const displayData: AnalysisResult | null = mutation.data ?? stored?.data ?? null;
+  const staleResult = !mutation.data && isStale(stored, files);
 
   const handleAnalyze = () => {
     if (files.length === 0) return;
-    setRestoredData(null);
     mutation.mutate(files);
   };
 
   const handleNewAnalysis = () => {
-    setRestoredData(null);
     mutation.reset();
-    setFiles([]);
+    clearResult("analyze");
   };
+
+  const actions = displayData ? (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => downloadAnalysisCSV(displayData.workflows)}
+      >
+        <Download className="h-4 w-4" />
+        Export CSV
+      </Button>
+      <Button variant="ghost" size="sm" onClick={handleNewAnalysis}>
+        <RotateCcw className="h-4 w-4" />
+        New Analysis
+      </Button>
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Analyze Workflows"
-        description="Upload Alteryx files (.yxmd, .yxmc, .yxwz, or .yxzp packages) to assess migration readiness and complexity"
-      >
-        {displayData && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => downloadAnalysisCSV(displayData!.workflows)}
-            >
-              <Download className="h-4 w-4" />
-              Export CSV
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleNewAnalysis}>
-              <RotateCcw className="h-4 w-4" />
-              New Analysis
-            </Button>
-          </div>
-        )}
-      </PageHeader>
+      {!embedded && (
+        <PageHeader
+          title="Analyze Workflows"
+          description="Upload Alteryx files (.yxmd, .yxmc, .yxwz, or .yxzp packages) to assess migration readiness and complexity"
+        >
+          {actions}
+        </PageHeader>
+      )}
+      {embedded && actions && <div className="flex justify-end">{actions}</div>}
 
-      <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
-        Note: this profiles workflow footprint and complexity (tools, coverage, structure, dependencies). It does not
-        measure data volumes or row counts, which depend on the source systems.
-      </p>
+      {!embedded && (
+        <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
+          Note: this profiles workflow footprint and complexity (tools, coverage, structure, dependencies). It does not
+          measure data volumes or row counts, which depend on the source systems.
+        </p>
+      )}
+
+      {staleResult && (
+        <p className="text-xs text-[var(--fg-muted)]">
+          Showing a report from a previously loaded estate — click Generate Report to refresh for the current files.
+        </p>
+      )}
 
       {!displayData && (
         <>
@@ -106,23 +116,6 @@ export function AnalyzePage() {
               )}
               Generate Report
             </Button>
-
-            {/* Restore previous analysis */}
-            {lastResult && !mutation.isPending && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setRestoredData(lastResult)}
-              >
-                <History className="h-4 w-4" />
-                Load Previous Analysis
-                {lastAnalyzedAt && (
-                  <span className="text-[var(--fg-muted)] ml-1">
-                    ({new Date(lastAnalyzedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })})
-                  </span>
-                )}
-              </Button>
-            )}
           </div>
         </>
       )}
