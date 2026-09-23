@@ -136,7 +136,15 @@ class MacroExpansionEngine:
         Absolute macro paths and any reference that escapes those roots (``..``,
         symlink, etc.) are rejected, so a crafted workflow cannot read arbitrary
         server files (e.g. ``/etc/passwd`` or ``../../secret.yxmc``).
+
+        Alteryx authored on Windows writes ``MacroPath`` with backslash separators
+        (e.g. ``_externals\\1\\Ingest.yxmc``); the same file is extracted from the
+        ``.yxzp`` under forward-slash names, so we normalize ``\\`` → ``/`` before
+        building the path — otherwise POSIX treats the whole string as one literal
+        filename and the macro is never found on a Linux server. This mirrors the
+        normalization already done for the cache key and ``function_name_for``.
         """
+        macro_path = macro_path.replace("\\", "/")
         candidate = Path(macro_path)
 
         # Allowed roots, resolved once.
