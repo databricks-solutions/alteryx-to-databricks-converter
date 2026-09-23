@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { PageHeader } from "@/components/layout/page-header";
 import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
@@ -189,6 +190,20 @@ export function AdvisePage() {
               </div>
             )}
           </Card>
+
+          {/* Hand the user onward — the advisory is a planning step, not a dead end. */}
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--ring)]/30 bg-[var(--ring)]/5 px-4 py-3 text-sm">
+            <ArrowRight className="h-4 w-4 shrink-0 text-[var(--ring)]" />
+            <span className="text-[var(--fg)]">Sized your cluster. Next:</span>
+            <div className="ml-auto flex flex-wrap gap-4">
+              <Link to="/review" className="font-medium text-[var(--ring)] hover:underline whitespace-nowrap">
+                Review the generated code →
+              </Link>
+              <Link to="/convert" className="font-medium text-[var(--ring)] hover:underline whitespace-nowrap">
+                Convert a workflow →
+              </Link>
+            </div>
+          </div>
         </div>
       )}
     </div>
