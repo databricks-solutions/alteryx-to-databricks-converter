@@ -3,6 +3,7 @@ import {
   createRouter,
   createRoute,
   createRootRoute,
+  redirect,
   RouterProvider,
   Outlet,
 } from "@tanstack/react-router";
@@ -20,7 +21,7 @@ import { ToastContainer } from "@/components/shared/toast-container";
  * with no way forward. One retry clears the common transient case; a genuine
  * failure still surfaces.
  */
-function lazyWithRetry<T extends { default: React.ComponentType<unknown> }>(
+function lazyWithRetry<T extends { default: React.ComponentType<{ embedded?: boolean }> }>(
   load: () => Promise<T>,
 ) {
   return lazy(() =>
@@ -33,22 +34,20 @@ function lazyWithRetry<T extends { default: React.ComponentType<unknown> }>(
   );
 }
 
-// Lazy-load route components for code splitting
+// Lazy-load route components for code splitting. The three "hub" pages compose
+// the individual analysis/review views (which now share estate state) into one
+// surface each — see the assess-hub / business-case / review-hub route files.
 const HomePage = lazyWithRetry(() => import("@/routes/index").then((m) => ({ default: m.HomePage })));
 const ConvertPage = lazyWithRetry(() => import("@/routes/convert").then((m) => ({ default: m.ConvertPage })));
 const ConvertBatchPage = lazyWithRetry(() => import("@/routes/convert-batch").then((m) => ({ default: m.ConvertBatchPage })));
-const AnalyzePage = lazyWithRetry(() => import("@/routes/analyze").then((m) => ({ default: m.AnalyzePage })));
-const AssessPage = lazyWithRetry(() => import("@/routes/assess").then((m) => ({ default: m.AssessPage })));
+const AssessHubPage = lazyWithRetry(() => import("@/routes/assess-hub").then((m) => ({ default: m.AssessHubPage })));
+const BusinessCasePage = lazyWithRetry(() => import("@/routes/business-case").then((m) => ({ default: m.BusinessCasePage })));
+const ReviewHubPage = lazyWithRetry(() => import("@/routes/review-hub").then((m) => ({ default: m.ReviewHubPage })));
 const ToolsPage = lazyWithRetry(() => import("@/routes/tools").then((m) => ({ default: m.ToolsPage })));
 const AboutPage = lazyWithRetry(() => import("@/routes/about").then((m) => ({ default: m.AboutPage })));
 const HistoryPage = lazyWithRetry(() => import("@/routes/history").then((m) => ({ default: m.HistoryPage })));
-const ValidatePage = lazyWithRetry(() => import("@/routes/validate").then((m) => ({ default: m.ValidatePage })));
-const ReviewPage = lazyWithRetry(() => import("@/routes/review").then((m) => ({ default: m.ReviewPage })));
 const ChatPage = lazyWithRetry(() => import("@/routes/chat").then((m) => ({ default: m.ChatPage })));
-const PortfolioPage = lazyWithRetry(() => import("@/routes/portfolio").then((m) => ({ default: m.PortfolioPage })));
 const AdvisePage = lazyWithRetry(() => import("@/routes/advise").then((m) => ({ default: m.AdvisePage })));
-const SavingsPage = lazyWithRetry(() => import("@/routes/savings").then((m) => ({ default: m.SavingsPage })));
-const ReadinessPage = lazyWithRetry(() => import("@/routes/readiness").then((m) => ({ default: m.ReadinessPage })));
 const SettingsPage = lazyWithRetry(() => import("@/routes/settings").then((m) => ({ default: m.SettingsPage })));
 
 function RouteLoading() {
@@ -88,37 +87,51 @@ const rootRoute = createRootRoute({ component: RootLayout });
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: HomePage });
 const convertRoute = createRoute({ getParentRoute: () => rootRoute, path: "/convert", component: ConvertPage });
 const batchRoute = createRoute({ getParentRoute: () => rootRoute, path: "/convert/batch", component: ConvertBatchPage });
-const analyzeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/analyze", component: AnalyzePage });
-const assessRoute = createRoute({ getParentRoute: () => rootRoute, path: "/assess", component: AssessPage });
+const assessRoute = createRoute({ getParentRoute: () => rootRoute, path: "/assess", component: AssessHubPage });
+const businessCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: "/business-case", component: BusinessCasePage });
+const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewHubPage });
 const toolsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/tools", component: ToolsPage });
 const aboutRoute = createRoute({ getParentRoute: () => rootRoute, path: "/about", component: AboutPage });
 const historyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/history", component: HistoryPage });
-const validateRoute = createRoute({ getParentRoute: () => rootRoute, path: "/validate", component: ValidatePage });
-const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewPage });
 const chatRoute = createRoute({ getParentRoute: () => rootRoute, path: "/chat", component: ChatPage });
-const portfolioRoute = createRoute({ getParentRoute: () => rootRoute, path: "/portfolio", component: PortfolioPage });
 const adviseRoute = createRoute({ getParentRoute: () => rootRoute, path: "/advise", component: AdvisePage });
-const savingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/savings", component: SavingsPage });
-const readinessRoute = createRoute({ getParentRoute: () => rootRoute, path: "/readiness", component: ReadinessPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
+
+// Redirects: the old standalone analysis/validate tabs now live inside the hubs
+// above. Keep the URLs working (bookmarks, docs, deep links) by redirecting.
+function redirectRoute(path: string, to: string) {
+  return createRoute({
+    getParentRoute: () => rootRoute,
+    path,
+    beforeLoad: () => {
+      throw redirect({ to });
+    },
+  });
+}
+const analyzeRedirect = redirectRoute("/analyze", "/assess");
+const portfolioRedirect = redirectRoute("/portfolio", "/assess");
+const savingsRedirect = redirectRoute("/savings", "/business-case");
+const readinessRedirect = redirectRoute("/readiness", "/business-case");
+const validateRedirect = redirectRoute("/validate", "/review");
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
   convertRoute,
   batchRoute,
-  analyzeRoute,
   assessRoute,
+  businessCaseRoute,
+  reviewRoute,
   toolsRoute,
   aboutRoute,
   historyRoute,
-  validateRoute,
-  reviewRoute,
   chatRoute,
-  portfolioRoute,
   adviseRoute,
-  savingsRoute,
-  readinessRoute,
   settingsRoute,
+  analyzeRedirect,
+  portfolioRedirect,
+  savingsRedirect,
+  readinessRedirect,
+  validateRedirect,
 ]);
 
 const router = createRouter({ routeTree });

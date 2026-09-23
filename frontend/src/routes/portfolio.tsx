@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { usePortfolio } from "@/hooks/use-insights";
+import { useEstateStore, isStale } from "@/stores/estate";
 import { downloadJson } from "@/lib/portfolio-download";
 import { Play, Loader2, RotateCcw, Download, Layers, GitBranch, Copy, Clock } from "lucide-react";
 
@@ -15,10 +16,21 @@ const EFFORT_VARIANT: Record<string, "success" | "warning" | "destructive" | "se
   High: "destructive",
 };
 
-export function PortfolioPage() {
-  const [files, setFiles] = useState<File[]>([]);
+export function PortfolioPage({ embedded = false }: { embedded?: boolean }) {
+  const files = useEstateStore((s) => s.files);
+  const setFiles = useEstateStore((s) => s.setFiles);
+  const stored = useEstateStore((s) => s.results.portfolio);
+  const saveResult = useEstateStore((s) => s.saveResult);
+  const clearResult = useEstateStore((s) => s.clearResult);
   const mutation = usePortfolio();
-  const report = mutation.data;
+
+  // Persist the estate report so switching views / reloading keeps it.
+  useEffect(() => {
+    if (mutation.data) saveResult("portfolio", mutation.data);
+  }, [mutation.data, saveResult]);
+
+  const report = mutation.data ?? stored?.data ?? null;
+  const staleResult = !mutation.data && isStale(stored, files);
 
   const handleAnalyze = () => {
     if (files.length === 0) return;
@@ -27,37 +39,50 @@ export function PortfolioPage() {
 
   const handleReset = () => {
     mutation.reset();
-    setFiles([]);
+    clearResult("portfolio");
   };
+
+  const actions = report ? (
+    <>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => downloadJson(report, "portfolio-analysis.json")}
+      >
+        <Download className="h-4 w-4" />
+        Export JSON
+      </Button>
+      <Button variant="secondary" size="sm" onClick={handleReset}>
+        <RotateCcw className="h-4 w-4" />
+        New Analysis
+      </Button>
+    </>
+  ) : null;
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Portfolio Analysis"
-        description="Analyze a whole estate at once — cross-workflow dependencies, shared macros, duplicated logic, and a migration-wave plan"
-      >
-        {report && (
-          <>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => downloadJson(report, "portfolio-analysis.json")}
-            >
-              <Download className="h-4 w-4" />
-              Export JSON
-            </Button>
-            <Button variant="secondary" size="sm" onClick={handleReset}>
-              <RotateCcw className="h-4 w-4" />
-              New Analysis
-            </Button>
-          </>
-        )}
-      </PageHeader>
+      {!embedded && (
+        <PageHeader
+          title="Portfolio Analysis"
+          description="Analyze a whole estate at once — cross-workflow dependencies, shared macros, duplicated logic, and a migration-wave plan"
+        >
+          {actions}
+        </PageHeader>
+      )}
+      {embedded && actions && <div className="flex justify-end gap-2">{actions}</div>}
 
-      <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
-        Note: this profiles workflow footprint, complexity, and cross-file dependencies. It does not measure data
-        volumes or row counts, which depend on the source systems.
-      </p>
+      {!embedded && (
+        <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
+          Note: this profiles workflow footprint, complexity, and cross-file dependencies. It does not measure data
+          volumes or row counts, which depend on the source systems.
+        </p>
+      )}
+
+      {staleResult && (
+        <p className="text-xs text-[var(--fg-muted)]">
+          Showing a report from a previously loaded estate — re-run to refresh for the current files.
+        </p>
+      )}
 
       {!report && (
         <div className="space-y-4">

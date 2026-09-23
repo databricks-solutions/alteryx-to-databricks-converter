@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAssess, useAssessDefaults } from "@/hooks/use-assess";
+import { useEstateStore, isStale } from "@/stores/estate";
 import type { AssessResult } from "@/lib/api";
 import {
   Workflow,
@@ -87,14 +88,22 @@ function StatRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function AssessPage() {
-  const [files, setFiles] = useState<File[]>([]);
+export function AssessPage({ embedded = false }: { embedded?: boolean }) {
+  const files = useEstateStore((s) => s.files);
+  const setFiles = useEstateStore((s) => s.setFiles);
+  const stored = useEstateStore((s) => s.results.profile);
+  const saveResult = useEstateStore((s) => s.saveResult);
+  const clearResult = useEstateStore((s) => s.clearResult);
   const [hours, setHours] = useState(false);
   const [categoryTiers, setCategoryTiers] = useState<Record<string, string>>({});
   const [toolOverrides, setToolOverrides] = useState<Record<string, string>>({});
   const mutation = useAssess();
   const { data: defaults } = useAssessDefaults();
-  const result = mutation.data;
+
+  // Persist the profile so switching views / reloading keeps it.
+  useEffect(() => {
+    if (mutation.data) saveResult("profile", mutation.data);
+  }, [mutation.data, saveResult]);
 
   // Seed the tier editor from the server defaults once they arrive.
   useEffect(() => {
@@ -102,6 +111,9 @@ export function AssessPage() {
       setCategoryTiers({ ...defaults.category_tiers });
     }
   }, [defaults, categoryTiers]);
+
+  const result = mutation.data ?? stored?.data ?? null;
+  const staleResult = !mutation.data && isStale(stored, files);
 
   const runProfile = () => {
     if (files.length === 0) return;
@@ -116,54 +128,63 @@ export function AssessPage() {
   };
 
   const reset = () => {
-    setFiles([]);
     mutation.reset();
-    // Also clear customized profiler settings so a fresh run starts from the
-    // defaults rather than silently reusing the previous run's assumptions.
-    // categoryTiers re-seeds from server defaults via the effect above.
-    setHours(false);
-    setCategoryTiers({});
-    setToolOverrides({});
+    clearResult("profile");
+    // Keep the shared estate files and the tier customizations so a re-run
+    // reuses them rather than forcing the user to redo both.
   };
+
+  const actions = result ? (
+    <>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => downloadBlob("migration_profile.csv", toCsv(result), "text/csv")}
+      >
+        <Download className="h-4 w-4" />
+        CSV
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() =>
+          downloadBlob("migration_profile.json", JSON.stringify(result, null, 2), "application/json")
+        }
+      >
+        <Download className="h-4 w-4" />
+        JSON
+      </Button>
+      <Button variant="ghost" size="sm" onClick={reset}>
+        <RotateCcw className="h-4 w-4" />
+        New
+      </Button>
+    </>
+  ) : null;
 
   return (
     <div>
-      <PageHeader
-        title="Migration Profiler"
-        description="Profile an Alteryx estate: footprint, complexity, and tool-by-difficulty breakdown"
-      >
-        {result && (
-          <>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => downloadBlob("migration_profile.csv", toCsv(result), "text/csv")}
-            >
-              <Download className="h-4 w-4" />
-              CSV
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() =>
-                downloadBlob("migration_profile.json", JSON.stringify(result, null, 2), "application/json")
-              }
-            >
-              <Download className="h-4 w-4" />
-              JSON
-            </Button>
-            <Button variant="ghost" size="sm" onClick={reset}>
-              <RotateCcw className="h-4 w-4" />
-              New
-            </Button>
-          </>
-        )}
-      </PageHeader>
+      {!embedded && (
+        <PageHeader
+          title="Migration Profiler"
+          description="Profile an Alteryx estate: footprint, complexity, and tool-by-difficulty breakdown"
+        >
+          {actions}
+        </PageHeader>
+      )}
+      {embedded && actions && <div className="flex justify-end gap-2 mb-4">{actions}</div>}
 
-      <p className="text-xs text-[var(--fg-muted)] -mt-4 mb-6">
-        Note: this profiles workflow footprint and complexity (tools, coverage, structure, dependencies). It does not
-        measure data volumes or row counts, which depend on the source systems.
-      </p>
+      {staleResult && (
+        <p className="text-xs text-[var(--fg-muted)] mb-4">
+          Showing a profile from a previously loaded estate — re-run to refresh for the current files.
+        </p>
+      )}
+
+      {!embedded && (
+        <p className="text-xs text-[var(--fg-muted)] -mt-4 mb-6">
+          Note: this profiles workflow footprint and complexity (tools, coverage, structure, dependencies). It does not
+          measure data volumes or row counts, which depend on the source systems.
+        </p>
+      )}
 
       {/* Upload */}
       {!result && !mutation.isPending && (

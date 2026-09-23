@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useSavings, useSavingsDefaults } from "@/hooks/use-insights";
+import { useEstateStore, isStale } from "@/stores/estate";
 import { downloadJson } from "@/lib/portfolio-download";
 import type { CostAssumptions, SavingsReport } from "@/lib/api";
 import { Play, Loader2, RotateCcw, Download, PiggyBank, Info, Clock, TrendingUp } from "lucide-react";
@@ -74,13 +75,21 @@ function NumberField({
   );
 }
 
-export function SavingsPage() {
-  const [files, setFiles] = useState<File[]>([]);
+export function SavingsPage({ embedded = false }: { embedded?: boolean }) {
+  const files = useEstateStore((s) => s.files);
+  const setFiles = useEstateStore((s) => s.setFiles);
+  const stored = useEstateStore((s) => s.results.savings);
+  const saveResult = useEstateStore((s) => s.saveResult);
+  const clearResult = useEstateStore((s) => s.clearResult);
   const [form, setForm] = useState<CostAssumptions | null>(null);
   const [autoOverride, setAutoOverride] = useState(false);
   const { data: defaults } = useSavingsDefaults();
   const mutation = useSavings();
-  const report = mutation.data;
+
+  // Persist the estimate so it survives navigation / reload.
+  useEffect(() => {
+    if (mutation.data) saveResult("savings", mutation.data);
+  }, [mutation.data, saveResult]);
 
   // Seed the assumptions form from server defaults once they arrive.
   useEffect(() => {
@@ -89,6 +98,9 @@ export function SavingsPage() {
       setAutoOverride(defaults.automation_factor !== null);
     }
   }, [defaults, form]);
+
+  const report = mutation.data ?? stored?.data ?? null;
+  const staleResult = !mutation.data && isStale(stored, files);
 
   const set = (key: keyof CostAssumptions, v: number | null) =>
     setForm((f) => (f ? { ...f, [key]: v } : f));
@@ -103,7 +115,7 @@ export function SavingsPage() {
 
   const reset = () => {
     mutation.reset();
-    setFiles([]);
+    clearResult("savings");
     if (defaults) {
       setForm({ ...defaults });
       setAutoOverride(defaults.automation_factor !== null);
@@ -114,27 +126,51 @@ export function SavingsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Savings & ROI Estimator"
-        description="Build the migration business case — license savings, developer time saved, payback and ROI"
-      >
-        {report && (
-          <>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => downloadJson(report, "savings-estimate.json")}
-            >
-              <Download className="h-4 w-4" />
-              Export JSON
-            </Button>
-            <Button variant="secondary" size="sm" onClick={reset}>
-              <RotateCcw className="h-4 w-4" />
-              New Estimate
-            </Button>
-          </>
-        )}
-      </PageHeader>
+      {!embedded && (
+        <PageHeader
+          title="Savings & ROI Estimator"
+          description="Build the migration business case — license savings, developer time saved, payback and ROI"
+        >
+          {report && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => downloadJson(report, "savings-estimate.json")}
+              >
+                <Download className="h-4 w-4" />
+                Export JSON
+              </Button>
+              <Button variant="secondary" size="sm" onClick={reset}>
+                <RotateCcw className="h-4 w-4" />
+                New Estimate
+              </Button>
+            </>
+          )}
+        </PageHeader>
+      )}
+      {embedded && report && (
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => downloadJson(report, "savings-estimate.json")}
+          >
+            <Download className="h-4 w-4" />
+            Export JSON
+          </Button>
+          <Button variant="secondary" size="sm" onClick={reset}>
+            <RotateCcw className="h-4 w-4" />
+            New Estimate
+          </Button>
+        </div>
+      )}
+
+      {staleResult && (
+        <p className="text-xs text-[var(--fg-muted)]">
+          Showing an estimate from a previously loaded estate — re-run to refresh for the current files.
+        </p>
+      )}
 
       {/* Set expectations: a planning estimate, not a quote. */}
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-xs text-[var(--fg-muted)]">

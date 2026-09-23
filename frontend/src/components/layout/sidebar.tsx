@@ -3,7 +3,6 @@ import {
   Home,
   ArrowRightLeft,
   Layers,
-  BarChart3,
   Grid3X3,
   Info,
   Moon,
@@ -11,14 +10,11 @@ import {
   Menu,
   X,
   Clock,
-  CheckCircle,
   ClipboardCheck,
   MessageSquare,
-  Network,
   Gauge,
   Ruler,
   PiggyBank,
-  ClipboardList,
   Settings,
 } from "lucide-react";
 import { useState } from "react";
@@ -48,11 +44,8 @@ const navGroups: NavGroup[] = [
   {
     title: "Assess",
     items: [
-      { to: "/analyze", label: "Analyze", icon: BarChart3 },
-      { to: "/portfolio", label: "Portfolio", icon: Network },
-      { to: "/assess", label: "Profiler", icon: Ruler },
-      { to: "/readiness", label: "Readiness", icon: ClipboardList },
-      { to: "/savings", label: "Savings", icon: PiggyBank },
+      { to: "/assess", label: "Assess", icon: Ruler },
+      { to: "/business-case", label: "Business Case", icon: PiggyBank },
       { to: "/tools", label: "Tools", icon: Grid3X3 },
     ],
   },
@@ -67,8 +60,7 @@ const navGroups: NavGroup[] = [
   {
     title: "Validate",
     items: [
-      { to: "/validate", label: "Validate", icon: CheckCircle },
-      { to: "/review", label: "Review", icon: ClipboardCheck },
+      { to: "/review", label: "Review & Validate", icon: ClipboardCheck },
       { to: "/advise", label: "Advisor", icon: Gauge },
     ],
   },

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { PageHeader } from "@/components/layout/page-header";
 import { FileDropzone } from "@/components/shared/file-dropzone";
@@ -11,6 +11,7 @@ import {
   useReadinessQuestions,
   useReadinessScore,
 } from "@/hooks/use-readiness";
+import { useEstateStore } from "@/stores/estate";
 import { downloadJson } from "@/lib/portfolio-download";
 import type { ReadinessResult } from "@/lib/api";
 import { ClipboardList, Loader2, RotateCcw, Download, Info, Wand2, Lightbulb } from "lucide-react";
@@ -25,13 +26,46 @@ function scoreColor(score: number): string {
   return score >= 70 ? "#22c55e" : score >= 45 ? "#eab308" : "#ef4444";
 }
 
-export function ReadinessPage() {
+// In-progress answers persist to localStorage so a half-filled questionnaire
+// survives navigation (the score itself persists via the shared estate store).
+const ANSWERS_KEY = "a2d-readiness-answers";
+function loadAnswers(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(ANSWERS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+function saveAnswers(a: Record<string, string>) {
+  try {
+    localStorage.setItem(ANSWERS_KEY, JSON.stringify(a));
+  } catch {
+    /* localStorage unavailable — non-fatal */
+  }
+}
+
+export function ReadinessPage({ embedded = false }: { embedded?: boolean }) {
   const { data: bank, isLoading } = useReadinessQuestions();
   const prefill = useReadinessPrefill();
   const scoreMut = useReadinessScore();
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [prefillFiles, setPrefillFiles] = useState<File[]>([]);
-  const result = scoreMut.data;
+  const files = useEstateStore((s) => s.files);
+  const setFiles = useEstateStore((s) => s.setFiles);
+  const stored = useEstateStore((s) => s.results.readiness);
+  const saveResult = useEstateStore((s) => s.saveResult);
+  const clearResult = useEstateStore((s) => s.clearResult);
+  const [answers, setAnswers] = useState<Record<string, string>>(() => loadAnswers());
+  const result = scoreMut.data ?? stored?.data ?? null;
+
+  // Persist the score so it survives navigation / reload.
+  useEffect(() => {
+    if (scoreMut.data) saveResult("readiness", scoreMut.data);
+  }, [scoreMut.data, saveResult]);
+
+  // Persist in-progress answers as they change.
+  useEffect(() => {
+    saveAnswers(answers);
+  }, [answers]);
 
   const totalQuestions = bank?.dimensions.reduce((n, d) => n + d.questions.length, 0) ?? 0;
   const answeredCount = Object.values(answers).filter((v) => v).length;
@@ -39,9 +73,9 @@ export function ReadinessPage() {
   const pick = (qid: string, value: string) => setAnswers((a) => ({ ...a, [qid]: value }));
 
   const runPrefill = () => {
-    if (prefillFiles.length === 0) return;
+    if (files.length === 0) return;
     prefill.mutate(
-      { files: prefillFiles },
+      { files },
       { onSuccess: (res) => setAnswers((a) => ({ ...a, ...res.answers })) },
     );
   };
@@ -53,30 +87,35 @@ export function ReadinessPage() {
 
   const reset = () => {
     scoreMut.reset();
+    clearResult("readiness");
     setAnswers({});
-    setPrefillFiles([]);
     prefill.reset();
   };
 
+  const actions = result ? (
+    <>
+      <Button variant="secondary" size="sm" onClick={() => downloadJson(result, "readiness-assessment.json")}>
+        <Download className="h-4 w-4" />
+        Export JSON
+      </Button>
+      <Button variant="secondary" size="sm" onClick={reset}>
+        <RotateCcw className="h-4 w-4" />
+        Start Over
+      </Button>
+    </>
+  ) : null;
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Migration Readiness"
-        description="A smart, Alteryx→Databricks self-assessment — score your readiness and get tailored tips"
-      >
-        {result && (
-          <>
-            <Button variant="secondary" size="sm" onClick={() => downloadJson(result, "readiness-assessment.json")}>
-              <Download className="h-4 w-4" />
-              Export JSON
-            </Button>
-            <Button variant="secondary" size="sm" onClick={reset}>
-              <RotateCcw className="h-4 w-4" />
-              Start Over
-            </Button>
-          </>
-        )}
-      </PageHeader>
+      {!embedded && (
+        <PageHeader
+          title="Migration Readiness"
+          description="An Alteryx→Databricks self-assessment — score your readiness and get tailored tips"
+        >
+          {actions}
+        </PageHeader>
+      )}
+      {embedded && actions && <div className="flex justify-end gap-2">{actions}</div>}
 
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-xs text-[var(--fg-muted)]">
         <Info className="h-4 w-4 shrink-0 mt-0.5" />
@@ -99,9 +138,9 @@ export function ReadinessPage() {
               Upload your Alteryx workflows and we'll pre-answer the estate questions from the actual files
               (count, macros, advanced tools). You can still edit every answer.
             </p>
-            <FileDropzone files={prefillFiles} onFilesChange={setPrefillFiles} multiple />
+            <FileDropzone files={files} onFilesChange={setFiles} multiple />
             <div className="flex items-center gap-3">
-              <Button variant="secondary" size="sm" onClick={runPrefill} disabled={prefillFiles.length === 0 || prefill.isPending}>
+              <Button variant="secondary" size="sm" onClick={runPrefill} disabled={files.length === 0 || prefill.isPending}>
                 {prefill.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
                 Prefill estate answers
               </Button>
