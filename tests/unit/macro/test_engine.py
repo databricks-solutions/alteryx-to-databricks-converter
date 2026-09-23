@@ -138,6 +138,32 @@ class TestResolvePathContainment:
         resolved = engine._resolve_path("helper.yxmc", workflow_dir)
         assert resolved == macro.resolve()
 
+    def test_windows_backslash_macro_path_resolves(self, tmp_path):
+        # Alteryx authored on Windows writes MacroPath with backslashes; the .yxzp
+        # extracts the file under forward-slash names. The resolver must normalize
+        # \\ -> / or the macro is never found on a Linux server (returns None ->
+        # UnresolvedMacro -> node stays Unknown). Regression for the .yxzp report.
+        nested = tmp_path / "wf" / "_externals" / "1"
+        nested.mkdir(parents=True)
+        macro = nested / "Excel Ingest to Output (With Test for Open Files).yxmc"
+        macro.write_text("<x/>", encoding="utf-8")
+        workflow_dir = tmp_path / "wf"
+
+        engine = MacroExpansionEngine()
+        win_path = r"_externals\1\Excel Ingest to Output (With Test for Open Files).yxmc"
+        resolved = engine._resolve_path(win_path, workflow_dir)
+        assert resolved == macro.resolve()
+
+    def test_windows_backslash_traversal_still_rejected(self, tmp_path):
+        # Normalizing separators must not weaken containment: a backslash path that
+        # escapes the root is still rejected.
+        (tmp_path / "secret.yxmc").write_text("<x/>", encoding="utf-8")
+        workflow_dir = tmp_path / "wf"
+        workflow_dir.mkdir()
+
+        engine = MacroExpansionEngine()
+        assert engine._resolve_path(r"..\secret.yxmc", workflow_dir) is None
+
     def test_symlink_escape_rejected(self, tmp_path):
         # An in-root symlink pointing outside the trusted root must not resolve:
         # containment is checked on the RESOLVED (symlink-followed) path.

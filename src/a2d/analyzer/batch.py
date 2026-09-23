@@ -19,13 +19,22 @@ logger = logging.getLogger("a2d.analyzer.batch")
 
 
 class BatchAnalyzer:
-    """Analyze multiple workflow files for migration readiness."""
+    """Analyze multiple workflow files for migration readiness.
 
-    def __init__(self) -> None:
+    ``expand_macros`` inlines referenced ``.yxmc`` macros into each workflow's DAG
+    before analysis — the same step the conversion pipeline runs. It is off by
+    default so CLI/existing behavior is unchanged, but the hosted App enables it so
+    a ``.yxzp`` (which extracts its macros co-located) analyzes the macro's real
+    interior instead of classifying the macro-call node as an unsupported Unknown.
+    Unresolvable macros are left in place, so this never fails a workflow.
+    """
+
+    def __init__(self, *, expand_macros: bool = False) -> None:
         self._parser = WorkflowParser()
         self._complexity_analyzer = ComplexityAnalyzer()
         self._coverage_analyzer = CoverageAnalyzer()
         self._readiness_assessor = ReadinessAssessor()
+        self._expand_macros = expand_macros
 
     def analyze_files(self, paths: list[Path]) -> list[WorkflowAnalysis]:
         """Analyze multiple workflow files and return analysis results."""
@@ -69,6 +78,20 @@ class BatchAnalyzer:
                 conn.origin.anchor_name,
                 conn.destination.anchor_name,
             )
+
+        # Inline referenced macros (best-effort) when enabled, so a macro-call
+        # node analyzes as its real interior rather than an unsupported Unknown.
+        # Resolution is confined to the workflow's own directory, where a .yxzp's
+        # macros are extracted co-located. Unresolvable macros are left in place.
+        if self._expand_macros:
+            from a2d.macro.engine import MacroExpansionEngine
+
+            try:
+                result = MacroExpansionEngine(config).expand(parsed, dag)
+                return result.dag
+            except Exception as exc:  # never let macro expansion break analysis
+                logger.warning("Macro expansion skipped for %s: %s", parsed.file_path, exc)
+
         return dag
 
     def analyze_workflow(self, parsed: ParsedWorkflow, dag: WorkflowDAG) -> WorkflowAnalysis:

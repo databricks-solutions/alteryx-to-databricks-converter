@@ -34,7 +34,7 @@ def estimate_savings(files: list[tuple[str, bytes]], overrides: dict | None = No
     skipped: list[str] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         paths = materialize_uploads(files, Path(tmpdir), skipped=skipped)
-        analyses = BatchAnalyzer().analyze_files(paths)
+        analyses = BatchAnalyzer(expand_macros=True).analyze_files(paths)
 
     if not analyses:
         raise ValueError("no workflows could be analyzed")

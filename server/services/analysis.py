@@ -19,7 +19,9 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
         # .yxzp packages are unzipped to their primary workflow; other files pass through.
         paths = materialize_uploads(files, Path(tmpdir))
 
-        analyzer = BatchAnalyzer()
+        # Expand macros so a .yxzp's co-located .yxmc is inlined rather than shown
+        # as an unsupported Unknown; a no-op for bare uploads with no macro file.
+        analyzer = BatchAnalyzer(expand_macros=True)
         analyses = analyzer.analyze_files(paths)
 
     total = len(analyses)
