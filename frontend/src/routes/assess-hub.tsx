@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { NextStep } from "@/components/shared/next-step";
+import { useEstateStore } from "@/stores/estate";
 import { AnalyzePage } from "@/routes/analyze";
 import { AssessPage } from "@/routes/assess";
 import { PortfolioPage } from "@/routes/portfolio";
@@ -15,6 +17,8 @@ import { PortfolioPage } from "@/routes/portfolio";
  */
 export function AssessHubPage() {
   const [view, setView] = useState("report");
+  const results = useEstateStore((s) => s.results);
+  const hasResult = Boolean(results.analyze || results.profile || results.portfolio);
 
   return (
     <div className="space-y-6">
@@ -38,6 +42,16 @@ export function AssessHubPage() {
           <PortfolioPage embedded />
         </TabsContent>
       </Tabs>
+
+      {hasResult && (
+        <NextStep
+          prompt="Assessed your estate. Next:"
+          links={[
+            { to: "/business-case", label: "Build the business case" },
+            { to: "/convert", label: "Start converting" },
+          ]}
+        />
+      )}
     </div>
   );
 }
