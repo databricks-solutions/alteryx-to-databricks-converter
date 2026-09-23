@@ -108,6 +108,13 @@ export function ConvertPage() {
             </div>
           )}
           <FileDropzone files={files} onFilesChange={setFiles} />
+          <p className="text-xs text-[var(--fg-muted)]">
+            Converting several workflows at once?{" "}
+            <Link to="/convert/batch" className="text-[var(--ring)] hover:underline">
+              Use Batch Convert
+            </Link>
+            .
+          </p>
 
           <div className="flex items-center gap-3">
             <Button
