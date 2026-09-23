@@ -29,7 +29,10 @@ ENV_ENDPOINT = "A2D_FMAPI_ENDPOINT"
 ENV_TOKEN = "A2D_FMAPI_TOKEN"
 
 DEFAULT_TIMEOUT = 120.0
-DEFAULT_MAX_TOKENS = 1500
+# Reasoning models (e.g. Claude on Databricks FMAPI) spend part of the token
+# budget on an internal reasoning trace before the visible answer, so a low cap
+# truncates real replies (finish_reason "length"). Keep this generous.
+DEFAULT_MAX_TOKENS = 4000
 
 
 class LLMNotConfiguredError(RuntimeError):
@@ -136,14 +139,33 @@ class FMAPIClient:
 
 
 def _extract_text(body: dict) -> str:
-    """Pull assistant text out of an OpenAI-compatible serving response."""
+    """Pull assistant text out of an OpenAI-compatible serving response.
+
+    Handles two ``choices[0].message.content`` shapes:
+    * a plain string (most chat endpoints), and
+    * a list of typed blocks (reasoning models such as Claude on Databricks FMAPI
+      return ``[{"type": "reasoning", ...}, {"type": "text", "text": "..."}]``).
+      We keep the ``text`` blocks and drop the reasoning trace.
+    """
     choices = body.get("choices")
     if isinstance(choices, list) and choices:
         first = choices[0]
         if isinstance(first, dict):
             message = first.get("message")
-            if isinstance(message, dict) and isinstance(message.get("content"), str):
-                return message["content"]
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str) and content:
+                    return content
+                if isinstance(content, list):
+                    texts = [
+                        block["text"]
+                        for block in content
+                        if isinstance(block, dict)
+                        and block.get("type") == "text"
+                        and isinstance(block.get("text"), str)
+                    ]
+                    if texts:
+                        return "\n".join(texts)
             if isinstance(first.get("text"), str):
                 return first["text"]
     # Some endpoints return {"predictions": [...]} or a bare string.
