@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useChatReport, useChatSend, useChatStart, useChatStatus } from "@/hooks/use-chat";
 import { useToastStore } from "@/stores/toast";
+import { useConvertBridge } from "@/stores/convert-bridge";
 import type { ChatMessage, FormatId, MigrationContext } from "@/lib/api";
 import { saveAs } from "file-saver";
-import { Play, Loader2, RotateCcw, Send, FileDown, Bot, User, Info } from "lucide-react";
+import { Play, Loader2, RotateCcw, Send, FileDown, Bot, User, Info, ArrowRight } from "lucide-react";
 
 const DEPLOY_VARIANT: Record<MigrationContext["deploy_status"], "success" | "warning" | "destructive"> = {
   ready: "success",
@@ -39,13 +40,22 @@ export function ChatPage() {
   const send = useChatSend();
   const report = useChatReport();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const handoffFile = useConvertBridge((s) => s.handoffFile);
+  const handoffName = useConvertBridge((s) => s.handoffName);
 
   // Keep the transcript pinned to the newest message.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  // Prefill from a workflow just converted on the Convert page, so the user
+  // doesn't re-upload it here. Runs once when a handoff is present.
+  useEffect(() => {
+    if (handoffFile) setFiles((f) => (f.length === 0 ? [handoffFile] : f));
+  }, [handoffFile]);
+
   const enabled = status.data?.enabled ?? false;
+  const fromConvert = handoffName != null && files.some((f) => f.name === handoffName);
 
   const handleStart = () => {
     if (files.length === 0) return;
@@ -154,6 +164,12 @@ export function ChatPage() {
       {/* Upload */}
       {enabled && !sessionId && (
         <div className="space-y-4">
+          {fromConvert && (
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--ring)]/30 bg-[var(--ring)]/5 px-4 py-3 text-sm text-[var(--fg)]">
+              <ArrowRight className="h-4 w-4 shrink-0 text-[var(--ring)]" />
+              Loaded <strong>{handoffName}</strong> from Convert — no re-upload needed. Pick a format and start the discussion.
+            </div>
+          )}
           <FileDropzone files={files} onFilesChange={setFiles} />
           <div className="flex items-center gap-3">
             <label htmlFor="chat-format" className="text-sm text-[var(--fg-muted)]">

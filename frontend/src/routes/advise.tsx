@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
@@ -6,9 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useAdvise } from "@/hooks/use-insights";
+import { useConvertBridge } from "@/stores/convert-bridge";
 import { downloadJson } from "@/lib/portfolio-download";
 import type { CloudName } from "@/lib/api";
-import { Play, Loader2, RotateCcw, Download, Server, Zap, Info } from "lucide-react";
+import { Play, Loader2, RotateCcw, Download, Server, Zap, Info, ArrowRight } from "lucide-react";
 
 const PRIORITY_VARIANT: Record<string, "destructive" | "warning" | "secondary"> = {
   high: "destructive",
@@ -21,6 +22,15 @@ export function AdvisePage() {
   const [cloud, setCloud] = useState<CloudName>("aws");
   const mutation = useAdvise();
   const report = mutation.data;
+  const handoffFile = useConvertBridge((s) => s.handoffFile);
+  const handoffName = useConvertBridge((s) => s.handoffName);
+
+  // Prefill from a workflow just converted on the Convert page — no re-upload.
+  useEffect(() => {
+    if (handoffFile) setFiles((f) => (f.length === 0 ? [handoffFile] : f));
+  }, [handoffFile]);
+
+  const fromConvert = handoffName != null && files.some((f) => f.name === handoffName);
 
   const handleAdvise = () => {
     if (files.length === 0) return;
@@ -69,6 +79,12 @@ export function AdvisePage() {
 
       {!report && (
         <div className="space-y-4">
+          {fromConvert && (
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--ring)]/30 bg-[var(--ring)]/5 px-4 py-3 text-sm text-[var(--fg)]">
+              <ArrowRight className="h-4 w-4 shrink-0 text-[var(--ring)]" />
+              Loaded <strong>{handoffName}</strong> from Convert — no re-upload needed. Pick a cloud and get the advisory.
+            </div>
+          )}
           <FileDropzone files={files} onFilesChange={setFiles} />
           <div className="flex items-center gap-3">
             <label htmlFor="advise-cloud" className="text-sm text-[var(--fg-muted)]">
