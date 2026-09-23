@@ -59,6 +59,39 @@ class TestResponseParsing:
     def test_completion_text_shape(self):
         assert _extract_text({"choices": [{"text": "hello"}]}) == "hello"
 
+    def test_reasoning_model_content_blocks(self):
+        # Reasoning models (Claude on Databricks FMAPI) return message.content as
+        # a list of typed blocks; the reasoning trace is dropped, text kept.
+        body = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "reasoning", "summary": "thinking..."},
+                            {"type": "text", "text": "the answer"},
+                        ],
+                    }
+                }
+            ]
+        }
+        assert _extract_text(body) == "the answer"
+
+    def test_reasoning_model_multiple_text_blocks_joined(self):
+        body = {
+            "choices": [
+                {
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "part one"},
+                            {"type": "text", "text": "part two"},
+                        ]
+                    }
+                }
+            ]
+        }
+        assert _extract_text(body) == "part one\npart two"
+
     def test_predictions_shape(self):
         assert _extract_text({"predictions": ["yo"]}) == "yo"
 
