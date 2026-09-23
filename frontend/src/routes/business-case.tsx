@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { NextStep } from "@/components/shared/next-step";
+import { useEstateStore } from "@/stores/estate";
 import { SavingsPage } from "@/routes/savings";
 import { ReadinessPage } from "@/routes/readiness";
 
@@ -12,6 +14,8 @@ import { ReadinessPage } from "@/routes/readiness";
  */
 export function BusinessCasePage() {
   const [view, setView] = useState("savings");
+  const results = useEstateStore((s) => s.results);
+  const hasResult = Boolean(results.savings || results.readiness);
 
   return (
     <div className="space-y-6">
@@ -31,6 +35,13 @@ export function BusinessCasePage() {
           <ReadinessPage embedded />
         </TabsContent>
       </Tabs>
+
+      {hasResult && (
+        <NextStep
+          prompt="Made the business case. Next:"
+          links={[{ to: "/convert", label: "Start converting" }]}
+        />
+      )}
     </div>
   );
 }
