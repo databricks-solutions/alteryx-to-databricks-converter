@@ -9,8 +9,8 @@ import { useSettingsStore } from "@/stores/settings";
 import { useToastStore } from "@/stores/toast";
 import { useLocalHistoryStore } from "@/stores/local-history";
 import { useConvertBridge } from "@/stores/convert-bridge";
-import { Link } from "@tanstack/react-router";
-import { Play, Loader2, RotateCcw, ArrowRight } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Play, Loader2, RotateCcw, ArrowRight, MessageSquare, Gauge } from "lucide-react";
 
 export function ConvertPage() {
   const [files, setFiles] = useState<File[]>([]);
@@ -28,6 +28,8 @@ export function ConvertPage() {
   const resultsRef = useRef<HTMLDivElement>(null);
   const bridgeWorkflowName = useConvertBridge((s) => s.workflowName);
   const clearBridge = useConvertBridge((s) => s.clear);
+  const setHandoff = useConvertBridge((s) => s.setHandoff);
+  const navigate = useNavigate();
 
   // Clear bridge hint on unmount. clearBridge is a stable Zustand action,
   // so the dep array won't churn — avoids re-entrant clear() loops.
@@ -59,11 +61,14 @@ export function ConvertPage() {
         "success",
       );
       addToHistory(mutation.data);
+      // Hand the converted file to the Assistant/Advisor so those tabs don't
+      // force a re-upload of the workflow you just converted.
+      if (files[0]) setHandoff(files[0]);
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 100);
     }
-  }, [mutation.data, addToast, addToHistory]);
+  }, [mutation.data, addToast, addToHistory, setHandoff, files]);
 
   const handleReset = () => {
     mutation.reset();
@@ -77,10 +82,20 @@ export function ConvertPage() {
         description="Upload a single Alteryx file (.yxmd, .yxmc, .yxwz, or a .yxzp package) and generate equivalent Databricks code in all supported formats"
       >
         {mutation.data && (
-          <Button variant="secondary" size="sm" onClick={handleReset}>
-            <RotateCcw className="h-4 w-4" />
-            Convert Another
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => navigate({ to: "/chat" })}>
+              <MessageSquare className="h-4 w-4" />
+              Discuss in Assistant
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => navigate({ to: "/advise" })}>
+              <Gauge className="h-4 w-4" />
+              Cluster advice
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleReset}>
+              <RotateCcw className="h-4 w-4" />
+              Convert Another
+            </Button>
+          </div>
         )}
       </PageHeader>
 
