@@ -108,9 +108,10 @@ export const api = {
       method: "POST",
     }),
 
-  analyze: (files: File[]) => {
+  analyze: (files: File[], projectId?: string) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
+    if (projectId) fd.append("project_id", projectId);
     return request<AnalysisResult>("/analyze", { method: "POST", body: fd });
   },
 
@@ -220,10 +221,47 @@ export const api = {
       body: JSON.stringify({ answers, config }),
     }),
 
-  readinessPrefill: (files: File[]) => {
+  readinessPrefill: (files: File[], projectId?: string) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
+    if (projectId) fd.append("project_id", projectId);
     return request<ReadinessPrefill>("/readiness/prefill", { method: "POST", body: fd });
+  },
+
+  // ── Migration Project ────────────────────────────────────────────────
+
+  listProjects: () => request<{ projects: ProjectSummary[]; total: number }>("/projects"),
+
+  getProject: (id: string) => request<Project>(`/projects/${id}`),
+
+  createProject: (name: string, files: File[]) => {
+    const fd = new FormData();
+    fd.append("name", name);
+    files.forEach((f) => fd.append("files", f));
+    return request<Project>("/projects", { method: "POST", body: fd });
+  },
+
+  addProjectWorkflows: (id: string, files: File[]) => {
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    return request<Project>(`/projects/${id}/workflows`, { method: "POST", body: fd });
+  },
+
+  deleteProject: (id: string) => request<{ deleted: string }>(`/projects/${id}`, { method: "DELETE" }),
+
+  updateWorkflowStage: (projectId: string, workflowId: string, stage: string) =>
+    request<Project>(`/projects/${projectId}/workflows/${workflowId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stage }),
+    }),
+
+  /** Fetch a stored workflow's bytes as a File, so a screen runs it without a re-upload. */
+  getProjectWorkflowFile: async (projectId: string, workflowId: string, fileName: string) => {
+    const res = await fetch(`${BASE}/projects/${projectId}/workflows/${workflowId}/file`);
+    if (!res.ok) throw new Error("Could not fetch the stored workflow");
+    const blob = await res.blob();
+    return new File([blob], fileName, { type: "application/octet-stream" });
   },
 };
 
@@ -770,4 +808,34 @@ export interface ReadinessPrefill {
   answers: Record<string, string>;
   workflow_count: number;
   skipped_files: string[];
+}
+
+// ── Migration Project ──────────────────────────────────────────────────
+
+export type WorkflowStage = "uploaded" | "assessed" | "converted" | "reviewed" | "deployed";
+
+export interface ProjectWorkflow {
+  id: string;
+  file_name: string;
+  stage: WorkflowStage;
+  analysis: Record<string, unknown> | null;
+  updated_at: string;
+}
+
+export interface ProjectRollups {
+  total_workflows?: number;
+  stage_counts?: Record<WorkflowStage, number>;
+  mean_coverage_pct?: number;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  rollups: ProjectRollups;
+}
+
+export interface Project extends ProjectSummary {
+  workflows: ProjectWorkflow[];
 }
