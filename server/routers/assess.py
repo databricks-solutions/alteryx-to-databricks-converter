@@ -13,9 +13,10 @@ from a2d.analyzer.profiler import (
     TIER_ORDER,
     default_tool_tiers,
 )
+from server.services import project as project_service
 from server.services.assess import profile_estate
 from server.utils.deadline import run_with_timeout
-from server.utils.validation import validate_and_read_files
+from server.utils.project_input import resolve_input_files
 
 logger = logging.getLogger("a2d.server.routers.assess")
 
@@ -35,17 +36,19 @@ async def assess_config_defaults() -> dict:
 
 @router.post("/assess")
 async def assess(
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] = File(default=[]),
     hours: bool = Form(False),
     config: str | None = Form(None),
+    project_id: str | None = Form(None),
 ) -> dict:
     """Profile an estate: totals, size distribution, difficulty, tool-difficulty tiers.
 
     ``hours`` opts into the model-based effort estimate (off by default). ``config``
     is an optional JSON string of profiler-config overrides (``category_tiers``,
-    ``tool_overrides``, ``hour_anchors``, ...) merged over the defaults.
+    ``tool_overrides``, ``hour_anchors``, ...) merged over the defaults. ``project_id``
+    sources the estate from a saved project instead of an upload.
     """
-    file_data = await validate_and_read_files(files)
+    file_data = await resolve_input_files(files, project_id)
 
     overrides: dict | None = None
     if config:
@@ -72,5 +75,8 @@ async def assess(
     except Exception:
         logger.exception("Unexpected error profiling files")
         raise HTTPException(status_code=500, detail="Internal profiler error")
+
+    if project_id:
+        project_service.advance_uploaded_workflows(project_id, "assessed")
 
     return result

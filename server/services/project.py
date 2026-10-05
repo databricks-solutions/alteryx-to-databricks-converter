@@ -270,6 +270,62 @@ def get_workflow_file(project_id: str, workflow_id: str) -> tuple[str, bytes] | 
         return None
 
 
+def get_project_files(project_id: str) -> list[tuple[str, bytes]] | None:
+    """Return (file_name, bytes) for every workflow in a project.
+
+    This is what lets the analysis screens run on a stored estate instead of a
+    re-upload. None when the project is unknown or projects are unavailable; an
+    empty list when the project exists but has no workflows (caller maps to 422).
+    """
+    pool = history._get_pool()
+    if pool is None or not _initialized:
+        return None
+    try:
+        with pool.connection() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM migration_project WHERE id = %s", (project_id,)
+            ).fetchone()
+            if not exists:
+                return None
+            rows = conn.execute(
+                "SELECT file_name, source_b64 FROM project_workflow WHERE project_id = %s ORDER BY file_name",
+                (project_id,),
+            ).fetchall()
+        return [(r[0], base64.b64decode(r[1])) for r in rows]
+    except _DatabaseError:
+        logger.exception("Failed to read files for project %s", project_id)
+        return None
+
+
+def advance_uploaded_workflows(project_id: str, stage: str) -> int:
+    """Move a project's still-``uploaded`` workflows forward to ``stage``.
+
+    Used after an estate-level pass (e.g. Analyze) so freshly-uploaded workflows
+    reflect that they've been assessed, without downgrading any already further
+    along. Returns the number advanced. Best-effort; never raises.
+    """
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage {stage!r}; valid: {', '.join(STAGES)}")
+    pool = history._get_pool()
+    if pool is None or not _initialized:
+        return 0
+    try:
+        with pool.connection() as conn:
+            result = conn.execute(
+                """UPDATE project_workflow SET stage = %s, updated_at = NOW()
+                   WHERE project_id = %s AND stage = 'uploaded'""",
+                (stage, project_id),
+            )
+            conn.commit()
+            advanced = result.rowcount or 0
+        if advanced:
+            _refresh_rollups(project_id)
+        return advanced
+    except _DatabaseError:
+        logger.exception("Failed to advance workflows for project %s", project_id)
+        return 0
+
+
 _ARTIFACT_COLUMNS = {
     "analysis": "analysis",
     "savings_inputs": "savings_inputs",
