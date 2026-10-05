@@ -26,8 +26,20 @@ export function FileDropzone({
     (accepted: File[], rejections: FileRejection[]) => {
       const messages: string[] = [];
       if (rejections.length > 0) {
+        const codes = new Set(rejections.flatMap((r) => r.errors.map((e) => e.code)));
         const names = rejections.map((r) => r.file.name).join(", ");
-        messages.push(`Skipped (unsupported type or too large): ${names}`);
+        // Message the real reason, not a catch-all. Dropping several files on a
+        // single-file page reports `too-many-files`, which is neither an
+        // unsupported type nor an oversized file.
+        if (codes.has("too-many-files")) {
+          messages.push("This page takes one file at a time. Add a single file, or remove the current one to swap it.");
+        } else if (codes.has("file-invalid-type")) {
+          messages.push(`Unsupported file type (need ${accept}): ${names}`);
+        } else if (codes.has("file-too-large")) {
+          messages.push(`File too large: ${names}`);
+        } else {
+          messages.push(`Skipped: ${names}`);
+        }
       }
       if (multiple) {
         const existing = new Set(files.map(fileKey));
@@ -48,7 +60,7 @@ export function FileDropzone({
       }
       setNotice(messages.length > 0 ? messages.join(" ") : null);
     },
-    [files, onFilesChange, multiple],
+    [files, onFilesChange, multiple, accept],
   );
 
   // react-dropzone wants MIME type -> extension list. Alteryx workflows/macros/
@@ -102,16 +114,21 @@ export function FileDropzone({
         </motion.div>
         <p className="text-sm font-medium text-[var(--fg)]">
           {isDragActive
-            ? "Drop files here"
+            ? multiple
+              ? "Drop files here"
+              : "Drop file here"
             : typeof window !== "undefined" && ("ontouchstart" in window || window.matchMedia("(pointer: coarse)").matches)
-              ? "Tap to browse for Alteryx files"
-              : "Drag & drop Alteryx files"}
+              ? multiple
+                ? "Tap to browse for Alteryx files"
+                : "Tap to browse for an Alteryx file"
+              : multiple
+                ? "Drag & drop Alteryx files"
+                : "Drag & drop an Alteryx file"}
         </p>
-        {!isDragActive && !("ontouchstart" in (typeof window !== "undefined" ? window : {})) && (
-          <p className="text-xs text-[var(--fg-muted)] mt-1">
-            or click to browse
-          </p>
-        )}
+        {/* State the count expectation plainly so single- vs multi-file pages read differently. */}
+        <p className="text-xs text-[var(--fg-muted)] mt-1">
+          {multiple ? "One or more files" : "One file at a time"}
+        </p>
       </div>
 
       {notice && (
