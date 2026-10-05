@@ -14,8 +14,10 @@ import {
 } from "@/hooks/use-project";
 import { useProjectStore } from "@/stores/project";
 import { useToastStore } from "@/stores/toast";
-import type { WorkflowStage } from "@/lib/api";
-import { FolderPlus, Loader2, Info, Boxes, BarChart3 } from "lucide-react";
+import { useConvertBridge } from "@/stores/convert-bridge";
+import { api, type ProjectWorkflow, type WorkflowStage } from "@/lib/api";
+import { useNavigate } from "@tanstack/react-router";
+import { FolderPlus, Loader2, Info, Boxes, BarChart3, ArrowRightLeft, Gauge } from "lucide-react";
 
 const STAGE_VARIANT: Record<WorkflowStage, "secondary" | "warning" | "success"> = {
   uploaded: "secondary",
@@ -34,6 +36,21 @@ export function ProjectPage() {
   const assessProject = useAssessProject();
   const setActive = useProjectStore((s) => s.setActiveProject);
   const addToast = useToastStore((s) => s.add);
+  const setHandoff = useConvertBridge((s) => s.setHandoff);
+  const navigate = useNavigate();
+
+  // Launch a stored workflow into a single-file screen without a re-upload: fetch
+  // its bytes, hand them off (with source ids so Convert can advance its stage),
+  // and navigate. The destination prefills from the handoff.
+  const launch = async (projectId: string, wf: ProjectWorkflow, to: string) => {
+    try {
+      const file = await api.getProjectWorkflowFile(projectId, wf.id, wf.file_name);
+      setHandoff(file, { projectId, workflowId: wf.id });
+      navigate({ to });
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Could not load the workflow", "error");
+    }
+  };
 
   // The backend returns 503 when no database is configured. Treat that as the
   // graceful "projects not available here" state, not an error to retry.
@@ -111,6 +128,7 @@ export function ProjectPage() {
                     <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--fg-muted)]">
                       <th className="pb-2 font-medium">Workflow</th>
                       <th className="pb-2 font-medium">Stage</th>
+                      <th className="pb-2 text-right font-medium">Launch</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -118,6 +136,18 @@ export function ProjectPage() {
                       <tr key={w.id} className="border-b border-[var(--border)] last:border-0">
                         <td className="py-2 pr-3 text-[var(--fg)]">{w.file_name}</td>
                         <td className="py-2"><Badge variant={STAGE_VARIANT[w.stage]}>{w.stage}</Badge></td>
+                        <td className="py-2 text-right">
+                          <div className="flex justify-end gap-1.5">
+                            <Button size="sm" variant="ghost" onClick={() => launch(active.id, w, "/convert")}>
+                              <ArrowRightLeft className="h-3.5 w-3.5" />
+                              Convert
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => launch(active.id, w, "/advise")}>
+                              <Gauge className="h-3.5 w-3.5" />
+                              Advise
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
