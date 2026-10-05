@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { useRouterState } from "@tanstack/react-router";
 import { Sidebar } from "@/components/layout/sidebar";
+import { JourneyRail } from "@/components/layout/journey-rail";
 import { PageTransition } from "@/components/layout/page-transition";
 import { ErrorBoundary } from "@/components/shared/error-boundary";
 import { ToastContainer } from "@/components/shared/toast-container";
@@ -43,6 +44,7 @@ const ConvertBatchPage = lazyWithRetry(() => import("@/routes/convert-batch").th
 const AssessHubPage = lazyWithRetry(() => import("@/routes/assess-hub").then((m) => ({ default: m.AssessHubPage })));
 const BusinessCasePage = lazyWithRetry(() => import("@/routes/business-case").then((m) => ({ default: m.BusinessCasePage })));
 const ReviewHubPage = lazyWithRetry(() => import("@/routes/review-hub").then((m) => ({ default: m.ReviewHubPage })));
+const ProjectPage = lazyWithRetry(() => import("@/routes/project").then((m) => ({ default: m.ProjectPage })));
 const ToolsPage = lazyWithRetry(() => import("@/routes/tools").then((m) => ({ default: m.ToolsPage })));
 const AboutPage = lazyWithRetry(() => import("@/routes/about").then((m) => ({ default: m.AboutPage })));
 const HistoryPage = lazyWithRetry(() => import("@/routes/history").then((m) => ({ default: m.HistoryPage })));
@@ -67,6 +69,7 @@ function RootLayout() {
     <div className="min-h-screen">
       <Sidebar />
       <main className="lg:pl-60 min-h-screen">
+        <JourneyRail />
         <div className="max-w-6xl mx-auto px-6 py-8 pt-16 lg:pt-8">
           <ErrorBoundary resetKey={key}>
             <PageTransition routeKey={key}>
@@ -90,6 +93,7 @@ const batchRoute = createRoute({ getParentRoute: () => rootRoute, path: "/conver
 const assessRoute = createRoute({ getParentRoute: () => rootRoute, path: "/assess", component: AssessHubPage });
 const businessCaseRoute = createRoute({ getParentRoute: () => rootRoute, path: "/business-case", component: BusinessCasePage });
 const reviewRoute = createRoute({ getParentRoute: () => rootRoute, path: "/review", component: ReviewHubPage });
+const projectRoute = createRoute({ getParentRoute: () => rootRoute, path: "/project", component: ProjectPage });
 const toolsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/tools", component: ToolsPage });
 const aboutRoute = createRoute({ getParentRoute: () => rootRoute, path: "/about", component: AboutPage });
 const historyRoute = createRoute({ getParentRoute: () => rootRoute, path: "/history", component: HistoryPage });
@@ -118,6 +122,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   convertRoute,
   batchRoute,
+  projectRoute,
   assessRoute,
   businessCaseRoute,
   reviewRoute,

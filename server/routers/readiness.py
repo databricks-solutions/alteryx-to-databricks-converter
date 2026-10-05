@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 
 from server.services.readiness import get_questions, prefill_answers, score_answers
 from server.utils.deadline import run_with_timeout
-from server.utils.validation import validate_and_read_files
+from server.utils.project_input import resolve_input_files
 
 logger = logging.getLogger("a2d.server.routers.readiness")
 
@@ -53,9 +53,12 @@ async def readiness_score(payload: dict = Body(...)) -> dict:
 
 
 @router.post("/readiness/prefill")
-async def readiness_prefill(files: list[UploadFile] = File(...)) -> dict:
-    """Suggest estate answers from an uploaded workflow set (the 'smart' prefill)."""
-    file_data = await validate_and_read_files(files)
+async def readiness_prefill(
+    files: list[UploadFile] = File(default=[]),
+    project_id: str | None = Form(None),
+) -> dict:
+    """Suggest estate answers from a workflow set (upload or a saved project)."""
+    file_data = await resolve_input_files(files, project_id)
 
     logger.info("Readiness prefill over %d workflow(s)", len(file_data))
     try:

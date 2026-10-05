@@ -21,12 +21,14 @@ from server.routers import (
     health,
     history,
     insights,
+    projects,
     readiness,
     review,
     tools,
     validate,
 )
 from server.services import history as history_service
+from server.services import project as project_service
 from server.services.batch import get_store
 from server.settings import settings
 from server.websocket import batch as ws_batch
@@ -72,8 +74,13 @@ async def lifespan(app: FastAPI):
             logger.info("History database connected (backend=%s)", backend)
         else:
             logger.warning("History database configured (backend=%s) but failed to initialize", backend)
+        # Migration projects share the same pool; initialize their tables too.
+        if project_service.init_db():
+            logger.info("Migration-project tables ready (backend=%s)", backend)
+        else:
+            logger.warning("Migration-project tables failed to initialize (backend=%s)", backend)
     else:
-        logger.info("History database not configured — history feature disabled")
+        logger.info("History database not configured — history and projects disabled")
 
     logger.info("a2d API v%s starting up", __version__)
     cleanup_task = asyncio.create_task(_evict_expired_jobs())
@@ -137,6 +144,7 @@ app.include_router(review.router)
 app.include_router(chat.router)
 app.include_router(insights.router)
 app.include_router(readiness.router)
+app.include_router(projects.router)
 
 # WebSocket
 app.include_router(ws_batch.router)

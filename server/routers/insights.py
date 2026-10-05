@@ -21,7 +21,8 @@ from server.services.advise import advise_workflow
 from server.services.portfolio import analyze_portfolio
 from server.services.savings import estimate_savings
 from server.utils.deadline import run_with_timeout
-from server.utils.validation import read_upload, validate_and_read_files, validate_yxmd_file
+from server.utils.project_input import resolve_input_files
+from server.utils.validation import read_upload, validate_yxmd_file
 
 logger = logging.getLogger("a2d.server.routers.insights")
 
@@ -29,14 +30,18 @@ router = APIRouter(prefix="/api", tags=["insights"])
 
 
 @router.post("/portfolio")
-async def portfolio(files: list[UploadFile] = File(...)) -> dict:
+async def portfolio(
+    files: list[UploadFile] = File(default=[]),
+    project_id: str | None = Form(None),
+) -> dict:
     """Analyze a whole estate: dependencies, shared macros, duplicates, waves.
 
     Takes several workflows at once — the value is entirely in the cross-workflow
     view (which workflow feeds which, what's duplicated, what order to migrate in),
-    so a single file yields a thin but valid report.
+    so a single file yields a thin but valid report. ``project_id`` sources the
+    estate from a saved project instead of an upload.
     """
-    file_data = await validate_and_read_files(files)
+    file_data = await resolve_input_files(files, project_id)
 
     logger.info("Portfolio analysis over %d workflow(s)", len(file_data))
     try:
@@ -93,17 +98,19 @@ async def savings_config_defaults() -> dict:
 
 @router.post("/savings")
 async def savings(
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] = File(default=[]),
     config: str | None = Form(None),
+    project_id: str | None = Form(None),
 ) -> dict:
     """Estimate migration savings, payback, and ROI for an uploaded estate.
 
     ``config`` is an optional JSON string of cost-assumption overrides (same shape
     as the CLI ``--config`` file: ``developer_hourly_rate``, ``designer_seats``,
-    ``automation_factor``, ...), merged over the defaults. Deterministic — a
+    ``automation_factor``, ...), merged over the defaults. ``project_id`` sources
+    the estate from a saved project instead of an upload. Deterministic — a
     planning estimate, not a quote.
     """
-    file_data = await validate_and_read_files(files)
+    file_data = await resolve_input_files(files, project_id)
 
     overrides: dict | None = None
     if config:

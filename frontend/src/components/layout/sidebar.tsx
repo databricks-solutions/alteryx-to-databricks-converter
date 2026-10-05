@@ -15,6 +15,7 @@ import {
   Gauge,
   Ruler,
   PiggyBank,
+  Boxes,
   Settings,
 } from "lucide-react";
 import { useState } from "react";
@@ -39,7 +40,10 @@ interface NavGroup {
 const navGroups: NavGroup[] = [
   {
     title: "",
-    items: [{ to: "/", label: "Home", icon: Home }],
+    items: [
+      { to: "/", label: "Home", icon: Home },
+      { to: "/project", label: "Project", icon: Boxes },
+    ],
   },
   {
     title: "Assess",

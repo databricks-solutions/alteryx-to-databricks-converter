@@ -41,8 +41,11 @@ def test_assess_rejects_non_alteryx(client):
 
 
 def test_assess_no_files(client):
+    # files is now optional (a project_id is the alternative source), so an empty
+    # request with neither is a 400 "no files uploaded" rather than a 422
+    # missing-required-field error.
     resp = client.post("/api/assess")
-    assert resp.status_code == 422  # FastAPI validation error
+    assert resp.status_code == 400
 
 
 def test_config_defaults_endpoint(client):
