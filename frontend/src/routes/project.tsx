@@ -17,7 +17,8 @@ import { useToastStore } from "@/stores/toast";
 import { useConvertBridge } from "@/stores/convert-bridge";
 import { api, type ProjectWorkflow, type WorkflowStage } from "@/lib/api";
 import { useNavigate } from "@tanstack/react-router";
-import { FolderPlus, Loader2, Info, Boxes, BarChart3, ArrowRightLeft, Gauge } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { FolderPlus, Loader2, Info, Boxes, BarChart3, ArrowRightLeft, Gauge, CheckCircle2 } from "lucide-react";
 
 const STAGE_VARIANT: Record<WorkflowStage, "secondary" | "warning" | "success"> = {
   uploaded: "secondary",
@@ -38,6 +39,19 @@ export function ProjectPage() {
   const addToast = useToastStore((s) => s.add);
   const setHandoff = useConvertBridge((s) => s.setHandoff);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // Mark a workflow deployed — set manually, since the app never deploys
+  // customer pipelines. Refreshes the project so the rail/home reflect it.
+  const markDeployed = async (projectId: string, workflowId: string) => {
+    try {
+      await api.updateWorkflowStage(projectId, workflowId, "deployed");
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Could not update the workflow", "error");
+    }
+  };
 
   // Launch a stored workflow into a single-file screen without a re-upload: fetch
   // its bytes, hand them off (with source ids so Convert can advance its stage),
@@ -146,6 +160,12 @@ export function ProjectPage() {
                               <Gauge className="h-3.5 w-3.5" />
                               Advise
                             </Button>
+                            {w.stage !== "deployed" && (
+                              <Button size="sm" variant="ghost" onClick={() => markDeployed(active.id, w.id)}>
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Deployed
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>

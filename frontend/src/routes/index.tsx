@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card";
 import { MetricCard } from "@/components/shared/metric-card";
 import { useStats } from "@/hooks/use-tools";
 import { useLocalHistoryStore } from "@/stores/local-history";
+import { useActiveProject } from "@/hooks/use-project";
+import type { WorkflowStage } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowRightLeft,
@@ -47,10 +49,13 @@ const quickActions = [
   },
 ];
 
+const STAGE_ORDER: WorkflowStage[] = ["uploaded", "assessed", "converted", "reviewed", "deployed"];
+
 export function HomePage() {
   const { data: stats, isLoading, error } = useStats();
   const localItems = useLocalHistoryStore((s) => s.items);
   const recentConversions = localItems.slice(0, 5);
+  const { data: activeProject } = useActiveProject();
 
   return (
     <div className="space-y-10">
@@ -104,6 +109,37 @@ export function HomePage() {
         <div className="absolute -top-20 -right-20 h-64 w-64 rounded-full bg-white/5" />
         <div className="absolute -bottom-10 -right-10 h-40 w-40 rounded-full bg-white/5" />
       </motion.div>
+
+      {/* Active migration: resume where you left off, with estate progress. */}
+      {activeProject && (
+        <Card className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Boxes className="h-4 w-4 text-[var(--ring)]" />
+            <h2 className="text-sm font-semibold text-[var(--fg)]">
+              Current migration: {activeProject.name}
+            </h2>
+            {activeProject.rollups?.mean_coverage_pct != null && (
+              <span className="text-xs text-[var(--fg-muted)]">
+                {activeProject.rollups.mean_coverage_pct}% avg coverage
+              </span>
+            )}
+            <Link to="/project" className="ml-auto text-xs text-[var(--ring)] hover:underline">
+              Open project →
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {STAGE_ORDER.map((stage) => {
+              const n = (activeProject.rollups?.stage_counts ?? {})[stage] ?? 0;
+              return (
+                <div key={stage} className="rounded-lg border border-[var(--border)] px-3 py-2">
+                  <p className="text-2xl font-bold tabular-nums text-[var(--fg)]">{n}</p>
+                  <p className="text-xs capitalize text-[var(--fg-muted)]">{stage}</p>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* Quick actions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
