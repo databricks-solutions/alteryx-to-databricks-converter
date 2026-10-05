@@ -7,13 +7,19 @@ interface ConvertBridgeStore {
   setWorkflowName: (name: string) => void;
   clear: () => void;
 
-  // Outgoing handoff: the workflow file the user just converted, so the Assistant
-  // and Advisor can operate on it without forcing a re-upload. In memory only (a
-  // File can't be serialized), so it survives navigation within a session but not
-  // a full reload — which is exactly the "converted it, now discuss it" flow.
+  // Outgoing handoff: a workflow file passed into a single-file screen (Convert,
+  // Advisor, Assistant) so it runs without a re-upload — set either by the
+  // Convert page after a conversion, or by the Project screen when launching a
+  // stored workflow. In memory only (a File can't be serialized), so it survives
+  // navigation within a session, which is the "launch it, now act on it" flow.
+  //
+  // When the file came from a saved project, the source ids ride along so the
+  // destination screen can advance that workflow's lifecycle stage on success.
   handoffFile: File | null;
   handoffName: string | null;
-  setHandoff: (file: File) => void;
+  handoffProjectId: string | null;
+  handoffWorkflowId: string | null;
+  setHandoff: (file: File, source?: { projectId: string; workflowId: string }) => void;
   clearHandoff: () => void;
 }
 
@@ -24,6 +30,15 @@ export const useConvertBridge = create<ConvertBridgeStore>((set) => ({
 
   handoffFile: null,
   handoffName: null,
-  setHandoff: (file) => set({ handoffFile: file, handoffName: file.name }),
-  clearHandoff: () => set({ handoffFile: null, handoffName: null }),
+  handoffProjectId: null,
+  handoffWorkflowId: null,
+  setHandoff: (file, source) =>
+    set({
+      handoffFile: file,
+      handoffName: file.name,
+      handoffProjectId: source?.projectId ?? null,
+      handoffWorkflowId: source?.workflowId ?? null,
+    }),
+  clearHandoff: () =>
+    set({ handoffFile: null, handoffName: null, handoffProjectId: null, handoffWorkflowId: null }),
 }));

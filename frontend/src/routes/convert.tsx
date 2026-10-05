@@ -9,7 +9,9 @@ import { useSettingsStore } from "@/stores/settings";
 import { useToastStore } from "@/stores/toast";
 import { useLocalHistoryStore } from "@/stores/local-history";
 import { useConvertBridge } from "@/stores/convert-bridge";
+import { api } from "@/lib/api";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Play, Loader2, RotateCcw, ArrowRight, MessageSquare, Gauge } from "lucide-react";
 
 export function ConvertPage() {
@@ -29,13 +31,30 @@ export function ConvertPage() {
   const bridgeWorkflowName = useConvertBridge((s) => s.workflowName);
   const clearBridge = useConvertBridge((s) => s.clear);
   const setHandoff = useConvertBridge((s) => s.setHandoff);
+  const handoffFile = useConvertBridge((s) => s.handoffFile);
+  const handoffProjectId = useConvertBridge((s) => s.handoffProjectId);
+  const handoffWorkflowId = useConvertBridge((s) => s.handoffWorkflowId);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // When a workflow is launched here from the Project screen, remember its source
+  // ids so a successful conversion can advance that workflow to "converted" —
+  // captured in a ref because the success handler overwrites the handoff.
+  const projectSourceRef = useRef<{ projectId: string; workflowId: string } | null>(null);
 
   // Clear bridge hint on unmount. clearBridge is a stable Zustand action,
   // so the dep array won't churn — avoids re-entrant clear() loops.
   useEffect(() => {
     return () => clearBridge();
   }, [clearBridge]);
+
+  // Prefill from a workflow launched out of the Project screen (file + source
+  // ids), so it converts without a re-upload.
+  useEffect(() => {
+    if (handoffFile && handoffProjectId && handoffWorkflowId) {
+      setFiles((f) => (f.length === 0 ? [handoffFile] : f));
+      projectSourceRef.current = { projectId: handoffProjectId, workflowId: handoffWorkflowId };
+    }
+  }, [handoffFile, handoffProjectId, handoffWorkflowId]);
 
   const handleConvert = () => {
     if (files.length === 0) return;
@@ -61,6 +80,21 @@ export function ConvertPage() {
         "success",
       );
       addToHistory(mutation.data);
+      // If this workflow came from a saved project, advance its lifecycle stage
+      // so the journey rail reflects the conversion. Best-effort.
+      const source = projectSourceRef.current;
+      if (source) {
+        api
+          .updateWorkflowStage(source.projectId, source.workflowId, "converted")
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ["project", source.projectId] });
+            queryClient.invalidateQueries({ queryKey: ["projects"] });
+          })
+          .catch(() => {
+            /* stage update is best-effort; the conversion itself still succeeded */
+          });
+        projectSourceRef.current = null;
+      }
       // Hand the converted file to the Assistant/Advisor so those tabs don't
       // force a re-upload of the workflow you just converted.
       if (files[0]) setHandoff(files[0]);
@@ -68,7 +102,7 @@ export function ConvertPage() {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 100);
     }
-  }, [mutation.data, addToast, addToHistory, setHandoff, files]);
+  }, [mutation.data, addToast, addToHistory, setHandoff, files, queryClient]);
 
   const handleReset = () => {
     mutation.reset();
