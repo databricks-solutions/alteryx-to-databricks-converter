@@ -1,57 +1,89 @@
 import { useState } from "react";
-import { PageHeader } from "@/components/layout/page-header";
+import { StepHeader } from "@/components/layout/step-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { NextStep } from "@/components/shared/next-step";
-import { useEstateStore } from "@/stores/estate";
+import { Button } from "@/components/ui/button";
+import { useCurrentResult } from "@/hooks/use-current-result";
+import { useProjectContext } from "@/hooks/use-project-context";
+import { downloadAnalysisCSV } from "@/lib/csv";
+import { downloadJson } from "@/lib/portfolio-download";
 import { AnalyzePage } from "@/routes/analyze";
-import { AssessPage } from "@/routes/assess";
+import { AssessPage, downloadBlob, profileToCsv } from "@/routes/assess";
 import { PortfolioPage } from "@/routes/portfolio";
+import { Download } from "lucide-react";
 
 /**
- * One "Assess your estate" surface. The three analyses that all take the same
- * Alteryx upload — the per-workflow readiness report, the tool-by-difficulty
- * profile, and the cross-workflow dependency/wave plan — used to be three
- * separate tabs a first-time user couldn't tell apart. They're now views over a
- * single shared estate (see `stores/estate.ts`): upload once on any view, switch
- * freely, and each view's result persists so nothing is recomputed on a switch.
+ * Step 2. Three read-only views of the project's workflows. Nothing to upload:
+ * each view runs on the project the first time you open it, and again by
+ * itself if the project's files change. Export sits in the header, for
+ * whichever view is open.
  */
 export function AssessHubPage() {
   const [view, setView] = useState("report");
-  const results = useEstateStore((s) => s.results);
-  const hasResult = Boolean(results.analyze || results.profile || results.portfolio);
+  const ctx = useProjectContext();
+  const report = useCurrentResult("analyze");
+  const profile = useCurrentResult("profile");
+  const portfolio = useCurrentResult("portfolio");
+  const slug = ctx.name.replace(/[^A-Za-z0-9_-]+/g, "_") || "project";
+
+  const exportButton =
+    view === "report" && report ? (
+      <Button variant="secondary" size="sm" onClick={() => downloadAnalysisCSV(report.workflows)}>
+        <Download className="h-4 w-4" />
+        Export CSV
+      </Button>
+    ) : view === "difficulty" && profile ? (
+      <>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => downloadBlob(`${slug}_profile.csv`, profileToCsv(profile), "text/csv")}
+        >
+          <Download className="h-4 w-4" />
+          Export CSV
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => downloadJson(profile, `${slug}_profile.json`)}>
+          <Download className="h-4 w-4" />
+          Export JSON
+        </Button>
+      </>
+    ) : view === "portfolio" && portfolio ? (
+      <Button variant="secondary" size="sm" onClick={() => downloadJson(portfolio, `${slug}_portfolio.json`)}>
+        <Download className="h-4 w-4" />
+        Export JSON
+      </Button>
+    ) : null;
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Assess Your Estate"
-        description="Upload your Alteryx workflows once, then explore migration readiness, tool difficulty, and cross-workflow dependencies — all on the same estate."
-      />
-      <Tabs value={view} onValueChange={setView}>
-        <TabsList>
-          <TabsTrigger value="report">Readiness report</TabsTrigger>
-          <TabsTrigger value="difficulty">Difficulty tiers</TabsTrigger>
-          <TabsTrigger value="portfolio">Dependencies &amp; waves</TabsTrigger>
-        </TabsList>
-        <TabsContent value="report">
-          <AnalyzePage embedded />
-        </TabsContent>
-        <TabsContent value="difficulty">
-          <AssessPage embedded />
-        </TabsContent>
-        <TabsContent value="portfolio">
-          <PortfolioPage embedded />
-        </TabsContent>
-      </Tabs>
-
-      {hasResult && (
-        <NextStep
-          prompt="Assessed your estate. Next:"
-          links={[
-            { to: "/business-case", label: "Build the business case" },
-            { to: "/convert", label: "Start converting" },
-          ]}
-        />
+    <div>
+      <StepHeader slug="assess">{exportButton}</StepHeader>
+      {ctx.workflows.length === 0 ? (
+        <EmptyProject />
+      ) : (
+        <Tabs value={view} onValueChange={setView}>
+          <TabsList>
+            <TabsTrigger value="report">Readiness report</TabsTrigger>
+            <TabsTrigger value="difficulty">Difficulty tiers</TabsTrigger>
+            <TabsTrigger value="portfolio">Dependencies &amp; waves</TabsTrigger>
+          </TabsList>
+          <TabsContent value="report">
+            <AnalyzePage />
+          </TabsContent>
+          <TabsContent value="difficulty">
+            <AssessPage />
+          </TabsContent>
+          <TabsContent value="portfolio">
+            <PortfolioPage />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
+  );
+}
+
+export function EmptyProject() {
+  return (
+    <p className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-sm text-[var(--fg-muted)]">
+      This project has no workflows yet. Add its Alteryx files on the Workflows step (step 1 in the sidebar).
+    </p>
   );
 }

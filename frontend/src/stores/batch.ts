@@ -3,6 +3,8 @@ import type { FileResult, BatchMetrics } from "@/lib/api";
 
 interface BatchStore {
   jobId: string | null;
+  /** The project the running/finished job belongs to, so a screen only shows its own. */
+  projectId: string | null;
   status: "idle" | "uploading" | "running" | "completed" | "error";
   progress: number;
   total: number;
@@ -13,7 +15,7 @@ interface BatchStore {
   errorMessage: string | null;
   ws: WebSocket | null;
 
-  startJob: (jobId: string, total: number) => void;
+  startJob: (jobId: string, total: number, projectId?: string | null) => void;
   connectWs: (jobId: string) => void;
   disconnect: () => void;
   reset: () => void;
@@ -34,6 +36,7 @@ function clearRetryTimer() {
 
 export const useBatchStore = create<BatchStore>((set, get) => ({
   jobId: null,
+  projectId: null,
   status: "idle",
   progress: 0,
   total: 0,
@@ -44,9 +47,10 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   errorMessage: null,
   ws: null,
 
-  startJob: (jobId, total) =>
+  startJob: (jobId, total, projectId = null) =>
     set({
       jobId,
+      projectId,
       status: "running",
       progress: 0,
       total,
@@ -162,6 +166,7 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
     if (ws) ws.close();
     set({
       jobId: null,
+      projectId: null,
       status: "idle",
       progress: 0,
       total: 0,

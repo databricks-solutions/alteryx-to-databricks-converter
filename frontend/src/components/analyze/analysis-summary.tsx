@@ -6,10 +6,12 @@ interface AnalysisSummaryProps {
   data: AnalysisResult;
 }
 
+// Complexity is scored 0-100 (src/a2d/analyzer/complexity.py), banded at 25/50/75.
 function complexityLabel(score: number): string {
-  if (score < 3) return "low";
-  if (score < 6) return "moderate";
-  return "high";
+  if (score < 25) return "low";
+  if (score < 50) return "medium";
+  if (score < 75) return "high";
+  return "very high";
 }
 
 function plural(n: number, singular: string, pluralForm?: string): string {
@@ -28,7 +30,7 @@ function buildSummary(data: AnalysisResult): string[] {
 
   // 1. Lead
   sentences.push(
-    `You uploaded ${data.total_workflows} ${plural(data.total_workflows, "workflow")} ` +
+    `This project has ${data.total_workflows} ${plural(data.total_workflows, "workflow")} ` +
       `containing ${data.total_nodes} ${plural(data.total_nodes, "node", "nodes")} ` +
       `(individual Alteryx tools).`,
   );
@@ -53,7 +55,7 @@ function buildSummary(data: AnalysisResult): string[] {
 
   // 3. Complexity
   sentences.push(
-    `Workflow complexity averages ${data.avg_complexity.toFixed(1)} out of 10 — that's ${complexityLabel(
+    `Workflow complexity averages ${data.avg_complexity.toFixed(0)} out of 100 — that's ${complexityLabel(
       data.avg_complexity,
     )}.`,
   );

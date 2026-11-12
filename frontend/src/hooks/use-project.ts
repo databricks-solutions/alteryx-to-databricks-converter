@@ -1,61 +1,65 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Project, type ProjectSummary } from "@/lib/api";
-import { useProjectStore } from "@/stores/project";
+import { projectQueryKey } from "@/hooks/use-project-context";
 
-/** List saved projects. `enabled` lets a caller skip the call when projects are
- * known to be unavailable (no backend). A 503 surfaces as the query error. */
-export function useProjects(enabled = true) {
+/** Saved projects. A 503 (no database on this server) surfaces as the error. */
+export function useProjects() {
   return useQuery<{ projects: ProjectSummary[]; total: number }>({
     queryKey: ["projects"],
     queryFn: () => api.listProjects(),
-    enabled,
     retry: false,
   });
 }
 
-/** The active project (fetched by the persisted id), or null when none is set. */
-export function useActiveProject() {
-  const activeId = useProjectStore((s) => s.activeProjectId);
-  return useQuery<Project | null>({
-    queryKey: ["project", activeId],
-    queryFn: () => (activeId ? api.getProject(activeId) : Promise.resolve(null)),
-    enabled: activeId != null,
-    retry: false,
-  });
+/** True when the error means "this server has no database", not a real failure. */
+export function isProjectsUnavailable(error: Error | null): boolean {
+  return error != null && /not available|require a database|503|not configured/i.test(error.message);
+}
+
+function useInvalidateProject() {
+  const qc = useQueryClient();
+  return (id: string) => {
+    qc.invalidateQueries({ queryKey: projectQueryKey(id) });
+    qc.invalidateQueries({ queryKey: ["projects"] });
+  };
 }
 
 export function useCreateProject() {
   const qc = useQueryClient();
-  const setActive = useProjectStore((s) => s.setActiveProject);
   return useMutation<Project, Error, { name: string; files: File[] }>({
     mutationFn: ({ name, files }) => api.createProject(name, files),
-    onSuccess: (project) => {
-      setActive(project.id);
-      qc.invalidateQueries({ queryKey: ["projects"] });
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
   });
 }
 
 export function useAddWorkflows() {
-  const qc = useQueryClient();
+  const invalidate = useInvalidateProject();
   return useMutation<Project, Error, { id: string; files: File[] }>({
     mutationFn: ({ id, files }) => api.addProjectWorkflows(id, files),
-    onSuccess: (project) => {
-      qc.invalidateQueries({ queryKey: ["project", project.id] });
-      qc.invalidateQueries({ queryKey: ["projects"] });
-    },
+    onSuccess: (project) => invalidate(project.id),
   });
 }
 
-/** Run analysis over the project's stored estate (no re-upload), advancing its
- * workflows to "assessed". Refetches the project so the journey rail updates. */
-export function useAssessProject() {
+export function useRemoveWorkflow() {
+  const invalidate = useInvalidateProject();
+  return useMutation<Project, Error, { projectId: string; workflowId: string }>({
+    mutationFn: ({ projectId, workflowId }) => api.removeProjectWorkflow(projectId, workflowId),
+    onSuccess: (_p, { projectId }) => invalidate(projectId),
+  });
+}
+
+export function useRenameProject() {
+  const invalidate = useInvalidateProject();
+  return useMutation<Project, Error, { id: string; name: string }>({
+    mutationFn: ({ id, name }) => api.renameProject(id, name),
+    onSuccess: (_p, { id }) => invalidate(id),
+  });
+}
+
+export function useDeleteProject() {
   const qc = useQueryClient();
-  return useMutation<unknown, Error, { projectId: string }>({
-    mutationFn: ({ projectId }) => api.analyze([], projectId),
-    onSuccess: (_data, { projectId }) => {
-      qc.invalidateQueries({ queryKey: ["project", projectId] });
-      qc.invalidateQueries({ queryKey: ["projects"] });
-    },
+  return useMutation<{ deleted: string }, Error, { id: string }>({
+    mutationFn: ({ id }) => api.deleteProject(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
   });
 }

@@ -88,8 +88,9 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Reference"
         title="Settings"
-        description="Configure conversion defaults. Settings are persisted in your browser."
+        description="How the converter writes code, for every project. Saved in this browser."
       />
 
       {/* Databricks catalog */}
@@ -98,7 +99,9 @@ export function SettingsPage() {
           Unity Catalog
         </h3>
         <p className="text-xs text-[var(--fg-muted)] mb-4">
-          Specify the catalog and schema used in generated code.
+          Where the generated code reads and writes tables: notebooks and SQL name them as{" "}
+          <code>catalog.schema.table</code>. Set this to the Unity Catalog location the migrated tables will live
+          in. You can also change it on a project's Convert step.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>

@@ -45,7 +45,7 @@ Large organizations use Alteryx to build data pipelines visually. Moving those p
 
 - **What you save:** weeks of manual rewriting per workflow
 - **What you get:** PySpark notebooks, Spark Declarative Pipelines (DLT), Databricks SQL, Lakeflow Designer pipelines, and Workflow JSON — every conversion produces all five formats in one run, available via CLI, web upload, or Databricks Apps deployment
-- **What it handles:** 158 Alteryx tool types via 113 converters, 141 formula functions, 5 output formats, 15 CLI commands, database connections, expressions, joins, aggregations, and more
+- **What it handles:** 158 Alteryx tool types via 113 converters, 141 formula functions, 5 output formats, 16 CLI commands, database connections, expressions, joins, aggregations, and more
 
 > **You do not need Alteryx installed** to run this tool.
 
@@ -211,7 +211,20 @@ cd frontend && npm install && npm run build && cd ..
 PYTHONPATH=src:. uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open http://localhost:8000. Includes DAG visualization, batch WebSocket progress, conversion history, and a tool support matrix.
+Open http://localhost:8000. The app is organized around a **migration project**: you create a project, add its Alteryx files once, and then work through the steps in the sidebar, in order. Every step reads the project's files, so there's nothing to upload again after step 1.
+
+| Step | What you do there |
+|---|---|
+| 1. Workflows | Add, replace, or remove the project's Alteryx files. This is the only place you upload. |
+| 2. Assess | Readiness report, difficulty tiers, and dependencies & migration waves for every workflow. Runs by itself. |
+| 3. Business case | Savings, payback and ROI with your own cost assumptions, plus an organizational readiness questionnaire. |
+| 4. Convert | Pick one workflow or all of them and convert. Open any workflow for its full result: graph, code in every format, deploy readiness. |
+| 5. Review | Check a converted workflow node by node, size its cluster, then mark it reviewed (and later deployed). |
+| 6. AI completion | Optional. A model fills in what the converter couldn't, as a separate, marked copy of the notebook. See [AI completion and suggestions](#ai-completion-and-suggestions-opt-in). |
+
+The sidebar shows how many workflows have reached each step. Tool coverage, Settings and About sit under Reference.
+
+Projects are saved when the server has a database (`A2D_DATABASE_URL`, or Lakebase in a Databricks Apps deployment). Without one, the app still works the same way, but the project lives in your browser tab and a reload clears it.
 </details>
 
 <details>
@@ -247,7 +260,9 @@ If you need to deploy by hand instead, run `make frontend` first (built assets a
 
 See the full [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Latest** — Migration **savings & ROI estimator** (`a2d savings` + **Assess → Savings**): a configurable, numbers-based business case (Alteryx licenses retired, developer rewrite time saved, net of Databricks run cost, plus maintenance) with payback and ROI. Plus a **migration readiness questionnaire** (`a2d readiness` + **Assess → Readiness**): a deterministic, Alteryx→Databricks-centric self-assessment across estate, people, platform, and governance that returns tailored tips and can pre-answer the estate questions from your actual workflows.
+**Latest** — The web app is now one project-centric flow: upload a project's files once, then follow the steps in the sidebar (Workflows, Assess, Business case, Convert, Review, AI completion). Single and batch conversion are one Convert step, the Advisor moved into Review, and the Assistant chat is replaced by **AI completion** (`a2d complete` + `POST /api/ai/complete`), which writes a separate, marked copy of the PySpark notebook with only the unfinished cells filled in by a model.
+
+**Earlier** — Migration **savings & ROI estimator** (`a2d savings` + the **Business case** step): a configurable, numbers-based business case (Alteryx licenses retired, developer rewrite time saved, net of Databricks run cost, plus maintenance) with payback and ROI. Plus a **migration readiness questionnaire** (`a2d readiness` + **Business case → Readiness**): a deterministic, Alteryx→Databricks-centric self-assessment across estate, people, platform, and governance that returns tailored tips and can pre-answer the estate questions from your actual workflows.
 
 **v1.5** — Lakeflow Designer output, confidence scoring, complexity analysis, connection mapping, expression audit, performance hints, Unity Catalog DDL, DAB generation, multi-format default (every conversion emits all 5 formats), cloud-portable Workflow JSON / DAB via `--cloud aws|azure|gcp`, categorized warnings + 3-tier deploy-readiness banner, and more. 141 expression functions, 1006 tests.
 
@@ -342,7 +357,7 @@ All warnings include remediation hints with 50+ specific recommendations. The JS
 
 ## CLI Reference
 
-a2d provides 15 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
+a2d provides 16 commands. Run `a2d --help` for the full list, or `a2d <command> --help` for details on any command.
 
 | Command | Purpose |
 |---|---|
@@ -354,7 +369,8 @@ a2d provides 15 commands. Run `a2d --help` for the full list, or `a2d <command> 
 | `readiness` | Score migration readiness with a tailored Alteryx→Databricks questionnaire |
 | `validate` | Check generated Python syntax |
 | `verify` | Check a workflow produces **semantically equivalent** results on sample data (see below) |
-| `suggest` | Write AI suggestions for what the converter couldn't convert (opt-in; see [AI assistant](#ai-assistant-opt-in)) |
+| `suggest` | Write AI suggestions for what the converter couldn't convert (opt-in; see [AI completion and suggestions](#ai-completion-and-suggestions-opt-in)) |
+| `complete` | Write an AI-completed copy of the PySpark notebook, with only the unfinished cells filled in and marked (opt-in) |
 | `sync` | Incrementally re-convert a directory — only changed or new workflows |
 | `advise` | Recommend a cluster size and surface Spark optimization hints |
 | `profile` | Profile a sample-data CSV: per-column type, null rate, and range |
@@ -413,7 +429,7 @@ a2d portfolio ./workflows/ -o portfolio-out/
 - Emits a rich console summary, an **executive dashboard** (`executive_dashboard.html`)
   with estate-wide coverage/effort/risk rollups, plus HTML and JSON reports.
 
-Also available in the web UI at **Assess → Portfolio**.
+Also in the web app on a project's **Assess** step (Dependencies & waves).
 
 ### Cluster and cost advice (`a2d advise`)
 
@@ -428,7 +444,7 @@ joins, cross joins, persist/repartition, sequential joins).
 
 Derived from the workflow's **shape** (node count, DAG depth, shuffle/spatial/ML
 operations), not your data volumes. It's a planning aid, not a benchmark or a quote.
-Also available in the web UI at **Validate → Advisor**.
+Also in the web app on a project's **Review** step (Cluster & performance).
 
 ### Migration savings & ROI (`a2d savings`)
 
@@ -452,7 +468,7 @@ It reports net annual savings, a **payback period**, and **ROI** over a configur
 horizon. Tune every input via `--config` (YAML/JSON) or the `--rate` / `--seats` /
 `--automation` / `--horizon` flags. Deterministic and offline — a planning estimate,
 not a quote; the money defaults are illustrative placeholders you replace with your
-real numbers. Also in the web UI at **Assess → Savings**.
+real numbers. Also in the web app on a project's **Business case** step.
 
 ### Migration readiness questionnaire (`a2d readiness`)
 
@@ -472,7 +488,7 @@ Answer non-interactively with `--answers FILE`, `--interactive` for a terminal
 walkthrough, and/or `--from-estate PATH` to pre-answer the estate questions from your
 actual workflows. Weights and tier thresholds are tunable via `--config`. Distinct
 from `a2d assess`, which profiles the *files*; this scores *human* answers. Also in
-the web UI at **Assess → Readiness**.
+the web app on a project's **Business case** step (Readiness), where the estate questions are pre-answered from the project's files.
 
 ### Incremental re-conversion (`a2d sync`)
 
@@ -508,32 +524,24 @@ registered via the `a2d.frontends` entry point) and converter plugins loaded fro
 `a2d.converters` entry point, including any that failed to load and why. CLI-only
 introspection — see [docs/converter-sdk.md](docs/converter-sdk.md) to write your own.
 
-### AI assistant (opt-in)
+### AI completion and suggestions (opt-in)
 
-**By default a2d never calls a language model.** Conversion is entirely
-deterministic, and nothing here changes that.
+**By default a2d never calls a language model.** Conversion is deterministic: the same workflow always produces the same code, and nothing here changes that.
 
-If you configure a Databricks Foundation Model API endpoint, two advisory features
-become available. They can only **suggest** and **explain** — an LLM never modifies
-generated code, and its output arrives as a separate document you read and apply
-yourself.
+If you configure a Databricks Foundation Model API endpoint, two optional AI features become available. Both work only on the parts the converter couldn't finish (unsupported tools, TODO stubs, expression fallbacks), and neither changes the deterministic output.
 
 ```bash
 export A2D_FMAPI_ENDPOINT="https://<workspace>/serving-endpoints/<name>/invocations"
-export A2D_FMAPI_TOKEN="..."   # optional — omit to use ambient workspace credentials
+export A2D_FMAPI_TOKEN="..."   # optional; omit to use ambient workspace credentials
 
+a2d complete workflow.yxmd         # writes workflow.ai-completed.py
 a2d suggest workflow.yxmd          # writes workflow_suggestions.md
 ```
 
-- **`a2d suggest`** writes a Markdown report describing every gap the converter
-  left — unsupported tools, TODO stubs, expression fallbacks, connection issues —
-  with a suggested Databricks implementation for each. With no endpoint configured
-  it still succeeds and still writes the deterministic gap list, just without
-  suggestions.
-- **The Assistant page** (`/chat` in the web UI) is a chatbot for discussing the
-  migration: why the converter made the choices it did, how to handle a gap, and
-  what the trade-offs are. It asks a few clarifying questions, then generates the
-  same downloadable report.
+- **`a2d complete`** writes an AI-completed copy of the PySpark notebook. Only the cells that need work are sent to the model, one at a time. Each cell the model writes is wrapped in `>>> AI-GENERATED` / `<<< AI-GENERATED` comments, and the file starts with a banner saying it's AI-generated and unverified. If the model's code doesn't parse, or drops a variable that later cells use, that cell keeps its deterministic version and is reported as not completed. The deterministic `workflow.py` is never touched.
+- **`a2d suggest`** writes a Markdown report with a suggested Databricks implementation for each gap. With no endpoint configured it still writes the deterministic gap list, just without suggestions.
+
+In the web app both live on the **AI completion** step, the only step that uses AI. Pick a converted workflow, see what the converter couldn't finish (this part works without AI), then generate the completed copy, compare each cell before and after, and download it or the suggestions notes. AI completion covers PySpark notebooks for now.
 
 To enable it in a Databricks Apps deployment, pass the endpoint at deploy time:
 
@@ -541,10 +549,7 @@ To enable it in a Databricks Apps deployment, pass the endpoint at deploy time:
 databricks bundle deploy --var fmapi_endpoint="https://<workspace>/serving-endpoints/<name>/invocations"
 ```
 
-In-workspace serving endpoints need no token — the app's service principal
-credentials are used. Leave `fmapi_endpoint` empty (the default) to keep AI off
-entirely; the Assistant page then shows setup instructions instead of an upload
-form.
+In-workspace serving endpoints need no token, because the app's service principal credentials are used. Leave `fmapi_endpoint` empty (the default) to keep AI off; the AI completion step then explains how to turn it on.
 
 ---
 
@@ -601,7 +606,7 @@ make clean       # Remove build artifacts
 
 ```
 src/a2d/
-  cli.py                   # Typer CLI (15 commands)
+  cli.py                   # Typer CLI (16 commands)
   config.py                # Configuration dataclasses
   pipeline.py              # Orchestration: Parse → Convert → Generate
   connections.py           # YAML connection mapping (Alteryx → Unity Catalog)
@@ -615,7 +620,7 @@ src/a2d/
   observability/           # Confidence scoring, warning categorization, deploy status,
                            #   expression audit, performance hints
   verification/            # Semantic equivalence harness (pandas reference executor)
-  advisor/                 # Cluster/cost advice + the opt-in advisory LLM (context, report, chat)
+  advisor/                 # Cluster/cost advice + the opt-in LLM (context, completion, report, chat)
   portfolio/               # Estate-wide analysis, dependency graph, executive dashboard
   macro/                   # .yxmc macro expansion (inlined into the parent DAG)
   review/                  # Interactive review sessions (canvas ↔ generated code)
@@ -626,17 +631,17 @@ src/a2d/
 
 server/                    # FastAPI backend
   main.py                  # App entry point
-  routers/                 # REST endpoints (analyze, assess, convert, chat, health,
-                           #   history, insights [portfolio/advise/savings], readiness,
-                           #   review, tools, validate)
+  routers/                 # REST endpoints (ai, analyze, assess, convert, chat, health,
+                           #   history, insights [portfolio/advise/savings], projects,
+                           #   readiness, review, tools, validate)
   services/                # Business logic
   websocket/               # Real-time batch progress
 
 frontend/                  # React 19 + TypeScript + Tailwind 4
   src/
-    routes/                # 15 pages (convert, batch, analyze, assess, portfolio,
-                           #   savings, readiness, advise, history, tools, validate,
-                           #   review, chat, settings, about, home)
+    routes/                # Projects (home), the project layout and its six steps
+                           #   (workflows, assess, business-case, convert, review,
+                           #   ai-completion) with their views, and the reference pages
     components/            # UI components (workflow graph, code viewer, etc.)
     stores/                # Zustand state management
     lib/                   # API client, utilities

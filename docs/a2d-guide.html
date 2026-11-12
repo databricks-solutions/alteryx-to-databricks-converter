@@ -995,19 +995,18 @@ PYTHONPATH=src:. uvicorn server.main:app --host 0.0.0.0</code></pre>
 <!-- S36 -->
 <section>
   <h2>React Web UI</h2>
-  <p class="subtitle">9 pages &mdash; React 19 + TypeScript + Tailwind 4</p>
+  <p class="subtitle">One migration project, worked through in steps</p>
   <table style="font-size:0.58em;">
-    <thead><tr><th>Page</th><th>Features</th></tr></thead>
+    <thead><tr><th>Step</th><th>What you do there</th></tr></thead>
     <tbody>
-      <tr><td>Home</td><td>Quick start, feature overview, stats</td></tr>
-      <tr><td>Convert</td><td>File upload, live conversion, multi-format code viewer (all 4 formats), download</td></tr>
-      <tr><td>Batch Convert</td><td>Multi-file upload, WebSocket real-time progress, ZIP download</td></tr>
-      <tr><td>Analyze</td><td>Readiness reports, complexity charts, enriched warnings</td></tr>
-      <tr><td>History</td><td>Past conversions with re-download</td></tr>
-      <tr><td>Tools</td><td>Tool support matrix with search/filter</td></tr>
-      <tr><td>Validate</td><td>Syntax validation for generated code</td></tr>
-      <tr><td>Settings</td><td>Catalog, feature toggles, connection mapping editor</td></tr>
-      <tr><td>About</td><td>Version, architecture, credits</td></tr>
+      <tr><td>Projects</td><td>Create a migration project and add its Alteryx files, or open an existing one</td></tr>
+      <tr><td>1. Workflows</td><td>Add, replace, or remove the project's files (the only place you upload)</td></tr>
+      <tr><td>2. Assess</td><td>Readiness report, difficulty tiers, dependencies &amp; migration waves (runs by itself)</td></tr>
+      <tr><td>3. Business case</td><td>Savings, payback and ROI; organizational readiness questionnaire</td></tr>
+      <tr><td>4. Convert</td><td>Convert one workflow or all of them; open any workflow for its graph and code in every format</td></tr>
+      <tr><td>5. Review</td><td>Node-by-node review, cluster sizing, quick syntax check; mark reviewed / deployed</td></tr>
+      <tr><td>6. AI completion</td><td>Optional: a separate, marked notebook copy with the unfinished cells filled in by a model</td></tr>
+      <tr><td>Reference</td><td>Tool coverage, Settings, About</td></tr>
     </tbody>
   </table>
 </section>
@@ -1015,42 +1014,44 @@ PYTHONPATH=src:. uvicorn server.main:app --host 0.0.0.0</code></pre>
 <!-- S38 -->
 <section>
   <h2>API Overview</h2>
-  <p class="subtitle">13 endpoints across 6 routers</p>
+  <p class="subtitle">The main endpoints</p>
   <div class="cols" style="font-size:0.55em;">
     <div>
       <h4>Conversion</h4>
       <table>
         <tbody>
           <tr><td><code>POST /api/convert</code></td><td>Single-file conversion</td></tr>
-          <tr><td><code>POST /api/convert/batch</code></td><td>Multi-file batch</td></tr>
+          <tr><td><code>POST /api/convert/batch</code></td><td>Many files, or a project's workflows</td></tr>
           <tr><td><code>GET /api/convert/batch/{id}</code></td><td>Batch result/status</td></tr>
-          <tr><td><code>WS /api/convert/ws/{id}</code></td><td>Real-time progress stream</td></tr>
+          <tr><td><code>WS /api/ws/batch/{id}</code></td><td>Real-time progress stream</td></tr>
         </tbody>
       </table>
       <h4>Analysis</h4>
       <table>
         <tbody>
-          <tr><td><code>POST /api/analyze</code></td><td>Analysis report</td></tr>
-          <tr><td><code>POST /api/validate</code></td><td>Syntax check</td></tr>
-          <tr><td><code>GET /api/tools</code></td><td>Tool support matrix</td></tr>
+          <tr><td><code>POST /api/analyze</code></td><td>Readiness report</td></tr>
+          <tr><td><code>POST /api/assess</code></td><td>Difficulty tiers</td></tr>
+          <tr><td><code>POST /api/portfolio</code></td><td>Dependencies &amp; waves</td></tr>
+          <tr><td><code>POST /api/savings</code></td><td>Savings &amp; ROI</td></tr>
         </tbody>
       </table>
     </div>
     <div>
-      <h4>Infrastructure</h4>
+      <h4>Projects</h4>
       <table>
         <tbody>
-          <tr><td><code>GET /api/health</code></td><td>Health check</td></tr>
-          <tr><td><code>GET /api/ready</code></td><td>Readiness (503 if no converters)</td></tr>
+          <tr><td><code>POST /api/projects</code></td><td>Create a project from files</td></tr>
+          <tr><td><code>GET /api/projects/{id}</code></td><td>Workflows, stages, rollups</td></tr>
+          <tr><td><code>POST /api/projects/{id}/workflows</code></td><td>Add or replace workflows</td></tr>
+          <tr><td><code>PATCH /api/projects/{id}/workflows/{wid}</code></td><td>Move a workflow's stage</td></tr>
         </tbody>
       </table>
-      <h4>History</h4>
+      <h4>AI (opt-in)</h4>
       <table>
         <tbody>
-          <tr><td><code>GET /api/history</code></td><td>Conversion history list</td></tr>
-          <tr><td><code>GET /api/history/{id}</code></td><td>Single conversion detail</td></tr>
-          <tr><td><code>DELETE /api/history/{id}</code></td><td>Delete history entry</td></tr>
-          <tr><td><code>DELETE /api/history</code></td><td>Clear all history</td></tr>
+          <tr><td><code>POST /api/ai/gaps</code></td><td>What the converter couldn't finish</td></tr>
+          <tr><td><code>POST /api/ai/complete</code></td><td>AI-completed notebook copy</td></tr>
+          <tr><td><code>POST /api/ai/notes</code></td><td>Suggestions as Markdown</td></tr>
         </tbody>
       </table>
     </div>

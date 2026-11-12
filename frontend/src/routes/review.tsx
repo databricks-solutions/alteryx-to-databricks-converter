@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { PageHeader } from "@/components/layout/page-header";
-import { FileDropzone } from "@/components/shared/file-dropzone";
 import { ReviewGraph } from "@/components/review/review-graph";
 import { CodeBlock } from "@/components/shared/code-block";
 import { Button } from "@/components/ui/button";
@@ -16,7 +14,7 @@ import type {
   ReviewStatus,
 } from "@/lib/api";
 import { saveAs } from "file-saver";
-import { Play, Loader2, RotateCcw, Check, X, Pencil, Download } from "lucide-react";
+import { Play, Loader2, Check, X, Pencil, Download } from "lucide-react";
 
 const FORMAT_LANGUAGE: Record<FormatId, "python" | "sql" | "json"> = {
   pyspark: "python",
@@ -57,8 +55,8 @@ function effectiveCode(node: ReviewNode, local: LocalDecision | undefined): stri
   return node.generated_code;
 }
 
-export function ReviewPage({ embedded = false }: { embedded?: boolean }) {
-  const [files, setFiles] = useState<File[]>([]);
+/** Node-by-node review of one workflow from the project (picked by the Review step). */
+export function ReviewPage({ file }: { file: File | null }) {
   const [outputFormat, setOutputFormat] = useState<FormatId>("pyspark");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [decisions, setDecisions] = useState<Record<number, LocalDecision>>({});
@@ -101,8 +99,8 @@ export function ReviewPage({ embedded = false }: { embedded?: boolean }) {
   }, [session, decisions]);
 
   const handleReview = () => {
-    if (files.length === 0) return;
-    mutation.mutate({ file: files[0], outputFormat });
+    if (!file) return;
+    mutation.mutate({ file, outputFormat });
   };
 
   // An in-progress edit whose draft diverges from the saved code would be lost
@@ -112,14 +110,14 @@ export function ReviewPage({ embedded = false }: { embedded?: boolean }) {
   const confirmDiscard = () =>
     !hasUnsavedEdit() || window.confirm("You have an unsaved edit to this node. Discard it?");
 
-  const handleReset = () => {
-    if (!confirmDiscard()) return;
-    mutation.reset();
-    setFiles([]);
+  // A different workflow was picked: start over on it.
+  const { reset: resetReview } = mutation;
+  useEffect(() => {
+    resetReview();
     setSelectedId(null);
     setDecisions({});
     setEditing(false);
-  };
+  }, [file, resetReview]);
 
   const selectNode = (nodeId: number) => {
     if (nodeId === selectedId) return;
@@ -169,31 +167,8 @@ export function ReviewPage({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div className="space-y-6">
-      {!embedded && (
-        <PageHeader
-          title="Review Workspace"
-          description="Inspect each node's generated code beside the workflow canvas, then accept, edit, or reject before exporting"
-        >
-          {session && (
-            <Button variant="secondary" size="sm" onClick={handleReset}>
-              <RotateCcw className="h-4 w-4" />
-              Review Another
-            </Button>
-          )}
-        </PageHeader>
-      )}
-      {embedded && session && (
-        <div className="flex justify-end">
-          <Button variant="secondary" size="sm" onClick={handleReset}>
-            <RotateCcw className="h-4 w-4" />
-            Review Another
-          </Button>
-        </div>
-      )}
-
       {!session && (
         <div className="space-y-4">
-          <FileDropzone files={files} onFilesChange={setFiles} />
           <div className="flex items-center gap-3">
             <label htmlFor="review-format" className="text-sm text-[var(--fg-muted)]">
               Target format
@@ -209,7 +184,7 @@ export function ReviewPage({ embedded = false }: { embedded?: boolean }) {
               <option value="sql">Databricks SQL</option>
               <option value="lakeflow">Lakeflow</option>
             </select>
-            <Button onClick={handleReview} disabled={files.length === 0 || mutation.isPending}>
+            <Button onClick={handleReview} disabled={!file || mutation.isPending}>
               {mutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (

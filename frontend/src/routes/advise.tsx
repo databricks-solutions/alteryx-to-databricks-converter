@@ -1,16 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { PageHeader } from "@/components/layout/page-header";
-import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useAdvise } from "@/hooks/use-insights";
-import { useConvertBridge } from "@/stores/convert-bridge";
 import { downloadJson } from "@/lib/portfolio-download";
 import type { CloudName } from "@/lib/api";
-import { Play, Loader2, RotateCcw, Download, Server, Zap, Info, ArrowRight } from "lucide-react";
+import { Play, Loader2, Download, Server, Zap, Info } from "lucide-react";
 
 const PRIORITY_VARIANT: Record<string, "destructive" | "warning" | "secondary"> = {
   high: "destructive",
@@ -18,54 +14,37 @@ const PRIORITY_VARIANT: Record<string, "destructive" | "warning" | "secondary"> 
   low: "secondary",
 };
 
-export function AdvisePage() {
-  const [files, setFiles] = useState<File[]>([]);
+/** Cluster sizing and Spark hints for one workflow from the project (picked by the Review step). */
+export function AdvisePage({ file }: { file: File | null }) {
   const [cloud, setCloud] = useState<CloudName>("aws");
   const mutation = useAdvise();
   const report = mutation.data;
-  const handoffFile = useConvertBridge((s) => s.handoffFile);
-  const handoffName = useConvertBridge((s) => s.handoffName);
 
-  // Prefill from a workflow just converted on the Convert page — no re-upload.
+  // A different workflow was picked: drop the previous advice.
+  const { reset } = mutation;
   useEffect(() => {
-    if (handoffFile) setFiles((f) => (f.length === 0 ? [handoffFile] : f));
-  }, [handoffFile]);
-
-  const fromConvert = handoffName != null && files.some((f) => f.name === handoffName);
+    reset();
+  }, [file, reset]);
 
   const handleAdvise = () => {
-    if (files.length === 0) return;
-    mutation.mutate({ file: files[0], cloud });
-  };
-
-  const handleReset = () => {
-    mutation.reset();
-    setFiles([]);
+    if (!file) return;
+    mutation.mutate({ file, cloud });
   };
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Cost & Performance Advisor"
-        description="Recommend a starting cluster size and surface Spark optimization opportunities for a workflow"
-      >
-        {report && (
-          <>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => downloadJson(report, `${report.workflow_name}-advisory.json`)}
-            >
-              <Download className="h-4 w-4" />
-              Export JSON
-            </Button>
-            <Button variant="secondary" size="sm" onClick={handleReset}>
-              <RotateCcw className="h-4 w-4" />
-              New Advisory
-            </Button>
-          </>
-        )}
-      </PageHeader>
+      {report && (
+        <div className="flex justify-end">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => downloadJson(report, `${report.workflow_name}-advisory.json`)}
+          >
+            <Download className="h-4 w-4" />
+            Export JSON
+          </Button>
+        </div>
+      )}
 
       {/* Set expectations: this is a planning aid, not a benchmark. */}
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-xs text-[var(--fg-muted)]">
@@ -80,13 +59,6 @@ export function AdvisePage() {
 
       {!report && (
         <div className="space-y-4">
-          {fromConvert && (
-            <div className="flex items-center gap-2 rounded-lg border border-[var(--ring)]/30 bg-[var(--ring)]/5 px-4 py-3 text-sm text-[var(--fg)]">
-              <ArrowRight className="h-4 w-4 shrink-0 text-[var(--ring)]" />
-              Loaded <strong>{handoffName}</strong> from Convert — no re-upload needed. Pick a cloud and get the advisory.
-            </div>
-          )}
-          <FileDropzone files={files} onFilesChange={setFiles} />
           <div className="flex items-center gap-3">
             <label htmlFor="advise-cloud" className="text-sm text-[var(--fg-muted)]">
               Target cloud
@@ -101,7 +73,7 @@ export function AdvisePage() {
               <option value="azure">Azure</option>
               <option value="gcp">GCP</option>
             </select>
-            <Button onClick={handleAdvise} disabled={files.length === 0 || mutation.isPending}>
+            <Button onClick={handleAdvise} disabled={!file || mutation.isPending}>
               {mutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -191,19 +163,6 @@ export function AdvisePage() {
             )}
           </Card>
 
-          {/* Hand the user onward — the advisory is a planning step, not a dead end. */}
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--ring)]/30 bg-[var(--ring)]/5 px-4 py-3 text-sm">
-            <ArrowRight className="h-4 w-4 shrink-0 text-[var(--ring)]" />
-            <span className="text-[var(--fg)]">Sized your cluster. Next:</span>
-            <div className="ml-auto flex flex-wrap gap-4">
-              <Link to="/review" className="font-medium text-[var(--ring)] hover:underline whitespace-nowrap">
-                Review the generated code →
-              </Link>
-              <Link to="/convert" className="font-medium text-[var(--ring)] hover:underline whitespace-nowrap">
-                Convert a workflow →
-              </Link>
-            </div>
-          </div>
         </div>
       )}
     </div>

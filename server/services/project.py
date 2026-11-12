@@ -238,7 +238,7 @@ def get_project(project_id: str) -> dict | None:
                 return None
             wrows = conn.execute(
                 """SELECT id, file_name, stage, analysis, updated_at,
-                          octet_length(decode(source_b64, 'base64')), conversion_refs
+                          octet_length(decode(source_b64, 'base64')), conversion_refs, md5(source_b64)
                    FROM project_workflow WHERE project_id = %s ORDER BY file_name""",
                 (project_id,),
             ).fetchall()
@@ -251,6 +251,9 @@ def get_project(project_id: str) -> dict | None:
                 "updated_at": w[4].isoformat() if w[4] else "",
                 "size_bytes": w[5] or 0,
                 "conversion": w[6],
+                # Changes only when the file's bytes do (not on stage moves), so a
+                # client can tell whether a cached analysis still describes it.
+                "content_hash": w[7] or "",
             }
             for w in wrows
         ]

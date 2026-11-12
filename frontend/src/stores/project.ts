@@ -2,22 +2,24 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /**
- * The active Migration Project. Only the id is held here (and persisted), so a
- * reload resumes the same project; the project's data is fetched from the server
- * by id. When no project is active the app behaves as it always has — per-visit,
- * in-session stores — so this is purely additive.
+ * The last saved project opened, remembered across reloads.
+ *
+ * The URL (`/p/<id>/...`) decides which project a screen shows. Nothing is ever
+ * auto-selected from this value: it only feeds the "Resume" card on the
+ * Projects page and the redirects from old bookmarks (`/assess` and so on).
+ * Session-only projects aren't remembered, since they don't survive a reload.
  */
 interface ProjectStore {
-  activeProjectId: string | null;
-  setActiveProject: (id: string | null) => void;
+  lastProjectId: string | null;
+  setLastProject: (id: string | null) => void;
 }
 
 export const useProjectStore = create<ProjectStore>()(
   persist(
     (set) => ({
-      activeProjectId: null,
-      setActiveProject: (id) => set({ activeProjectId: id }),
+      lastProjectId: null,
+      setLastProject: (id) => set({ lastProjectId: id }),
     }),
-    { name: "a2d-active-project" },
+    { name: "a2d-last-project" },
   ),
 );

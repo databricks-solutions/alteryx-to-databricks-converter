@@ -1,14 +1,10 @@
-import { useEffect } from "react";
-import { PageHeader } from "@/components/layout/page-header";
-import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { usePortfolio } from "@/hooks/use-insights";
-import { useEstateStore, isStale } from "@/stores/estate";
-import { downloadJson } from "@/lib/portfolio-download";
-import { Play, Loader2, RotateCcw, Download, Layers, GitBranch, Copy, Clock } from "lucide-react";
+import { useEstateView } from "@/hooks/use-estate-view";
+import { api } from "@/lib/api";
+import { Loader2, Layers, GitBranch, Copy, Clock } from "lucide-react";
 
 const EFFORT_VARIANT: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
   Low: "success",
@@ -16,98 +12,38 @@ const EFFORT_VARIANT: Record<string, "success" | "warning" | "destructive" | "se
   High: "destructive",
 };
 
-export function PortfolioPage({ embedded = false }: { embedded?: boolean }) {
-  const files = useEstateStore((s) => s.files);
-  const setFiles = useEstateStore((s) => s.setFiles);
-  const stored = useEstateStore((s) => s.results.portfolio);
-  const saveResult = useEstateStore((s) => s.saveResult);
-  const clearResult = useEstateStore((s) => s.clearResult);
-  const mutation = usePortfolio();
-
-  // Persist the estate report so switching views / reloading keeps it.
-  useEffect(() => {
-    if (mutation.data) saveResult("portfolio", mutation.data);
-  }, [mutation.data, saveResult]);
-
-  const report = mutation.data ?? stored?.data ?? null;
-  const staleResult = !mutation.data && isStale(stored, files);
-
-  const handleAnalyze = () => {
-    if (files.length === 0) return;
-    mutation.mutate({ files });
-  };
-
-  const handleReset = () => {
-    mutation.reset();
-    clearResult("portfolio");
-  };
-
-  const actions = report ? (
-    <>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() => downloadJson(report, "portfolio-analysis.json")}
-      >
-        <Download className="h-4 w-4" />
-        Export JSON
-      </Button>
-      <Button variant="secondary" size="sm" onClick={handleReset}>
-        <RotateCcw className="h-4 w-4" />
-        New Analysis
-      </Button>
-    </>
-  ) : null;
+/** Cross-workflow dependencies and the migration wave plan for the open
+ * project. Runs by itself. */
+export function PortfolioPage() {
+  const view = useEstateView({ kind: "portfolio", run: (source) => api.portfolio(source), auto: true });
+  const report = view.data;
 
   return (
     <div className="space-y-6">
-      {!embedded && (
-        <PageHeader
-          title="Portfolio Analysis"
-          description="Analyze a whole estate at once — cross-workflow dependencies, shared macros, duplicated logic, and a migration-wave plan"
-        >
-          {actions}
-        </PageHeader>
-      )}
-      {embedded && actions && <div className="flex justify-end gap-2">{actions}</div>}
-
-      {!embedded && (
-        <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
-          Note: this profiles workflow footprint, complexity, and cross-file dependencies. It does not measure data
-          volumes or row counts, which depend on the source systems.
-        </p>
-      )}
-
-      {staleResult && (
+      {view.ctx.workflows.length === 1 && (
         <p className="text-xs text-[var(--fg-muted)]">
-          Showing a report from a previously loaded estate — re-run to refresh for the current files.
+          This project has one workflow, so there are no cross-workflow dependencies to find. Add more on the
+          Workflows step for a useful wave plan.
         </p>
       )}
 
-      {!report && (
-        <div className="space-y-4">
-          <p className="text-sm text-[var(--fg-muted)]">
-            Upload several workflows together — the value is in the cross-workflow view, so the more of
-            your estate you include, the more useful the dependency graph and wave plan become.
-          </p>
-          <FileDropzone files={files} onFilesChange={setFiles} multiple />
-          <Button onClick={handleAnalyze} disabled={files.length === 0 || mutation.isPending}>
-            {mutation.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Play className="h-4 w-4" />
-            )}
-            Analyze Estate
-          </Button>
-          {mutation.isError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {mutation.error.message}
-            </div>
-          )}
+      {view.isPending && (
+        <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]" role="status" aria-live="polite">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Mapping dependencies across {view.ctx.workflows.length} workflows…
         </div>
       )}
 
-      {report && (
+      {view.error && !view.isPending && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {view.error.message}
+          <Button variant="ghost" size="sm" className="ml-2" onClick={() => view.rerun()}>
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {report && !view.isPending && (
         <div className="space-y-6">
           {/* Estate rollup */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

@@ -9,6 +9,7 @@ export function AboutPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Reference"
         title="About a2d"
         description="Alteryx-to-Databricks Migration Accelerator"
       />

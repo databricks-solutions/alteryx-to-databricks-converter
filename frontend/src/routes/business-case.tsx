@@ -1,46 +1,59 @@
 import { useState } from "react";
-import { PageHeader } from "@/components/layout/page-header";
+import { StepHeader } from "@/components/layout/step-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { NextStep } from "@/components/shared/next-step";
+import { Button } from "@/components/ui/button";
+import { useProjectContext } from "@/hooks/use-project-context";
 import { useEstateStore } from "@/stores/estate";
+import { useCurrentResult } from "@/hooks/use-current-result";
+import { downloadJson } from "@/lib/portfolio-download";
 import { SavingsPage } from "@/routes/savings";
 import { ReadinessPage } from "@/routes/readiness";
+import { EmptyProject } from "@/routes/assess-hub";
+import { Download } from "lucide-react";
 
 /**
- * The pre-migration "business case" surface for a decision-maker: the numbers
- * (savings / payback / ROI) and the readiness self-assessment, paired because
- * they answer the same two executive questions — "what will this save us?" and
- * "are we ready?" — over the same estate.
+ * Step 3. The numbers (savings / payback / ROI) and the organizational
+ * readiness check, both for this project. No uploads here.
  */
 export function BusinessCasePage() {
   const [view, setView] = useState("savings");
-  const results = useEstateStore((s) => s.results);
-  const hasResult = Boolean(results.savings || results.readiness);
+  const ctx = useProjectContext();
+  const savings = useCurrentResult("savings");
+  // The readiness score depends on answers, not files, so read it directly.
+  const readiness = useEstateStore((s) => (ctx.projectId ? s.byProject[ctx.projectId]?.readiness?.data : undefined));
+  const slug = ctx.name.replace(/[^A-Za-z0-9_-]+/g, "_") || "project";
+
+  const exportButton =
+    view === "savings" && savings ? (
+      <Button variant="secondary" size="sm" onClick={() => downloadJson(savings, `${slug}_savings.json`)}>
+        <Download className="h-4 w-4" />
+        Export JSON
+      </Button>
+    ) : view === "readiness" && readiness ? (
+      <Button variant="secondary" size="sm" onClick={() => downloadJson(readiness, `${slug}_readiness.json`)}>
+        <Download className="h-4 w-4" />
+        Export JSON
+      </Button>
+    ) : null;
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Business Case"
-        description="Make the case for the migration: estimate savings, payback, and ROI, and score your organizational readiness — both on the estate you've loaded."
-      />
-      <Tabs value={view} onValueChange={setView}>
-        <TabsList>
-          <TabsTrigger value="savings">Savings &amp; ROI</TabsTrigger>
-          <TabsTrigger value="readiness">Readiness</TabsTrigger>
-        </TabsList>
-        <TabsContent value="savings">
-          <SavingsPage embedded />
-        </TabsContent>
-        <TabsContent value="readiness">
-          <ReadinessPage embedded />
-        </TabsContent>
-      </Tabs>
-
-      {hasResult && (
-        <NextStep
-          prompt="Made the business case. Next:"
-          links={[{ to: "/convert", label: "Start converting" }]}
-        />
+    <div>
+      <StepHeader slug="business-case">{exportButton}</StepHeader>
+      {ctx.workflows.length === 0 ? (
+        <EmptyProject />
+      ) : (
+        <Tabs value={view} onValueChange={setView}>
+          <TabsList>
+            <TabsTrigger value="savings">Savings &amp; ROI</TabsTrigger>
+            <TabsTrigger value="readiness">Readiness</TabsTrigger>
+          </TabsList>
+          <TabsContent value="savings">
+            <SavingsPage />
+          </TabsContent>
+          <TabsContent value="readiness">
+            <ReadinessPage />
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );

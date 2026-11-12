@@ -1,6 +1,9 @@
 # Migration Project — Design
 
-Status: proposed. This is the keystone for app cohesion. Today each screen is an
+Status: built. Phases 1 and 2 added the project and its API; the project-centric
+flow (below, "Where it ended up") made it the organizing object of the whole app.
+
+This is the keystone for app cohesion. Today each screen is an
 independent tool: the five analysis screens share one in-session estate, and
 Convert hands its file to the Assistant and Advisor, but nothing survives a
 reload, no screen knows what another already did, and no workflow carries a
@@ -164,3 +167,28 @@ become the no-backend fallback rather than being replaced.
   regression through the project path).
 - Frontend: journey rail counts, workflow picker, dashboard rollups, and the
   no-project fallback still working with no backend.
+
+## Where it ended up
+
+After Phase 2, a walkthrough of the deployed app showed the project and the
+screens were still two parallel worlds: the project existed, but the Assess and
+Business case screens kept their own drop zones and in-browser estate, so a user
+saw upload boxes on nearly every page and couldn't tell which project (if any)
+a screen was using. The project-centric flow fixed that:
+
+- **The URL names the project.** Steps live at `/p/<project>/<step>`. Nothing is
+  silently auto-selected; the last project opened only feeds a "Resume" button
+  and the redirects from old URLs.
+- **One upload.** Files are added only when creating a project and on its
+  Workflows step. Every other step reads the project (multi-file endpoints take
+  `project_id`; single-workflow screens fetch the stored file).
+- **The sidebar is the only navigation.** It lists the open project's steps in
+  order with progress counts. Pages no longer link onward, and the journey rail
+  is gone.
+- **Views run themselves.** Analysis views run on first open and cache per project,
+  keyed by a signature of the project's files (a per-workflow content hash), so a
+  re-upload refreshes them and a stage change doesn't.
+- **No database:** the same flow with a project held in the browser tab, rather
+  than the old per-screen uploads.
+- **AI is one optional last step** that writes a separate, marked copy of the
+  notebook (`a2d.advisor.completion`); the chat page was removed from the app.

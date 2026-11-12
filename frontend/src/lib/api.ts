@@ -1,5 +1,61 @@
 const BASE = "/api";
 
+/**
+ * Where a multi-file call gets its workflows: a saved project (the server reads
+ * the stored files — nothing is re-uploaded) or, for a session-only project when
+ * no database is configured, the files held in the browser.
+ */
+export type EstateSource = { projectId: string } | { files: File[] };
+
+function appendSource(fd: FormData, source: EstateSource) {
+  if ("projectId" in source) fd.append("project_id", source.projectId);
+  else source.files.forEach((f) => fd.append("files", f));
+}
+
+/** One workflow for a single-workflow call: a saved project's, or a browser file. */
+export type WorkflowSource = { projectId: string; workflowId: string } | { file: File };
+
+function appendWorkflow(fd: FormData, source: WorkflowSource) {
+  if ("file" in source) fd.append("file", source.file);
+  else {
+    fd.append("project_id", source.projectId);
+    fd.append("workflow_id", source.workflowId);
+  }
+}
+
+export interface ConvertOptions {
+  catalogName?: string;
+  schemaName?: string;
+  includeComments?: boolean;
+  includeExpressionAudit?: boolean;
+  includePerformanceHints?: boolean;
+  generateDdl?: boolean;
+  generateDab?: boolean;
+  expandMacros?: boolean;
+}
+
+function appendOptions(fd: FormData, opts?: ConvertOptions) {
+  if (opts?.catalogName) fd.append("catalog_name", opts.catalogName);
+  if (opts?.schemaName) fd.append("schema_name", opts.schemaName);
+  if (opts?.includeComments !== undefined) fd.append("include_comments", String(opts.includeComments));
+  if (opts?.includeExpressionAudit !== undefined)
+    fd.append("include_expression_audit", String(opts.includeExpressionAudit));
+  if (opts?.includePerformanceHints !== undefined)
+    fd.append("include_performance_hints", String(opts.includePerformanceHints));
+  if (opts?.generateDdl !== undefined) fd.append("generate_ddl", String(opts.generateDdl));
+  if (opts?.generateDab !== undefined) fd.append("generate_dab", String(opts.generateDab));
+  if (opts?.expandMacros !== undefined) fd.append("expand_macros", String(opts.expandMacros));
+}
+
+async function requestText(path: string, init?: RequestInit): Promise<string> {
+  const res = await fetch(`${BASE}${path}`, init);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail || res.statusText);
+  }
+  return res.text();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
@@ -26,67 +82,22 @@ export const api = {
       supported_tools: number;
     }>("/tools"),
 
-  convert: (
-    file: File,
-    opts?: {
-      catalogName?: string;
-      schemaName?: string;
-      includeComments?: boolean;
-      includeExpressionAudit?: boolean;
-      includePerformanceHints?: boolean;
-      generateDdl?: boolean;
-      generateDab?: boolean;
-      expandMacros?: boolean;
-    },
-  ) => {
+  convert: (file: File, opts?: ConvertOptions) => {
     const fd = new FormData();
     fd.append("file", file);
-    if (opts?.catalogName) fd.append("catalog_name", opts.catalogName);
-    if (opts?.schemaName) fd.append("schema_name", opts.schemaName);
-    if (opts?.includeComments !== undefined)
-      fd.append("include_comments", String(opts.includeComments));
-    if (opts?.includeExpressionAudit !== undefined)
-      fd.append("include_expression_audit", String(opts.includeExpressionAudit));
-    if (opts?.includePerformanceHints !== undefined)
-      fd.append("include_performance_hints", String(opts.includePerformanceHints));
-    if (opts?.generateDdl !== undefined)
-      fd.append("generate_ddl", String(opts.generateDdl));
-    if (opts?.generateDab !== undefined)
-      fd.append("generate_dab", String(opts.generateDab));
-    if (opts?.expandMacros !== undefined)
-      fd.append("expand_macros", String(opts.expandMacros));
+    appendOptions(fd, opts);
     return request<ConversionResult>("/convert", { method: "POST", body: fd });
   },
 
-  convertBatch: (
-    files: File[],
-    opts?: {
-      catalogName?: string;
-      schemaName?: string;
-      includeComments?: boolean;
-      includeExpressionAudit?: boolean;
-      includePerformanceHints?: boolean;
-      generateDdl?: boolean;
-      generateDab?: boolean;
-      expandMacros?: boolean;
-    },
-  ) => {
+  /** Convert many workflows. For a saved project, ``workflowNames`` narrows the
+   * run to a selection (file names); omitted, the whole project converts. */
+  convertBatch: (source: EstateSource, opts?: ConvertOptions & { workflowNames?: string[] }) => {
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
-    if (opts?.catalogName) fd.append("catalog_name", opts.catalogName);
-    if (opts?.schemaName) fd.append("schema_name", opts.schemaName);
-    if (opts?.includeComments !== undefined)
-      fd.append("include_comments", String(opts.includeComments));
-    if (opts?.includeExpressionAudit !== undefined)
-      fd.append("include_expression_audit", String(opts.includeExpressionAudit));
-    if (opts?.includePerformanceHints !== undefined)
-      fd.append("include_performance_hints", String(opts.includePerformanceHints));
-    if (opts?.generateDdl !== undefined)
-      fd.append("generate_ddl", String(opts.generateDdl));
-    if (opts?.generateDab !== undefined)
-      fd.append("generate_dab", String(opts.generateDab));
-    if (opts?.expandMacros !== undefined)
-      fd.append("expand_macros", String(opts.expandMacros));
+    appendSource(fd, source);
+    appendOptions(fd, opts);
+    if ("projectId" in source && opts?.workflowNames) {
+      fd.append("workflow_names", JSON.stringify(opts.workflowNames));
+    }
     return request<{ job_id: string; total_files: number }>("/convert/batch", {
       method: "POST",
       body: fd,
@@ -108,16 +119,15 @@ export const api = {
       method: "POST",
     }),
 
-  analyze: (files: File[], projectId?: string) => {
+  analyze: (source: EstateSource) => {
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
-    if (projectId) fd.append("project_id", projectId);
+    appendSource(fd, source);
     return request<AnalysisResult>("/analyze", { method: "POST", body: fd });
   },
 
-  assess: (files: File[], opts?: { hours?: boolean; config?: Record<string, unknown> }) => {
+  assess: (source: EstateSource, opts?: { hours?: boolean; config?: Record<string, unknown> }) => {
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
+    appendSource(fd, source);
     fd.append("hours", String(opts?.hours ?? false));
     if (opts?.config && Object.keys(opts.config).length > 0) {
       fd.append("config", JSON.stringify(opts.config));
@@ -126,15 +136,6 @@ export const api = {
   },
 
   assessDefaults: () => request<AssessDefaults>("/assess/config-defaults"),
-
-  history: (limit = 50, offset = 0) =>
-    request<HistoryListResponse>(`/history?limit=${limit}&offset=${offset}`),
-
-  historyDetail: (id: string) =>
-    request<ConversionResult & { id: string }>(`/history/${id}`),
-
-  historyDelete: (id: string) =>
-    request<{ ok: boolean }>(`/history/${id}`, { method: "DELETE" }),
 
   validate: (code: string, filename?: string) =>
     request<ValidateResponse>("/validate", {
@@ -150,43 +151,11 @@ export const api = {
     return request<ReviewSession>("/review", { method: "POST", body: fd });
   },
 
-  // ── Migration assistant (opt-in; requires a configured FMAPI endpoint) ──
-
-  chatStatus: () => request<{ enabled: boolean }>("/chat/status"),
-
-  chatStart: (file: File, outputFormat: FormatId = "pyspark") => {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("output_format", outputFormat);
-    return request<ChatSession>("/chat", { method: "POST", body: fd });
-  },
-
-  chatSend: (sessionId: string, message: string) =>
-    request<{ session_id: string; reply: string }>(`/chat/${sessionId}/message`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    }),
-
-  /** Returns the report as Markdown text (server sends it as an attachment). */
-  chatReport: async (sessionId: string, answers?: Record<string, string>) => {
-    const res = await fetch(`${BASE}/chat/${sessionId}/report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(answers ?? {}),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(body.detail || res.statusText);
-    }
-    return res.text();
-  },
-
   // ── Estate-level insights ────────────────────────────────────────────
 
-  portfolio: (files: File[]) => {
+  portfolio: (source: EstateSource) => {
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
+    appendSource(fd, source);
     return request<PortfolioReport>("/portfolio", { method: "POST", body: fd });
   },
 
@@ -199,9 +168,9 @@ export const api = {
 
   // ── Savings / ROI estimator ──────────────────────────────────────────
 
-  savings: (files: File[], config?: Record<string, unknown>) => {
+  savings: (source: EstateSource, config?: Record<string, unknown>) => {
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
+    appendSource(fd, source);
     if (config && Object.keys(config).length > 0) {
       fd.append("config", JSON.stringify(config));
     }
@@ -221,10 +190,9 @@ export const api = {
       body: JSON.stringify({ answers, config }),
     }),
 
-  readinessPrefill: (files: File[], projectId?: string) => {
+  readinessPrefill: (source: EstateSource) => {
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f));
-    if (projectId) fd.append("project_id", projectId);
+    appendSource(fd, source);
     return request<ReadinessPrefill>("/readiness/prefill", { method: "POST", body: fd });
   },
 
@@ -249,11 +217,30 @@ export const api = {
 
   deleteProject: (id: string) => request<{ deleted: string }>(`/projects/${id}`, { method: "DELETE" }),
 
-  updateWorkflowStage: (projectId: string, workflowId: string, stage: string) =>
+  renameProject: (id: string, name: string) =>
+    request<Project>(`/projects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
+
+  removeProjectWorkflow: (projectId: string, workflowId: string) =>
+    request<Project>(`/projects/${projectId}/workflows/${workflowId}`, { method: "DELETE" }),
+
+  /** Move a workflow forward to ``stage`` (the server never moves it backward),
+   * optionally storing the artifact that stage produced. */
+  updateWorkflowStage: (
+    projectId: string,
+    workflowId: string,
+    stage: WorkflowStage,
+    artifact?: { key: "conversion_refs" | "review_decisions"; value: Record<string, unknown> },
+  ) =>
     request<Project>(`/projects/${projectId}/workflows/${workflowId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stage }),
+      body: JSON.stringify(
+        artifact ? { stage, artifact_key: artifact.key, artifact: artifact.value } : { stage },
+      ),
     }),
 
   /** Fetch a stored workflow's bytes as a File, so a screen runs it without a re-upload. */
@@ -262,6 +249,32 @@ export const api = {
     if (!res.ok) throw new Error("Could not fetch the stored workflow");
     const blob = await res.blob();
     return new File([blob], fileName, { type: "application/octet-stream" });
+  },
+
+  // ── AI completion (opt-in; the only calls that return model-written code) ──
+
+  aiStatus: () => request<{ enabled: boolean }>("/ai/status"),
+
+  aiGaps: (source: WorkflowSource, opts?: ConvertOptions) => {
+    const fd = new FormData();
+    appendWorkflow(fd, source);
+    appendOptions(fd, opts);
+    return request<MigrationContext>("/ai/gaps", { method: "POST", body: fd });
+  },
+
+  aiComplete: (source: WorkflowSource, opts?: ConvertOptions) => {
+    const fd = new FormData();
+    appendWorkflow(fd, source);
+    appendOptions(fd, opts);
+    return request<AICompletion>("/ai/complete", { method: "POST", body: fd });
+  },
+
+  /** The Markdown suggestions notes, as text (the server sends an attachment). */
+  aiNotes: (source: WorkflowSource, opts?: ConvertOptions) => {
+    const fd = new FormData();
+    appendWorkflow(fd, source);
+    appendOptions(fd, opts);
+    return requestText("/ai/notes", { method: "POST", body: fd });
   },
 };
 
@@ -382,6 +395,10 @@ export interface ConversionErrorDetail {
 
 export interface FileResult {
   file_name: string;
+  /** The uploaded name (differs from file_name for a .yxzp package). */
+  source_file_name?: string;
+  coverage?: number;
+  errors?: { message: string; severity?: string }[];
   workflow_name: string;
   success: boolean;
   node_count: number;
@@ -415,6 +432,7 @@ export interface BatchStatus {
 
 export interface WorkflowAnalysis {
   file_name: string;
+  source_file_name?: string | null;
   workflow_name: string;
   node_count: number;
   connection_count: number;
@@ -490,21 +508,6 @@ export interface AssessDefaults {
   tools: { name: string; category: string; default: string }[];
 }
 
-export interface HistoryListItem {
-  id: string;
-  workflow_name: string;
-  output_format: string;
-  created_at: string;
-  node_count: number;
-  edge_count: number;
-  coverage_percentage: number | null;
-}
-
-export interface HistoryListResponse {
-  items: HistoryListItem[];
-  total: number;
-}
-
 export interface FileValidationResult {
   filename: string;
   is_valid: boolean;
@@ -561,7 +564,7 @@ export interface ReviewSession {
   edges: ReviewEdge[];
 }
 
-// ── Migration assistant (advisory only — never edits generated code) ─────
+// ── Migration gaps (what the deterministic converter couldn't finish) ─────
 
 /** One gap the deterministic converter could not fully handle. */
 export interface MigrationGap {
@@ -591,18 +594,6 @@ export interface MigrationContext {
   gaps: MigrationGap[];
   decisions: MigrationDecision[];
   summary: { total_gaps: number; blocking_gaps: number };
-}
-
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
-export interface ChatSession {
-  session_id: string;
-  context: MigrationContext;
-  messages: ChatMessage[];
-  clarifying_questions: string[];
 }
 
 // ── Estate-level insights ────────────────────────────────────────────────
@@ -814,11 +805,31 @@ export interface ReadinessPrefill {
 
 export type WorkflowStage = "uploaded" | "assessed" | "converted" | "reviewed" | "deployed";
 
+/** Per-workflow analysis summary kept on a saved project. */
+export interface WorkflowAnalysisSummary {
+  coverage_percentage?: number;
+  complexity_score?: number;
+  complexity_level?: string;
+  migration_priority?: string;
+  estimated_effort?: string;
+}
+
+/** Last conversion kept on a project workflow. */
+export interface WorkflowConversionSummary {
+  coverage?: number | null;
+  best_format?: string;
+  warnings?: number;
+  at?: string;
+}
+
 export interface ProjectWorkflow {
   id: string;
   file_name: string;
   stage: WorkflowStage;
-  analysis: Record<string, unknown> | null;
+  analysis: WorkflowAnalysisSummary | null;
+  conversion?: WorkflowConversionSummary | null;
+  size_bytes?: number;
+  content_hash?: string;
   updated_at: string;
 }
 
@@ -838,4 +849,24 @@ export interface ProjectSummary {
 
 export interface Project extends ProjectSummary {
   workflows: ProjectWorkflow[];
+}
+
+// ── AI completion ──────────────────────────────────────────────────────
+
+export interface CellCompletion {
+  node_id: number | null;
+  tool_type: string | null;
+  status: "completed" | "failed" | "skipped";
+  reason: string;
+  before: string;
+  after: string;
+}
+
+export interface AICompletion {
+  workflow_name: string;
+  filename: string;
+  deterministic_filename: string;
+  content: string;
+  cells: CellCompletion[];
+  summary: { cells_needing_work: number; completed: number; failed: number; skipped: number };
 }
