@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { isAtOrPast, useLocalProjectStore } from "@/stores/local-project";
+import { isLocalProjectId, useLocalProjectStore } from "@/stores/local-project";
+import { isAtOrPast } from "@/lib/stages";
 
 const file = (name: string, body = "<x/>") => new File([body], name, { type: "application/xml" });
 const store = () => useLocalProjectStore.getState();
@@ -32,6 +33,24 @@ describe("session-only project", () => {
     store().setConversion("a.yxmd", { coverage: 80 });
     expect(store().workflows[0].stage).toBe("deployed");
     expect(store().workflows[0].conversion?.coverage).toBe(80);
+  });
+
+  it("gives every new session project its own id", () => {
+    const first = store().create("A", [file("a.yxmd")]);
+    const second = store().create("B", [file("a.yxmd")]);
+    expect(first).not.toBe(second);
+    expect(isLocalProjectId(first)).toBe(true);
+    expect(isLocalProjectId("00000000-0000-0000-0000-000000000000")).toBe(false);
+    expect(store().id).toBe(second);
+  });
+
+  it("re-adding a file clears what was computed for the old version", () => {
+    store().create("Estate", [file("a.yxmd")]);
+    store().setAnalysis({ "a.yxmd": { coverage_percentage: 50 } });
+    store().setConversion("a.yxmd", { coverage: 50 });
+    store().add([file("a.yxmd", "<v2/>")]);
+    expect(store().workflows[0].analysis).toBeNull();
+    expect(store().workflows[0].conversion).toBeNull();
   });
 
   it("removes a workflow", () => {

@@ -17,7 +17,6 @@ from server.routers import (
     ai,
     analyze,
     assess,
-    chat,
     convert,
     health,
     history,
@@ -124,6 +123,14 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(project_service.StoreUnavailableError)
+async def store_unavailable_handler(request: Request, exc: project_service.StoreUnavailableError) -> JSONResponse:
+    # A configured database that isn't responding: say so (503), so the client
+    # doesn't read an outage as "this project was deleted" or "no projects".
+    logger.warning("Project store unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
@@ -142,7 +149,6 @@ app.include_router(assess.router)
 app.include_router(history.router)
 app.include_router(validate.router)
 app.include_router(review.router)
-app.include_router(chat.router)
 app.include_router(insights.router)
 app.include_router(readiness.router)
 app.include_router(projects.router)

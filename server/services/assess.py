@@ -13,7 +13,7 @@ from pathlib import Path
 
 from a2d.analyzer.batch import BatchAnalyzer
 from a2d.analyzer.profiler import ProfilerConfig, build_estate_profile
-from server.utils.package import materialize_uploads
+from server.utils.package import analyze_each, materialize_uploads, upload_name_for
 
 logger = logging.getLogger("a2d.server.services.assess")
 
@@ -43,7 +43,8 @@ def profile_estate(
         paths = materialize_uploads(files, Path(tmpdir), skipped=skipped)
         # Expand macros so a .yxzp's co-located .yxmc is inlined rather than
         # classified as an unsupported Unknown tier; no-op when no macro is present.
-        analyses = BatchAnalyzer(expand_macros=True).analyze_files(paths)
+        analyses = analyze_each(BatchAnalyzer(expand_macros=True), paths, Path(tmpdir), files, skipped)
+        analyzed = [upload_name_for(a.file_path, Path(tmpdir), files) for a in analyses]
 
     if not analyses:
         raise ValueError("no workflows could be analyzed")
@@ -61,4 +62,5 @@ def profile_estate(
     # Surface any files that could not be read so the totals aren't mistaken for
     # a complete estate.
     result["skipped_files"] = skipped
+    result["analyzed_files"] = analyzed
     return result

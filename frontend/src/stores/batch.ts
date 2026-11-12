@@ -14,6 +14,10 @@ interface BatchStore {
   errorsByKind: Record<string, number> | null;
   errorMessage: string | null;
   ws: WebSocket | null;
+  /** The finished job whose results were already recorded on its project, so
+   * revisiting Convert doesn't record (or announce) them again. */
+  recordedJobId: string | null;
+  markRecorded: (jobId: string) => void;
 
   startJob: (jobId: string, total: number, projectId?: string | null) => void;
   connectWs: (jobId: string) => void;
@@ -46,6 +50,8 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
   errorsByKind: null,
   errorMessage: null,
   ws: null,
+  recordedJobId: null,
+  markRecorded: (jobId) => set({ recordedJobId: jobId }),
 
   startJob: (jobId, total, projectId = null) =>
     set({
@@ -98,10 +104,14 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
         if (msg.type === "progress") {
           set({ progress: msg.current, currentFilename: msg.filename });
         } else if (msg.type === "file_complete") {
-          set((state) => ({
-            fileResults: [...state.fileResults, msg as FileResult],
-            progress: state.fileResults.length + 1,
-          }));
+          // A reconnect replays results already received; keep one per file.
+          set((state) => {
+            const result = msg as FileResult;
+            const key = result.source_file_name ?? result.file_name;
+            const others = state.fileResults.filter((fr) => (fr.source_file_name ?? fr.file_name) !== key);
+            const fileResults = [...others, result];
+            return { fileResults, progress: fileResults.length };
+          });
         } else if (msg.type === "batch_complete") {
           set({
             status: "completed",
@@ -119,27 +129,34 @@ export const useBatchStore = create<BatchStore>((set, get) => ({
         }
       };
 
-      ws.onerror = () => {
-        if (isStale()) return;
+      // A dropped connection while the job is still running (an error, or a
+      // clean close such as a server restart) reconnects with backoff, then
+      // reports, so progress never hangs at "running" forever.
+      let retryScheduled = false;
+      const retryOrFail = () => {
+        if (isStale() || retryScheduled) return;
         const { status: currentStatus } = get();
-        if (currentStatus === "completed" || currentStatus === "error") return;
-
+        if (currentStatus !== "running") return;
         if (retryCount < MAX_RETRIES) {
           retryCount++;
+          retryScheduled = true;
           const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 8000);
           retryTimer = setTimeout(connect, delay);
         } else {
           set({
             status: "error",
-            errorMessage: "Lost connection to server after multiple retries",
+            errorMessage: "Lost the connection to the server. The conversion may still be running; reload to check.",
           });
         }
       };
+
+      ws.onerror = retryOrFail;
 
       // Only clear the stored socket if this is still the current connection.
       ws.onclose = () => {
         if (isStale()) return;
         set({ ws: null });
+        retryOrFail();
       };
 
       set({ ws });

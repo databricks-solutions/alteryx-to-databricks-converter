@@ -199,11 +199,11 @@ pip install -e ".[server]"
 make frontend
 PYTHONPATH=src:. uvicorn server.main:app --host 0.0.0.0 --port 8000
 ```
-Open http://localhost:8000. For Postgres-backed history, set `A2D_DATABASE_URL=postgresql://...`.
+Open http://localhost:8000. To save projects (and conversion history), set `A2D_DATABASE_URL=postgresql://...`.
 </details>
 
 <details>
-<summary><strong>React Web UI (requires Node.js 18+)</strong></summary>
+<summary><strong>React Web UI (requires Node.js 20+)</strong></summary>
 
 ```bash
 pip install ".[server]"
@@ -224,7 +224,7 @@ Open http://localhost:8000. The app is organized around a **migration project**:
 
 The sidebar shows how many workflows have reached each step. Tool coverage, Settings and About sit under Reference.
 
-Projects are saved when the server has a database (`A2D_DATABASE_URL`, or Lakebase in a Databricks Apps deployment). Without one, the app still works the same way, but the project lives in your browser tab and a reload clears it.
+Projects are saved when the server has a database (`A2D_DATABASE_URL`, or Lakebase in a Databricks Apps deployment). Without one, the app still works the same way, but the project lives in your browser tab and a reload clears it. Saved projects are shared by everyone who can open the app, the same as conversion history, so treat the app's access list as the project's access list. The catalog and schema the generated code uses can be set per project on its Convert step; Settings holds the default.
 </details>
 
 <details>
@@ -538,10 +538,10 @@ a2d complete workflow.yxmd         # writes workflow.ai-completed.py
 a2d suggest workflow.yxmd          # writes workflow_suggestions.md
 ```
 
-- **`a2d complete`** writes an AI-completed copy of the PySpark notebook. Only the cells that need work are sent to the model, one at a time. Each cell the model writes is wrapped in `>>> AI-GENERATED` / `<<< AI-GENERATED` comments, and the file starts with a banner saying it's AI-generated and unverified. If the model's code doesn't parse, or drops a variable that later cells use, that cell keeps its deterministic version and is reported as not completed. The deterministic `workflow.py` is never touched.
+- **`a2d complete`** writes an AI-completed copy of the PySpark notebook. Only the cells that need work are sent to the model, one at a time. Each step's own header stays as generated, and the model's code goes under it between `# >>> AI-GENERATED (unverified)` and `# <<< AI-GENERATED` comments; a banner right after the notebook's first line says the file is AI-generated and unverified. Each reply is checked before it's used: it has to parse, assign the variables later steps read, leave other steps' DataFrames alone, keep a write step's destination, and stay away from shell commands, file deletes and destructive SQL. A reply that fails keeps the step's deterministic code and is reported with the reason. Credentials in the workflow are masked before anything is sent. The deterministic `workflow.py` is never touched, and `a2d complete` refuses to write over it or the source workflow.
 - **`a2d suggest`** writes a Markdown report with a suggested Databricks implementation for each gap. With no endpoint configured it still writes the deterministic gap list, just without suggestions.
 
-In the web app both live on the **AI completion** step, the only step that uses AI. Pick a converted workflow, see what the converter couldn't finish (this part works without AI), then generate the completed copy, compare each cell before and after, and download it or the suggestions notes. AI completion covers PySpark notebooks for now.
+In the web app both live on the **AI completion** step, the only step that uses AI. Pick a converted workflow, see what the converter couldn't finish and which of those steps AI completion would fill in (this part works without AI), then generate the completed copy, compare each step before and after, and download it or the suggestions notes. AI completion covers PySpark notebooks for now. A few completions can run at once; past that the app asks you to try again shortly.
 
 To enable it in a Databricks Apps deployment, pass the endpoint at deploy time:
 

@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { HeaderActionsSlot } from "@/components/layout/header-actions";
 import { useProjectContext } from "@/hooks/use-project-context";
 import { STEPS, stepIndex } from "@/lib/steps";
 
 /**
  * The header every migration step uses: which project you're in, which step
- * this is, and what it does — so a screen never leaves you guessing whether
- * (or where) you're inside a project.
+ * this is, and what it does, so a screen never leaves you guessing whether (or
+ * where) you're inside a project. Page actions go top right, either passed as
+ * children or put there from deeper in the page with <HeaderActions>.
  */
 export function StepHeader({ slug, children }: { slug: string; children?: ReactNode }) {
   const ctx = useProjectContext();
@@ -26,6 +28,7 @@ export function StepHeader({ slug, children }: { slug: string; children?: ReactN
       }
     >
       {children}
+      <HeaderActionsSlot />
     </PageHeader>
   );
 }

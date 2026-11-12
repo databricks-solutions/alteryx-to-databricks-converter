@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeStorage } from "@/stores/safe-storage";
 import type {
   AnalysisResult,
   AssessResult,
@@ -34,7 +35,14 @@ export interface StoredResult<T> {
   data: T;
   at: string; // ISO timestamp
   signature: string; // project file signature that produced it
+  /** The inputs it was computed with (savings assumptions, tier overrides), so a
+   * view shows the same inputs next to the result instead of fresh defaults. */
+  args?: unknown;
 }
+
+// Keep cached results for this many projects (most recently used); older ones
+// are dropped so localStorage can't fill up over months of use.
+const MAX_PROJECTS = 12;
 
 type ResultMap = {
   [K in EstateResultKind]?: StoredResult<EstateResultData[K]>;
@@ -47,6 +55,7 @@ interface EstateState {
     kind: K,
     data: EstateResultData[K],
     signature: string,
+    args?: unknown,
   ) => void;
   clearResult: (projectId: string, kind: EstateResultKind) => void;
   forgetProject: (projectId: string) => void;
@@ -57,16 +66,18 @@ export const useEstateStore = create<EstateState>()(
     (set) => ({
       byProject: {},
 
-      saveResult: (projectId, kind, data, signature) =>
-        set((s) => ({
-          byProject: {
-            ...s.byProject,
-            [projectId]: {
-              ...s.byProject[projectId],
-              [kind]: { data, at: new Date().toISOString(), signature },
+      saveResult: (projectId, kind, data, signature, args) =>
+        set((s) => {
+          const { [projectId]: current, ...others } = s.byProject;
+          // Most recently used last; drop the oldest beyond the cap.
+          const kept = Object.entries(others).slice(-(MAX_PROJECTS - 1));
+          return {
+            byProject: {
+              ...Object.fromEntries(kept),
+              [projectId]: { ...current, [kind]: { data, at: new Date().toISOString(), signature, args } },
             },
-          },
-        })),
+          };
+        }),
 
       clearResult: (projectId, kind) =>
         set((s) => {
@@ -82,6 +93,6 @@ export const useEstateStore = create<EstateState>()(
           return { byProject: next };
         }),
     }),
-    { name: "a2d-estate-v2" },
+    { name: "a2d-estate-v2", storage: safeStorage },
   ),
 );

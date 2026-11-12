@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Project, type ProjectSummary } from "@/lib/api";
+import { api, ApiError, type Project, type ProjectSummary } from "@/lib/api";
 import { projectQueryKey } from "@/hooks/use-project-context";
 
 /** Saved projects. A 503 (no database on this server) surfaces as the error. */
@@ -11,9 +11,10 @@ export function useProjects() {
   });
 }
 
-/** True when the error means "this server has no database", not a real failure. */
-export function isProjectsUnavailable(error: Error | null): boolean {
-  return error != null && /not available|require a database|503|not configured/i.test(error.message);
+/** True when the server has no database configured (so projects live in the
+ * browser), as opposed to a configured database that isn't responding. */
+export function isProjectsNotConfigured(error: Error | null): boolean {
+  return error instanceof ApiError && error.status === 503 && /doesn't have one configured/i.test(error.message);
 }
 
 function useInvalidateProject() {

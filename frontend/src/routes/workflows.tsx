@@ -11,16 +11,21 @@ import { useLocalProjectStore } from "@/stores/local-project";
 import { useEstateStore } from "@/stores/estate";
 import { useProjectStore } from "@/stores/project";
 import { useToastStore } from "@/stores/toast";
-import type { WorkflowStage } from "@/lib/api";
+import { useProjectSettingsStore } from "@/stores/project-settings";
+import { STAGE_VARIANT } from "@/lib/stages";
+import type { Project } from "@/lib/api";
 import { FilePlus2, Loader2, Pencil, Trash2, X, Check } from "lucide-react";
 
-export const STAGE_VARIANT: Record<WorkflowStage, "secondary" | "warning" | "success" | "default"> = {
-  uploaded: "secondary",
-  assessed: "warning",
-  converted: "default",
-  reviewed: "success",
-  deployed: "success",
-};
+function changeSummary(changes: Project["changes"], fallbackCount: number): string {
+  if (!changes) return `Added ${fallbackCount} workflow${fallbackCount === 1 ? "" : "s"}`;
+  const parts = [
+    changes.added.length && `added ${changes.added.length}`,
+    changes.replaced.length && `replaced ${changes.replaced.length} with the new version`,
+    changes.unchanged.length && `${changes.unchanged.length} already up to date`,
+  ].filter(Boolean);
+  const text = parts.join(", ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 function formatSize(bytes: number): string {
   if (!bytes) return "—";
@@ -35,6 +40,7 @@ export function WorkflowsPage() {
   const addToast = useToastStore((s) => s.add);
   const local = useLocalProjectStore();
   const forgetResults = useEstateStore((s) => s.forgetProject);
+  const forgetSettings = useProjectSettingsStore((s) => s.forget);
   const lastProjectId = useProjectStore((s) => s.lastProjectId);
   const setLast = useProjectStore((s) => s.setLastProject);
   const addSaved = useAddWorkflows();
@@ -52,25 +58,25 @@ export function WorkflowsPage() {
 
   const handleAdd = () => {
     if (files.length === 0 || !ctx.projectId) return;
-    const replaced = files.filter((f) => ctx.workflows.some((w) => w.file_name === f.name)).length;
-    const done = () => {
+    const done = (message: string) => {
       setFiles([]);
       setAdding(false);
-      addToast(
-        replaced > 0
-          ? `Added ${files.length - replaced}, replaced ${replaced} with the new version`
-          : `Added ${files.length} workflow${files.length === 1 ? "" : "s"}`,
-        "success",
-      );
+      addToast(message, "success");
     };
     if (!ctx.saved) {
+      const replaced = files.filter((f) => ctx.workflows.some((w) => w.file_name === f.name)).length;
       local.add(files);
-      done();
+      done(
+        changeSummary({ added: Array(files.length - replaced).fill(""), replaced: Array(replaced).fill(""), unchanged: [] }, files.length),
+      );
       return;
     }
     addSaved.mutate(
       { id: ctx.projectId, files },
-      { onSuccess: done, onError: (e) => addToast(e.message, "error") },
+      {
+        onSuccess: (project) => done(changeSummary(project.changes, files.length)),
+        onError: (e) => addToast(e.message, "error"),
+      },
     );
   };
 
@@ -102,6 +108,7 @@ export function WorkflowsPage() {
     const id = ctx.projectId!;
     const finish = () => {
       forgetResults(id);
+      forgetSettings(id);
       if (lastProjectId === id) setLast(null);
       navigate({ to: "/" });
     };
@@ -184,7 +191,9 @@ export function WorkflowsPage() {
               )}
             </div>
             <p className="text-xs text-[var(--fg-muted)]">
-              A file with the same name as one already here replaces it (and starts it over at "uploaded").
+              A file with the same name as one already here replaces it and starts it over at "uploaded" (the
+              same file again changes nothing). If a workflow uses macros, add its <code>.yxzp</code> package
+              (in Alteryx: File, Export Workflow) so the macros come with it.
             </p>
             <FileDropzone files={files} onFilesChange={setFiles} multiple />
             <div>

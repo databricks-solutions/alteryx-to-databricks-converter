@@ -94,7 +94,7 @@
     <div class="stat-box"><span class="num">112</span><span class="label">Tool Types</span></div>
     <div class="stat-box"><span class="num">141</span><span class="label">Functions</span></div>
     <div class="stat-box"><span class="num">4</span><span class="label">Formats</span></div>
-    <div class="stat-box"><span class="num">1006</span><span class="label">Tests</span></div>
+    <div class="stat-box"><span class="num">1,800+</span><span class="label">Tests</span></div>
   </div>
   <p style="margin-top:1.2em; font-size:0.65em; color:#555;">
     <kbd style="background:#2C3137;padding:2px 6px;border-radius:4px;">Space</kbd> advance &middot;
@@ -182,7 +182,7 @@
       <tr><td><strong>Lakeflow Designer</strong></td><td><code>-f lakeflow</code></td><td>Visual pipeline builder, streaming</td><td><code>.sql</code> + <code>.json</code></td></tr>
     </tbody>
   </table>
-  <p class="muted small" style="margin-top:10px;">Every conversion emits all four formats by default into per-format subdirectories (<code>output/pyspark/</code>, <code>output/dlt/</code>, <code>output/sql/</code>, <code>output/lakeflow/</code>). The <code>-f</code> flag is a comma-separated filter (e.g. <code>-f pyspark,sql</code>). Each format also produces a Workflow JSON for Databricks Jobs orchestration.</p>
+  <p class="muted small" style="margin-top:10px;">Every conversion emits all five formats by default into per-format subdirectories (<code>output/pyspark/</code>, <code>output/dlt/</code>, <code>output/sql/</code>, <code>output/lakeflow/</code>, <code>output/designer/</code>). The <code>-f</code> flag is a comma-separated filter (e.g. <code>-f pyspark,sql</code>). Each format also produces a Workflow JSON for Databricks Jobs orchestration.</p>
 </section>
 
 <!-- S6 -->
@@ -197,8 +197,8 @@
   <div class="stat-grid" style="margin-top:12px;">
     <div class="stat-box"><span class="num">13</span><span class="label">API Endpoints</span></div>
     <div class="stat-box"><span class="num">9</span><span class="label">Web Pages</span></div>
-    <div class="stat-box"><span class="num">1006</span><span class="label">Tests</span></div>
-    <div class="stat-box"><span class="num">82%</span><span class="label">Coverage</span></div>
+    <div class="stat-box"><span class="num">1,800+</span><span class="label">Tests</span></div>
+    <div class="stat-box"><span class="num">85%</span><span class="label">Coverage</span></div>
   </div>
 </section>
 
@@ -212,13 +212,13 @@
   <div class="cols" style="font-size:0.7em;">
     <div class="surface">
       <h4>CLI</h4>
-      <p>Full power. 5 commands, 17+ flags, scriptable, CI/CD-ready.</p>
+      <p>Full power. 16 commands, scriptable, CI/CD-ready.</p>
       <pre><code class="language-bash">pip install "."
 a2d convert workflow.yxmd -o out/</code></pre>
     </div>
     <div class="surface">
       <h4>React Web UI</h4>
-      <p>DAG visualization, batch WebSocket progress, 10 pages.</p>
+      <p>One migration project, worked through in six steps, with DAG visualization and live batch progress.</p>
       <pre><code class="language-bash">pip install ".[server]"
 uvicorn server.main:app</code></pre>
     </div>
@@ -256,7 +256,7 @@ PYTHONPATH=src:. uvicorn server.main:app --port 8000</code></pre>
 <!-- S9 -->
 <section>
   <h2>Your First Conversion</h2>
-  <pre><code class="language-bash"># Convert a single workflow — emits ALL 4 formats by default
+  <pre><code class="language-bash"># Convert a single workflow — emits all 5 formats by default
 # (output/pyspark/, output/dlt/, output/sql/, output/lakeflow/)
 a2d convert my_workflow.yxmd -o output/
 
@@ -403,7 +403,7 @@ FROM LIVE.step_4_formula GROUP BY `region`;</code></pre>
     </tbody>
   </table>
   <div class="tip">
-    <strong>Default behaviour:</strong> Every conversion produces <em>all four</em> formats &mdash; PySpark, Spark Declarative Pipelines, SQL, and Lakeflow Designer &mdash; into per-format subdirs (<code>output/pyspark/</code>, <code>output/dlt/</code>, <code>output/sql/</code>, <code>output/lakeflow/</code>). a2d also picks a <strong>best format</strong> per workflow (highest confidence; tiebreak <code>pyspark&gt;dlt&gt;sql&gt;lakeflow</code>) and surfaces it in the CLI status table and the UI banner. Use <code>-f pyspark,sql</code> only if you want to skip the others.
+    <strong>Default behaviour:</strong> Every conversion produces <em>all five</em> formats (PySpark, Spark Declarative Pipelines, Spark SQL, Lakeflow SQL, and Lakeflow Designer) into per-format subdirs (<code>output/pyspark/</code>, <code>output/dlt/</code>, <code>output/sql/</code>, <code>output/lakeflow/</code>, <code>output/designer/</code>). a2d also picks a <strong>best format</strong> per workflow (highest confidence; tiebreak <code>pyspark&gt;dlt&gt;sql&gt;lakeflow&gt;designer</code>) and surfaces it in the CLI status table and the UI banner. Use <code>-f pyspark,sql</code> only if you want to skip the others.
   </div>
 </section>
 
@@ -830,7 +830,7 @@ step_N_filter_false</code></pre>
   <table style="font-size:0.58em;">
     <thead><tr><th>Command</th><th>Purpose</th><th>Phase</th></tr></thead>
     <tbody>
-      <tr><td><code>convert</code></td><td>Convert workflows to Databricks code &mdash; emits ALL 4 formats by default (use <code>-f</code> to filter)</td><td>Convert</td></tr>
+      <tr><td><code>convert</code></td><td>Convert workflows to Databricks code &mdash; emits all 5 formats by default (use <code>-f</code> to filter)</td><td>Convert</td></tr>
       <tr><td><code>analyze</code></td><td>Migration readiness reports (HTML/JSON) with confidence + complexity</td><td>Assess</td></tr>
       <tr><td><code>validate</code></td><td>Validate generated Python syntax</td><td>Validate</td></tr>
       <tr><td><code>list-tools</code></td><td>Show tool support matrix (--supported / --unsupported)</td><td>Assess</td></tr>
@@ -1103,7 +1103,7 @@ USING DELTA;</code></pre>
   <pre><code class="language-bash">curl -X POST http://localhost:8000/api/convert/batch \
   -F "files=@workflow1.yxmd" \
   -F "files=@workflow2.yxmd"</code></pre>
-  <p class="muted small">Each call returns all four formats in <code>response.formats</code> (<code>pyspark</code>, <code>dlt</code>, <code>sql</code>, <code>lakeflow</code>) plus a <code>best_format</code> hint &mdash; no <code>output_format</code> request param. Download individual files or the entire batch as a ZIP archive.</p>
+  <p class="muted small">Each call returns all five formats in <code>response.formats</code> (<code>pyspark</code>, <code>dlt</code>, <code>sql</code>, <code>lakeflow</code>, <code>designer</code>) plus a <code>best_format</code> hint &mdash; no <code>output_format</code> request param. Download individual files or the entire batch as a ZIP archive.</p>
 </section>
 
 <!-- ================================================================ -->
@@ -1446,7 +1446,7 @@ a2d version</code></pre>
 <section>
   <h2>Project Structure</h2>
   <pre style="font-size:0.45em;"><code class="language-text">src/a2d/
-  cli.py                    # 5 CLI commands (convert, analyze, validate, list-tools, version)
+  cli.py                    # 16 CLI commands (convert, analyze, assess, complete, ...)
   pipeline.py               # Parse → Convert → Generate orchestration
   config.py                 # Configuration dataclasses
   connections.py            # YAML connection mapping (Alteryx → Unity Catalog)
@@ -1458,9 +1458,9 @@ a2d version</code></pre>
   analyzer/                 # Complexity, coverage, readiness
   observability/            # Confidence scoring, enriched hints, expression audit, performance hints
 
-server/                     # FastAPI + WebSocket (13 endpoints, 6 routers)
-frontend/                   # React 19 + TypeScript + Tailwind 4 (9 pages)
-tests/                      # 1006 tests, 82%+ coverage (unit + integration + smoke)
+server/                     # FastAPI REST API + WebSocket for batch progress
+frontend/                   # React 19 + TypeScript + Tailwind 4 (project steps + reference pages)
+tests/                      # 1,800+ tests, 85% coverage of src/a2d (unit + integration + smoke)
 docs/                       # Architecture, expression reference, migration playbook, this guide
   </code></pre>
 </section>
@@ -1475,7 +1475,7 @@ docs/                       # Architecture, expression reference, migration play
     <div class="stat-box"><span class="num">141</span><span class="label">Functions</span></div>
     <div class="stat-box"><span class="num">4</span><span class="label">Formats</span></div>
     <div class="stat-box"><span class="num">5</span><span class="label">Commands</span></div>
-    <div class="stat-box"><span class="num">1006</span><span class="label">Tests</span></div>
+    <div class="stat-box"><span class="num">1,800+</span><span class="label">Tests</span></div>
   </div>
   <p style="margin-top:24px; font-size:0.7em;">
     <code>pip install "."</code> &nbsp;&middot;&nbsp;

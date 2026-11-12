@@ -99,9 +99,9 @@ export function SettingsPage() {
           Unity Catalog
         </h3>
         <p className="text-xs text-[var(--fg-muted)] mb-4">
-          Where the generated code reads and writes tables: notebooks and SQL name them as{" "}
-          <code>catalog.schema.table</code>. Set this to the Unity Catalog location the migrated tables will live
-          in. You can also change it on a project's Convert step.
+          The default for where generated code reads and writes tables: notebooks and SQL name them as{" "}
+          <code>catalog.schema.table</code>. New projects start with this; each project can set its own on its
+          Convert step.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>

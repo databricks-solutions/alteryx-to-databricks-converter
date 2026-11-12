@@ -45,14 +45,13 @@ def get_tool_matrix() -> dict[str, tuple[dict, ...]]:
 @lru_cache(maxsize=1)
 def get_stats() -> dict:
     """Return summary statistics computed dynamically."""
-    supported = ConverterRegistry.supported_tools()
-    seen: set[str] = set()
-    for _plugin, (tool_type, _cat) in PLUGIN_NAME_MAP.items():
-        seen.add(tool_type)
+    # Count from the same matrix the Tool coverage page lists, so the Home page's
+    # coverage figure and that page always agree.
+    tools = [t for tool_list in get_tool_matrix().values() for t in tool_list]
 
     return {
-        "supported_tools": len(supported),
-        "total_tools": len(seen),
+        "supported_tools": sum(1 for t in tools if t["supported"]),
+        "total_tools": len(tools),
         "expression_functions": len(FUNCTION_REGISTRY),
         "output_formats": len(FORMAT_MAP),
     }

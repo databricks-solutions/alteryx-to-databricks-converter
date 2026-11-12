@@ -81,8 +81,8 @@ class Settings(BaseSettings):
     db_backend: str = ""  # "" (auto-detect), "postgres", or "lakebase"
     lakebase_endpoint: str = ""  # projects/<id>/branches/<id>/endpoints/<id>
 
-    # Foundation Model API (optional — AI suggestions are OPT-IN).
-    # Empty endpoint means no model is ever called: the chat/report endpoints
+    # Foundation Model API (optional — AI completion and suggestions are OPT-IN).
+    # Empty endpoint means no model is ever called: the /api/ai complete and notes endpoints
     # return 422 and the rest of the product is unaffected.
     fmapi_endpoint: str = Field(
         default="",

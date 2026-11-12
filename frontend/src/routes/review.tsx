@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ReviewGraph } from "@/components/review/review-graph";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { CodeBlock } from "@/components/shared/code-block";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,8 +56,18 @@ function effectiveCode(node: ReviewNode, local: LocalDecision | undefined): stri
   return node.generated_code;
 }
 
-/** Node-by-node review of one workflow from the project (picked by the Review step). */
-export function ReviewPage({ file }: { file: File | null }) {
+/** Node-by-node review of one workflow from the project (picked by the Review
+ * step). ``active`` says whether this tab is showing (its header action only
+ * appears then); ``onProgress`` reports how many flagged nodes are still open. */
+export function ReviewPage({
+  file,
+  active = true,
+  onProgress,
+}: {
+  file: File | null;
+  active?: boolean;
+  onProgress?: (p: { needsReview: number; resolved: number; started: boolean }) => void;
+}) {
   const [outputFormat, setOutputFormat] = useState<FormatId>("pyspark");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [decisions, setDecisions] = useState<Record<number, LocalDecision>>({});
@@ -97,6 +108,10 @@ export function ReviewPage({ file }: { file: File | null }) {
     const pct = needsReview.length === 0 ? 100 : (resolved / needsReview.length) * 100;
     return { needsReview: needsReview.length, resolved, pct };
   }, [session, decisions]);
+
+  useEffect(() => {
+    onProgress?.({ needsReview: progress.needsReview, resolved: progress.resolved, started: session != null });
+  }, [onProgress, progress.needsReview, progress.resolved, session]);
 
   const handleReview = () => {
     if (!file) return;
@@ -169,7 +184,7 @@ export function ReviewPage({ file }: { file: File | null }) {
     <div className="space-y-6">
       {!session && (
         <div className="space-y-4">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <label htmlFor="review-format" className="text-sm text-[var(--fg-muted)]">
               Target format
             </label>
@@ -207,18 +222,17 @@ export function ReviewPage({ file }: { file: File | null }) {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
             <div className="flex items-center justify-between mb-2 text-sm">
               <span className="font-medium text-[var(--fg)]">
-                {progress.resolved} / {progress.needsReview} nodes reviewed
+                {progress.resolved} / {progress.needsReview} flagged nodes reviewed
               </span>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleExport}
-                disabled={session.nodes.length === 0}
-              >
-                <Download className="h-4 w-4" />
-                Export
-              </Button>
             </div>
+            {active && (
+              <HeaderActions>
+                <Button size="sm" variant="secondary" onClick={handleExport} disabled={session.nodes.length === 0}>
+                  <Download className="h-4 w-4" />
+                  Download reviewed code
+                </Button>
+              </HeaderActions>
+            )}
             <Progress value={progress.pct} />
           </div>
 

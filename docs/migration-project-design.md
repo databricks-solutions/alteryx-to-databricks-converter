@@ -185,10 +185,36 @@ a screen was using. The project-centric flow fixed that:
 - **The sidebar is the only navigation.** It lists the open project's steps in
   order with progress counts. Pages no longer link onward, and the journey rail
   is gone.
-- **Views run themselves.** Analysis views run on first open and cache per project,
-  keyed by a signature of the project's files (a per-workflow content hash), so a
-  re-upload refreshes them and a stage change doesn't.
+- **Assess runs itself.** The three Assess views run on first open and cache per
+  project, keyed by a signature of the project's files (a per-workflow content
+  hash), so a re-upload refreshes them and a stage change doesn't. Savings waits
+  for you to press Estimate, because its inputs are your own cost assumptions.
 - **No database:** the same flow with a project held in the browser tab, rather
   than the old per-screen uploads.
 - **AI is one optional last step** that writes a separate, marked copy of the
   notebook (`a2d.advisor.completion`); the chat page was removed from the app.
+
+### How the build differs from the design above
+
+The sections above are the original design. Where the build went another way:
+
+- Workflow bytes are stored in the table (`source_b64`, with `size_bytes` and
+  `content_hash` columns), not under a `storage_uri` volume path; there is no
+  `source_path`. A Unity Catalog Volume for large packages is still a follow-on.
+- File names are unique per project (a unique index). Re-uploading a name with
+  new bytes replaces that workflow and resets it to `uploaded`; identical bytes
+  change nothing.
+- Stage bookkeeping after a run (assessed, converted) only applies if the
+  workflow still holds the bytes the run used, so a re-upload mid-run isn't
+  marked with the old result.
+- `savings_inputs` and `review_decisions` columns exist but nothing writes them
+  yet; savings assumptions and review decisions live in the browser.
+- The journey rail, `convert-bridge` and `local-history` stores described above
+  were removed in the project-centric flow; the sidebar shows progress instead.
+- A configured database that isn't responding is reported as 503 "temporarily
+  unavailable", separate from 503 "not configured", and initialization retries.
+- Tests: `tests/unit/server/test_project_service.py` and
+  `tests/unit/server/test_project_batch.py` (mocked), and
+  `tests/integration/test_project_store_postgres.py` against a real Postgres.
+- Projects are shared by everyone who can open the app (the same tenancy as
+  conversion history); per-user ownership is not built.

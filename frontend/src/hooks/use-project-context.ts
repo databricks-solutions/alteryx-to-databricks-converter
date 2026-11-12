@@ -10,7 +10,7 @@ import {
   type WorkflowSource,
   type WorkflowStage,
 } from "@/lib/api";
-import { LOCAL_PROJECT_ID, useLocalProjectStore } from "@/stores/local-project";
+import { isLocalProjectId, useLocalProjectStore } from "@/stores/local-project";
 
 /** One workflow as every step sees it, whichever kind of project it's in. */
 export interface ProjectWorkflowView {
@@ -27,14 +27,19 @@ export interface ProjectContext {
   projectId: string | null;
   /** True for a database-backed project; false for a session-only one. */
   saved: boolean;
+  /** A session-only project URL whose project no longer exists in this tab. */
+  sessionGone: boolean;
   name: string;
   workflows: ProjectWorkflowView[];
   /** Changes only when the set of files (or their content) changes, so cached
    * results can tell whether they still describe the estate. */
   signature: string;
+  /** True only on the first load of a saved project (not on background refetches). */
   isLoading: boolean;
-  /** Set when a saved project can't be loaded (unknown id, server down). */
+  /** Set when a saved project can't be loaded. `hasData` tells a failed
+   * background refresh (keep showing the project) from a failed first load. */
   error: Error | null;
+  hasData: boolean;
   /** For multi-file calls (analyze, assess, portfolio, savings, batch). */
   source: EstateSource | null;
   /** For single-workflow calls that accept a project reference (AI). */
@@ -42,13 +47,9 @@ export interface ProjectContext {
   /** The workflow's file, for single-file calls (convert, review, advise). */
   getFile: (workflowId: string) => Promise<File>;
   /** Move one workflow forward to `stage` (never backward). */
-  setStage: (
-    workflowId: string,
-    stage: WorkflowStage,
-    conversion?: WorkflowConversionSummary,
-  ) => Promise<void>;
+  setStage: (workflowId: string, stage: WorkflowStage, conversion?: WorkflowConversionSummary) => Promise<void>;
   /** After a whole-estate pass: refetch a saved project, or record it locally. */
-  afterEstatePass: (opts: { assessed?: boolean; analysis?: Record<string, WorkflowAnalysisSummary> }) => void;
+  afterEstatePass: (opts: { analyzed?: string[]; analysis?: Record<string, WorkflowAnalysisSummary> }) => void;
   /** After a batch conversion of a session-only project (a saved one is updated by the server). */
   afterBatch: (converted: { fileName: string; summary: WorkflowConversionSummary }[]) => void;
   refresh: () => void;
@@ -66,7 +67,7 @@ export function projectQueryKey(id: string | null) {
 export function useProjectContext(): ProjectContext {
   const params = useParams({ strict: false }) as { projectId?: string };
   const projectId = params.projectId ?? null;
-  const isLocal = projectId === LOCAL_PROJECT_ID;
+  const isLocal = isLocalProjectId(projectId);
   const saved = projectId != null && !isLocal;
   const qc = useQueryClient();
 
@@ -77,18 +78,25 @@ export function useProjectContext(): ProjectContext {
     retry: false,
   });
 
-  const local = useLocalProjectStore();
+  const localId = useLocalProjectStore((s) => s.id);
+  const localName = useLocalProjectStore((s) => s.name);
+  const localWorkflows = useLocalProjectStore((s) => s.workflows);
+  const local = useLocalProjectStore.getState;
+  // The URL's session project is the one in this tab only if the ids match.
+  const localLive = isLocal && localId != null && localId === projectId;
 
   const workflows = useMemo<ProjectWorkflowView[]>(() => {
     if (isLocal) {
-      return local.workflows.map((w) => ({
-        id: w.id,
-        file_name: w.file_name,
-        stage: w.stage,
-        size_bytes: w.file.size,
-        analysis: w.analysis,
-        conversion: w.conversion,
-      }));
+      return localLive
+        ? localWorkflows.map((w) => ({
+            id: w.id,
+            file_name: w.file_name,
+            stage: w.stage,
+            size_bytes: w.file.size,
+            analysis: w.analysis,
+            conversion: w.conversion,
+          }))
+        : [];
     }
     return (query.data?.workflows ?? []).map((w) => ({
       id: w.id,
@@ -98,11 +106,11 @@ export function useProjectContext(): ProjectContext {
       analysis: w.analysis ?? null,
       conversion: w.conversion ?? null,
     }));
-  }, [isLocal, local.workflows, query.data]);
+  }, [isLocal, localLive, localWorkflows, query.data]);
 
   const signature = useMemo(() => {
     if (isLocal) {
-      return local.workflows
+      return localWorkflows
         .map((w) => `${w.file_name}:${w.file.size}:${w.file.lastModified}`)
         .sort()
         .join("|");
@@ -111,7 +119,7 @@ export function useProjectContext(): ProjectContext {
       .map((w) => `${w.file_name}:${w.content_hash ?? w.size_bytes ?? ""}`)
       .sort()
       .join("|");
-  }, [isLocal, local.workflows, query.data]);
+  }, [isLocal, localWorkflows, query.data]);
 
   const refresh = useCallback(() => {
     if (saved) {
@@ -122,23 +130,23 @@ export function useProjectContext(): ProjectContext {
 
   const source = useMemo<EstateSource | null>(() => {
     if (saved && projectId) return { projectId };
-    if (isLocal && local.workflows.length > 0) return { files: local.workflows.map((w) => w.file) };
+    if (localLive && localWorkflows.length > 0) return { files: localWorkflows.map((w) => w.file) };
     return null;
-  }, [saved, isLocal, projectId, local.workflows]);
+  }, [saved, localLive, projectId, localWorkflows]);
 
   const workflowSource = useCallback(
     (workflowId: string): WorkflowSource | null => {
       if (saved && projectId) return { projectId, workflowId };
-      const w = local.workflows.find((x) => x.id === workflowId);
+      const w = localWorkflows.find((x) => x.id === workflowId);
       return w ? { file: w.file } : null;
     },
-    [saved, projectId, local.workflows],
+    [saved, projectId, localWorkflows],
   );
 
   const getFile = useCallback(
     async (workflowId: string): Promise<File> => {
       if (isLocal) {
-        const w = local.workflows.find((x) => x.id === workflowId);
+        const w = local().workflows.find((x) => x.id === workflowId);
         if (!w) throw new Error("That workflow is no longer in this project.");
         return w.file;
       }
@@ -146,16 +154,16 @@ export function useProjectContext(): ProjectContext {
       if (!w || !projectId) throw new Error("That workflow is no longer in this project.");
       return api.getProjectWorkflowFile(projectId, workflowId, w.file_name);
     },
-    [isLocal, local.workflows, query.data, projectId],
+    [isLocal, local, query.data, projectId],
   );
 
   const setStage = useCallback(
     async (workflowId: string, stage: WorkflowStage, conversion?: WorkflowConversionSummary) => {
       if (isLocal) {
-        const w = local.workflows.find((x) => x.id === workflowId);
+        const w = local().workflows.find((x) => x.id === workflowId);
         if (!w) return;
-        if (conversion) local.setConversion(w.file_name, conversion);
-        local.advance((x) => x.id === workflowId, stage);
+        if (conversion) local().setConversion(w.file_name, conversion);
+        local().advance((x) => x.id === workflowId, stage);
         return;
       }
       if (!projectId) return;
@@ -171,42 +179,76 @@ export function useProjectContext(): ProjectContext {
   );
 
   const afterEstatePass = useCallback(
-    (opts: { assessed?: boolean; analysis?: Record<string, WorkflowAnalysisSummary> }) => {
+    (opts: { analyzed?: string[]; analysis?: Record<string, WorkflowAnalysisSummary> }) => {
       if (isLocal) {
-        if (opts.analysis) local.setAnalysis(opts.analysis);
-        if (opts.assessed) local.advance((w) => w.stage === "uploaded", "assessed");
+        // Only for the session project this run belonged to.
+        if (local().id !== projectId) return;
+        if (opts.analysis) local().setAnalysis(opts.analysis);
+        if (opts.analyzed) {
+          const names = new Set(opts.analyzed);
+          local().advance((w) => names.has(w.file_name), "assessed");
+        }
         return;
       }
       refresh();
     },
-    [isLocal, local, refresh],
+    [isLocal, local, projectId, refresh],
   );
 
   const afterBatch = useCallback(
     (converted: { fileName: string; summary: WorkflowConversionSummary }[]) => {
       if (isLocal) {
-        for (const c of converted) local.setConversion(c.fileName, c.summary);
+        if (local().id !== projectId) return;
+        for (const c of converted) local().setConversion(c.fileName, c.summary);
         return;
       }
       refresh();
     },
-    [isLocal, local, refresh],
+    [isLocal, local, projectId, refresh],
   );
 
-  return {
-    projectId,
-    saved,
-    name: isLocal ? (local.name ?? "Session project") : (query.data?.name ?? ""),
-    workflows,
-    signature,
-    isLoading: saved && query.isLoading,
-    error: saved ? (query.error as Error | null) : null,
-    source,
-    workflowSource,
-    getFile,
-    setStage,
-    afterEstatePass,
-    afterBatch,
-    refresh,
-  };
+  const name = isLocal ? (localLive ? (localName ?? "Session project") : "") : (query.data?.name ?? "");
+  const error = saved ? (query.error as Error | null) : null;
+  const hasData = isLocal ? localLive : query.data != null;
+  const isLoading = saved && query.isLoading;
+
+  return useMemo(
+    () => ({
+      projectId,
+      saved,
+      sessionGone: isLocal && !localLive,
+      name,
+      workflows,
+      signature,
+      isLoading,
+      error,
+      hasData,
+      source,
+      workflowSource,
+      getFile,
+      setStage,
+      afterEstatePass,
+      afterBatch,
+      refresh,
+    }),
+    [
+      projectId,
+      saved,
+      isLocal,
+      localLive,
+      name,
+      workflows,
+      signature,
+      isLoading,
+      error,
+      hasData,
+      source,
+      workflowSource,
+      getFile,
+      setStage,
+      afterEstatePass,
+      afterBatch,
+      refresh,
+    ],
+  );
 }

@@ -25,29 +25,35 @@ function scoreColor(score: number): string {
 }
 
 // In-progress answers persist per project, so a half-filled questionnaire
-// survives navigation and reloads (the score persists in the estate store).
+// survives navigation and reloads. The values that came from the estate prefill
+// are kept separately, so a later prefill (after files change) can refresh them
+// without overwriting anything you changed yourself.
+interface SavedAnswers {
+  answers: Record<string, string>;
+  prefilled: Record<string, string>;
+}
 const answersKey = (projectId: string) => `a2d-readiness-answers:${projectId}`;
-function loadAnswers(projectId: string | null): Record<string, string> {
-  if (!projectId) return {};
+function loadAnswers(projectId: string | null): SavedAnswers {
+  const empty = { answers: {}, prefilled: {} };
+  if (!projectId) return empty;
   try {
     const raw = localStorage.getItem(answersKey(projectId));
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw);
+    // Older saves were just the answers map.
+    return "answers" in parsed ? parsed : { answers: parsed, prefilled: {} };
   } catch {
-    return {};
+    return empty;
   }
 }
-function saveAnswers(projectId: string | null, a: Record<string, string>) {
+function saveAnswers(projectId: string | null, saved: SavedAnswers) {
   if (!projectId) return;
   try {
-    localStorage.setItem(answersKey(projectId), JSON.stringify(a));
+    localStorage.setItem(answersKey(projectId), JSON.stringify(saved));
   } catch {
     /* localStorage unavailable — non-fatal */
   }
 }
-
-// The score depends on the answers, not on the files, so it isn't tied to the
-// project's file signature.
-const ANSWERS_SIGNATURE = "answers";
 
 /** The organizational readiness self-assessment for the open project. The
  * estate questions are pre-answered from the project's workflows. */
@@ -60,36 +66,48 @@ export function ReadinessPage() {
   const stored = useEstateStore((s) => (projectId ? s.byProject[projectId]?.readiness : undefined));
   const saveResult = useEstateStore((s) => s.saveResult);
   const clearResult = useEstateStore((s) => s.clearResult);
-  const [answers, setAnswers] = useState<Record<string, string>>(() => loadAnswers(projectId));
+  const [{ answers, prefilled }, setSaved] = useState<SavedAnswers>(() => loadAnswers(projectId));
   const prefilledFor = useRef<string | null>(null);
   const result = stored?.data ?? null;
+  // The score is kept when files change (it's your answers), but say so.
+  const filesChanged = stored != null && stored.signature !== ctx.signature;
 
-  // Persist in-progress answers as they change.
   useEffect(() => {
-    saveAnswers(projectId, answers);
-  }, [projectId, answers]);
+    saveAnswers(projectId, { answers, prefilled });
+  }, [projectId, answers, prefilled]);
 
   // Pre-answer the estate questions from the project's files, once per file set.
-  // Answers you've already given win over the prefill.
+  // A question you answered yourself keeps your answer.
+  const { mutate: runPrefill } = prefill;
   useEffect(() => {
     if (!ctx.source || ctx.workflows.length === 0 || prefilledFor.current === ctx.signature) return;
     prefilledFor.current = ctx.signature;
-    prefill.mutate(
+    runPrefill(
       { source: ctx.source },
-      { onSuccess: (res) => setAnswers((a) => ({ ...res.answers, ...a })) },
+      {
+        onSuccess: (res) =>
+          setSaved((cur) => {
+            const next = { ...cur.answers };
+            for (const [q, v] of Object.entries(res.answers)) {
+              const untouched = next[q] === undefined || next[q] === cur.prefilled[q];
+              if (untouched) next[q] = v;
+            }
+            return { answers: next, prefilled: { ...cur.prefilled, ...res.answers } };
+          }),
+      },
     );
-  }, [ctx.source, ctx.workflows.length, ctx.signature, prefill]);
+  }, [ctx.source, ctx.workflows.length, ctx.signature, runPrefill]);
 
   const totalQuestions = bank?.dimensions.reduce((n, d) => n + d.questions.length, 0) ?? 0;
   const answeredCount = Object.values(answers).filter((v) => v).length;
 
-  const pick = (qid: string, value: string) => setAnswers((a) => ({ ...a, [qid]: value }));
+  const pick = (qid: string, value: string) => setSaved((cur) => ({ ...cur, answers: { ...cur.answers, [qid]: value } }));
 
   const submit = () => {
     if (answeredCount === 0 || !projectId) return;
     scoreMut.mutate(
       { answers },
-      { onSuccess: (data) => saveResult(projectId, "readiness", data, ANSWERS_SIGNATURE) },
+      { onSuccess: (data) => saveResult(projectId, "readiness", data, ctx.signature) },
     );
   };
 
@@ -112,6 +130,13 @@ export function ReadinessPage() {
               : null}
         </span>
       </div>
+
+      {result && filesChanged && (
+        <p className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-2 text-xs text-[var(--fg-muted)]">
+          The project's workflows changed since this score. The estate answers may be different now: choose Edit
+          answers and score again to include them.
+        </p>
+      )}
 
       {result && (
         <div className="flex justify-end">

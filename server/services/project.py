@@ -1,29 +1,36 @@
-"""Migration Project service — the durable estate every screen reads and writes.
+"""Migration Project service: the durable estate every step reads and writes.
 
 A project is one migration: its uploaded workflows (stored once), a per-workflow
-lifecycle stage, the artifacts each screen produces, and estate rollups. See
+lifecycle stage, the artifacts each step produces, and estate rollups. See
 ``docs/migration-project-design.md``.
 
 Persistence reuses the history service's connection pool (one pool for the whole
-server) and its graceful-degradation discipline: with no database configured
-every call returns the "unavailable" value and the app falls back to its
-in-session stores, exactly as it behaves today. A database outage degrades
-rather than 500s; a genuine programming error still surfaces.
+server). Three states, kept distinct because the app treats them differently:
 
-Phase 1 (foundation): the project object, its API, and tests. Workflow source
-bytes are stored in the database (base64) — Alteryx workflows/macros are small
-XML, and this keeps the bytes durable across app restarts without a separate
-object store. A ``.yxzp`` is stored as its original upload and re-materialized on
-read (extractor runs again, macros co-located), so the macro-resolution path is
-preserved. Large-package storage in a Unity Catalog Volume is a documented
-follow-on.
+* **No database configured**: every call returns its "unavailable" value (None,
+  False, an empty list) and the app runs session-only projects in the browser.
+* **Configured but unreachable** (it was down at boot, or a query fails):
+  router-facing calls raise :class:`StoreUnavailableError`, which the API answers with
+  503, so the UI never mistakes an outage for "this project was deleted" or "you
+  have no projects". Initialization is retried lazily, so a database that comes
+  up after the app recovers without a restart.
+* Best-effort bookkeeping (stage moves after a run, analysis summaries, rollups)
+  logs and carries on, because the run itself already succeeded.
+
+Workflow source bytes are stored base64 in the database; Alteryx workflows are
+small XML. A ``.yxzp`` is stored as uploaded and re-extracted on read, so its
+macros stay with it. Within a project a file name is unique: adding a file with
+an existing name replaces that workflow, and adding identical bytes changes
+nothing.
 """
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
+import time
 import uuid
 
 from server.services import history
@@ -31,16 +38,24 @@ from server.services import history
 logger = logging.getLogger("a2d.server.services.project")
 
 # Reuse the history service's pool and DB-error type: one pool per server, and no
-# second copy of the backend-resolution rule. project owns only its own schema
-# state (`_initialized`) and tables.
+# second copy of the backend-resolution rule.
 _DatabaseError = history._DatabaseError
 
 _initialized = False
+_last_init_attempt = 0.0
+_INIT_RETRY_SECONDS = 30.0
 
-# Lifecycle stages in display order. Forward-only for presentation; a workflow
-# can be re-converted/re-reviewed (updates artifact + timestamp) without moving
-# backward. "deployed" is set manually (the app never deploys customer pipelines).
+MAX_NAME_LENGTH = 200
+
+# Lifecycle stages in display order. Moves are forward-only: re-converting a
+# deployed workflow updates its artifact but keeps it deployed. "deployed" is set
+# by hand (the app never deploys customer pipelines).
 STAGES: tuple[str, ...] = ("uploaded", "assessed", "converted", "reviewed", "deployed")
+
+
+class StoreUnavailableError(RuntimeError):
+    """A database is configured but can't be reached right now (API: 503)."""
+
 
 _CREATE_PROJECT_TABLE = """
 CREATE TABLE IF NOT EXISTS migration_project (
@@ -67,14 +82,55 @@ CREATE TABLE IF NOT EXISTS project_workflow (
 );
 """
 
-_CREATE_WORKFLOW_INDEX = """
-CREATE INDEX IF NOT EXISTS idx_project_workflow_project ON project_workflow(project_id);
-"""
+# Columns and constraints added after the first release. Each statement is
+# idempotent, so init can run on every start and on old databases alike.
+_MIGRATIONS = (
+    "CREATE INDEX IF NOT EXISTS idx_project_workflow_project ON project_workflow(project_id)",
+    "ALTER TABLE project_workflow ADD COLUMN IF NOT EXISTS size_bytes BIGINT",
+    "ALTER TABLE project_workflow ADD COLUMN IF NOT EXISTS content_hash TEXT",
+    """UPDATE project_workflow
+       SET size_bytes = octet_length(decode(source_b64, 'base64')), content_hash = md5(source_b64)
+       WHERE content_hash IS NULL""",
+    # Older builds could store two rows with one name; keep the newest.
+    """DELETE FROM project_workflow a USING project_workflow b
+       WHERE a.project_id = b.project_id AND a.file_name = b.file_name
+         AND (a.updated_at, a.id::text) < (b.updated_at, b.id::text)""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS uq_project_workflow_name
+       ON project_workflow(project_id, file_name)""",
+)
+
+# SQL for "move to %(stage)s unless already further along", by STAGES order.
+_FORWARD_STAGE_SQL = (
+    "CASE WHEN array_position(%(stages)s::text[], stage) < array_position(%(stages)s::text[], %(stage)s::text) "
+    "THEN %(stage)s ELSE stage END"
+)
+
+_ARTIFACT_COLUMNS = {
+    "analysis": "analysis",
+    "savings_inputs": "savings_inputs",
+    "conversion_refs": "conversion_refs",
+    "review_decisions": "review_decisions",
+}
+
+
+def content_hash(content: bytes) -> str:
+    """The stored content hash for a workflow's bytes (md5 of its base64 form,
+    matching what the database computes for rows written before this column)."""
+    return hashlib.md5(base64.b64encode(content), usedforsecurity=False).hexdigest()
+
+
+# ── availability ───────────────────────────────────────────────────────────
+
+
+def is_configured() -> bool:
+    """True when a database is configured, whether or not it's reachable now."""
+    return bool(history.resolve_backend())
 
 
 def init_db() -> bool:
-    """Create the project tables if absent. Returns True if a database is available."""
-    global _initialized
+    """Create or migrate the project tables. Returns True if projects are usable."""
+    global _initialized, _last_init_attempt
+    _last_init_attempt = time.monotonic()
     pool = history._get_pool()
     if pool is None:
         return False
@@ -82,7 +138,8 @@ def init_db() -> bool:
         with pool.connection() as conn:
             conn.execute(_CREATE_PROJECT_TABLE)
             conn.execute(_CREATE_WORKFLOW_TABLE)
-            conn.execute(_CREATE_WORKFLOW_INDEX)
+            for statement in _MIGRATIONS:
+                conn.execute(statement)
             conn.commit()
         _initialized = True
         logger.info("Migration-project tables initialized")
@@ -93,17 +150,34 @@ def init_db() -> bool:
 
 
 def is_available() -> bool:
-    """True when projects can be persisted (schema initialized and pool present)."""
-    return _initialized and history._get_pool() is not None
+    """True when projects can be persisted right now.
+
+    If a database is configured but wasn't reachable when the app started, this
+    retries initialization (at most every few seconds), so the app recovers
+    without a restart.
+    """
+    if _initialized and history._get_pool() is not None:
+        return True
+    if is_configured() and time.monotonic() - _last_init_attempt >= _INIT_RETRY_SECONDS:
+        return init_db()
+    return False
+
+
+def _pool():
+    """The pool when projects are usable, else None (no database configured)."""
+    pool = history._get_pool()
+    if pool is None or not _initialized:
+        return None
+    return pool
+
+
+# ── rollups ────────────────────────────────────────────────────────────────
 
 
 def _rollups_from_workflows(workflows: list[dict]) -> dict:
-    """Compute estate rollups from a project's workflows.
-
-    Deterministic and cheap: counts by stage, plus coverage averaged over the
-    workflows that have an analysis artifact. Savings/effort are added when those
-    artifacts are wired in (Phase 2); absent, they are omitted rather than faked.
-    """
+    """Compute estate rollups from a project's workflows: counts by stage, plus
+    coverage averaged over the workflows that have an analysis summary (omitted,
+    not faked, when none do)."""
     counts = {stage: 0 for stage in STAGES}
     coverages: list[float] = []
     for wf in workflows:
@@ -121,82 +195,133 @@ def _rollups_from_workflows(workflows: list[dict]) -> dict:
     return rollups
 
 
-def _upsert_workflow(conn, project_id: str, file_name: str, content: bytes) -> None:
-    """Store one uploaded workflow, replacing an existing one with the same name.
+def _refresh_rollups(project_id: str) -> None:
+    """Recompute and persist a project's rollups. Best-effort; never raises."""
+    pool = _pool()
+    if pool is None:
+        return
+    try:
+        with pool.connection() as conn:
+            wrows = conn.execute(
+                "SELECT stage, analysis FROM project_workflow WHERE project_id = %s",
+                (project_id,),
+            ).fetchall()
+            rollups = _rollups_from_workflows([{"stage": w[0], "analysis": w[1]} for w in wrows])
+            conn.execute(
+                "UPDATE migration_project SET rollups = %s::jsonb, updated_at = NOW() WHERE id = %s",
+                (json.dumps(rollups), project_id),
+            )
+            conn.commit()
+    except _DatabaseError:
+        logger.exception("Failed to refresh rollups for project %s", project_id)
 
-    Re-uploading ``sales.yxmd`` means "here is the new version", not "track a
-    second copy": the row keeps its id, takes the new bytes, and goes back to
-    ``uploaded`` with its artifacts cleared, because they described the old file.
+
+# ── writing workflows ──────────────────────────────────────────────────────
+
+
+def _upsert_workflow(conn, project_id: str, file_name: str, content: bytes) -> str:
+    """Store one uploaded workflow. Returns "added", "replaced" or "unchanged".
+
+    A file name is unique within a project. Re-uploading ``sales.yxmd`` with new
+    bytes means "here's the new version": the row keeps its id, takes the bytes,
+    and goes back to ``uploaded`` with its artifacts cleared, because they
+    described the old file. Re-uploading identical bytes leaves the row (and its
+    review and deployment state) alone.
     """
     encoded = base64.b64encode(content).decode("ascii")
-    updated = conn.execute(
-        """UPDATE project_workflow
-           SET source_b64 = %s, stage = 'uploaded', analysis = NULL, savings_inputs = NULL,
-               conversion_refs = NULL, review_decisions = NULL, updated_at = NOW()
-           WHERE project_id = %s AND file_name = %s""",
-        (encoded, project_id, file_name),
-    )
-    if (updated.rowcount or 0) == 0:
-        conn.execute(
-            """INSERT INTO project_workflow (project_id, file_name, source_b64, stage)
-               VALUES (%s, %s, %s, 'uploaded')""",
-            (project_id, file_name, encoded),
-        )
+    row = conn.execute(
+        """INSERT INTO project_workflow
+               (project_id, file_name, source_b64, stage, size_bytes, content_hash)
+           VALUES (%(pid)s, %(name)s, %(src)s, 'uploaded', %(size)s, %(hash)s)
+           ON CONFLICT (project_id, file_name) DO UPDATE
+           SET source_b64 = EXCLUDED.source_b64, size_bytes = EXCLUDED.size_bytes,
+               content_hash = EXCLUDED.content_hash, stage = 'uploaded', analysis = NULL,
+               savings_inputs = NULL, conversion_refs = NULL, review_decisions = NULL,
+               updated_at = NOW()
+           WHERE project_workflow.content_hash IS DISTINCT FROM EXCLUDED.content_hash
+           RETURNING (xmax = 0) AS inserted""",
+        {
+            "pid": project_id,
+            "name": file_name,
+            "src": encoded,
+            "size": len(content),
+            "hash": content_hash(content),
+        },
+    ).fetchone()
+    if row is None:
+        return "unchanged"
+    return "added" if row[0] else "replaced"
+
+
+def _changes(outcomes: list[tuple[str, str]]) -> dict:
+    out: dict[str, list[str]] = {"added": [], "replaced": [], "unchanged": []}
+    for name, outcome in outcomes:
+        out[outcome].append(name)
+    return out
 
 
 def create_project(name: str, files: list[tuple[str, bytes]]) -> dict | None:
-    """Create a project and store its uploaded workflows. Returns the project dict.
+    """Create a project and store its workflows in one transaction.
 
-    Returns None when projects are unavailable (no backend) so the router answers
-    a clear "unavailable" rather than 500. A database outage degrades to None;
-    programming errors still propagate.
+    Returns the project (with a ``changes`` summary), None when no database is
+    configured. Raises :class:`StoreUnavailableError` if the database fails.
     """
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    pool = _pool()
+    if pool is None:
         return None
-
     project_id = str(uuid.uuid4())
+    clean = (name or "").strip()[:MAX_NAME_LENGTH] or "Untitled migration"
     try:
         with pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO migration_project (id, name) VALUES (%s, %s)",
-                (project_id, name or "Untitled migration"),
-            )
-            for file_name, content in files:
-                _upsert_workflow(conn, project_id, file_name, content)
+            conn.execute("INSERT INTO migration_project (id, name) VALUES (%s, %s)", (project_id, clean))
+            outcomes = [(fname, _upsert_workflow(conn, project_id, fname, content)) for fname, content in files]
             conn.commit()
-        _refresh_rollups(project_id)
-        return get_project(project_id)
-    except _DatabaseError:
+    except _DatabaseError as exc:
         logger.exception("Failed to create project")
-        return None
+        raise StoreUnavailableError("Could not save the project; the database isn't responding.") from exc
+    _refresh_rollups(project_id)
+    project = get_project(project_id)
+    if project is not None:
+        project["changes"] = _changes(outcomes)
+    return project
 
 
 def add_workflows(project_id: str, files: list[tuple[str, bytes]]) -> dict | None:
-    """Add uploaded workflows to an existing project. Returns the updated project."""
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    """Add (or replace by name) workflows in an existing project.
+
+    Returns the project with a ``changes`` summary, or None if the project
+    doesn't exist (or no database is configured).
+    """
+    pool = _pool()
+    if pool is None:
         return None
     try:
         with pool.connection() as conn:
             exists = conn.execute("SELECT 1 FROM migration_project WHERE id = %s", (project_id,)).fetchone()
             if not exists:
                 return None
-            for file_name, content in files:
-                _upsert_workflow(conn, project_id, file_name, content)
+            outcomes = [(fname, _upsert_workflow(conn, project_id, fname, content)) for fname, content in files]
             conn.commit()
-        _refresh_rollups(project_id)
-        return get_project(project_id)
-    except _DatabaseError:
+    except _DatabaseError as exc:
         logger.exception("Failed to add workflows to project %s", project_id)
-        return None
+        raise StoreUnavailableError("Could not save the workflows; the database isn't responding.") from exc
+    _refresh_rollups(project_id)
+    project = get_project(project_id)
+    if project is not None:
+        project["changes"] = _changes(outcomes)
+    return project
+
+
+# ── reading ────────────────────────────────────────────────────────────────
 
 
 def list_projects(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
-    """List projects (summary: id, name, timestamps, rollups). Returns (items, total)."""
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    """List projects (id, name, timestamps, rollups). Returns (items, total)."""
+    pool = _pool()
+    if pool is None:
         return [], 0
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     try:
         with pool.connection() as conn:
             row = conn.execute("SELECT COUNT(*) FROM migration_project").fetchone()
@@ -206,100 +331,104 @@ def list_projects(limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
                    FROM migration_project ORDER BY updated_at DESC LIMIT %s OFFSET %s""",
                 (limit, offset),
             ).fetchall()
-        items = [
-            {
-                "id": str(r[0]),
-                "name": r[1],
-                "created_at": r[2].isoformat() if r[2] else "",
-                "updated_at": r[3].isoformat() if r[3] else "",
-                "rollups": r[4] or {},
-            }
-            for r in rows
-        ]
-        return items, total
-    except _DatabaseError:
+    except _DatabaseError as exc:
         logger.exception("Failed to list projects")
-        return [], 0
+        raise StoreUnavailableError("Could not load projects; the database isn't responding.") from exc
+    items = [
+        {
+            "id": str(r[0]),
+            "name": r[1],
+            "created_at": r[2].isoformat() if r[2] else "",
+            "updated_at": r[3].isoformat() if r[3] else "",
+            "rollups": r[4] or {},
+        }
+        for r in rows
+    ]
+    return items, total
 
 
 def get_project(project_id: str) -> dict | None:
-    """Fetch a project with its workflows (no file bytes). None if absent/unavailable."""
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    """A project with its workflows (no file bytes), or None if it doesn't exist."""
+    pool = _pool()
+    if pool is None:
         return None
     try:
         with pool.connection() as conn:
             prow = conn.execute(
-                """SELECT id, name, created_at, updated_at, rollups
-                   FROM migration_project WHERE id = %s""",
+                "SELECT id, name, created_at, updated_at, rollups FROM migration_project WHERE id = %s",
                 (project_id,),
             ).fetchone()
             if not prow:
                 return None
             wrows = conn.execute(
-                """SELECT id, file_name, stage, analysis, updated_at,
-                          octet_length(decode(source_b64, 'base64')), conversion_refs, md5(source_b64)
+                """SELECT id, file_name, stage, analysis, updated_at, size_bytes, conversion_refs, content_hash
                    FROM project_workflow WHERE project_id = %s ORDER BY file_name""",
                 (project_id,),
             ).fetchall()
-        workflows = [
-            {
-                "id": str(w[0]),
-                "file_name": w[1],
-                "stage": w[2],
-                "analysis": w[3],
-                "updated_at": w[4].isoformat() if w[4] else "",
-                "size_bytes": w[5] or 0,
-                "conversion": w[6],
-                # Changes only when the file's bytes do (not on stage moves), so a
-                # client can tell whether a cached analysis still describes it.
-                "content_hash": w[7] or "",
-            }
-            for w in wrows
-        ]
-        return {
-            "id": str(prow[0]),
-            "name": prow[1],
-            "created_at": prow[2].isoformat() if prow[2] else "",
-            "updated_at": prow[3].isoformat() if prow[3] else "",
-            "rollups": prow[4] or {},
-            "workflows": workflows,
-        }
-    except _DatabaseError:
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
+            return None
         logger.exception("Failed to get project %s", project_id)
-        return None
+        raise StoreUnavailableError("Could not load the project; the database isn't responding.") from exc
+    workflows = [
+        {
+            "id": str(w[0]),
+            "file_name": w[1],
+            "stage": w[2],
+            "analysis": w[3],
+            "updated_at": w[4].isoformat() if w[4] else "",
+            "size_bytes": w[5] or 0,
+            "conversion": w[6],
+            # Changes only when the file's bytes do (not on stage moves), so a
+            # client can tell whether a cached analysis still describes it.
+            "content_hash": w[7] or "",
+        }
+        for w in wrows
+    ]
+    return {
+        "id": str(prow[0]),
+        "name": prow[1],
+        "created_at": prow[2].isoformat() if prow[2] else "",
+        "updated_at": prow[3].isoformat() if prow[3] else "",
+        "rollups": prow[4] or {},
+        "workflows": workflows,
+    }
+
+
+def _is_bad_id(exc: Exception) -> bool:
+    """A malformed UUID in the URL is "not found", not an outage."""
+    return "invalid input syntax for type uuid" in str(exc)
 
 
 def get_workflow_file(project_id: str, workflow_id: str) -> tuple[str, bytes] | None:
-    """Return (file_name, bytes) for a stored workflow, so any screen reads it
-    without a re-upload. None if absent/unavailable."""
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    """(file_name, bytes) for a stored workflow, or None if it doesn't exist."""
+    pool = _pool()
+    if pool is None:
         return None
     try:
         with pool.connection() as conn:
             row = conn.execute(
-                """SELECT file_name, source_b64 FROM project_workflow
-                   WHERE id = %s AND project_id = %s""",
+                "SELECT file_name, source_b64 FROM project_workflow WHERE id = %s AND project_id = %s",
                 (workflow_id, project_id),
             ).fetchone()
-        if not row:
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
             return None
-        return row[0], base64.b64decode(row[1])
-    except _DatabaseError:
         logger.exception("Failed to read workflow %s", workflow_id)
+        raise StoreUnavailableError("Could not read the workflow; the database isn't responding.") from exc
+    if not row:
         return None
+    return row[0], base64.b64decode(row[1])
 
 
 def get_project_files(project_id: str) -> list[tuple[str, bytes]] | None:
-    """Return (file_name, bytes) for every workflow in a project.
+    """(file_name, bytes) for every workflow in a project.
 
-    This is what lets the analysis screens run on a stored estate instead of a
-    re-upload. None when the project is unknown or projects are unavailable; an
-    empty list when the project exists but has no workflows (caller maps to 422).
+    None when the project doesn't exist (or no database is configured); an empty
+    list when it exists but has no workflows.
     """
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    pool = _pool()
+    if pool is None:
         return None
     try:
         with pool.connection() as conn:
@@ -310,184 +439,101 @@ def get_project_files(project_id: str) -> list[tuple[str, bytes]] | None:
                 "SELECT file_name, source_b64 FROM project_workflow WHERE project_id = %s ORDER BY file_name",
                 (project_id,),
             ).fetchall()
-        return [(r[0], base64.b64decode(r[1])) for r in rows]
-    except _DatabaseError:
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
+            return None
         logger.exception("Failed to read files for project %s", project_id)
-        return None
+        raise StoreUnavailableError("Could not read the project's files; the database isn't responding.") from exc
+    return [(r[0], base64.b64decode(r[1])) for r in rows]
 
 
-def advance_uploaded_workflows(project_id: str, stage: str) -> int:
-    """Move a project's still-``uploaded`` workflows forward to ``stage``.
+# ── stage moves and artifacts ──────────────────────────────────────────────
 
-    Used after an estate-level pass (e.g. Analyze) so freshly-uploaded workflows
-    reflect that they've been assessed, without downgrading any already further
-    along. Returns the number advanced. Best-effort; never raises.
-    """
+
+def _check_stage(stage: str) -> None:
     if stage not in STAGES:
         raise ValueError(f"unknown stage {stage!r}; valid: {', '.join(STAGES)}")
-    pool = history._get_pool()
-    if pool is None or not _initialized:
-        return 0
-    try:
-        with pool.connection() as conn:
-            result = conn.execute(
-                """UPDATE project_workflow SET stage = %s, updated_at = NOW()
-                   WHERE project_id = %s AND stage = 'uploaded'""",
-                (stage, project_id),
-            )
-            conn.commit()
-            advanced = result.rowcount or 0
-        if advanced:
-            _refresh_rollups(project_id)
-        return advanced
-    except _DatabaseError:
-        logger.exception("Failed to advance workflows for project %s", project_id)
-        return 0
 
 
-# SQL for "move to %(stage)s unless already further along", by STAGES order.
-_FORWARD_STAGE_SQL = (
-    "CASE WHEN array_position(%(stages)s::text[], stage) < array_position(%(stages)s::text[], %(stage)s::text) "
-    "THEN %(stage)s ELSE stage END"
-)
+def advance_workflows_by_name(
+    project_id: str, file_names: list[str], stage: str, hashes: dict[str, str] | None = None
+) -> int:
+    """Move the named workflows forward to ``stage`` (never backward).
 
-_ARTIFACT_COLUMNS = {
-    "analysis": "analysis",
-    "savings_inputs": "savings_inputs",
-    "conversion_refs": "conversion_refs",
-    "review_decisions": "review_decisions",
-}
-
-
-def set_workflow_stage(
-    project_id: str,
-    workflow_id: str,
-    stage: str,
-    *,
-    artifact_key: str | None = None,
-    artifact: dict | None = None,
-) -> bool:
-    """Advance a workflow's stage and optionally store the artifact that stage
-    produced, then refresh the project's rollups. Returns True on success.
-
-    Forward-only: a workflow already past ``stage`` keeps its stage (re-converting
-    a deployed workflow must not send it back to "converted"), while the artifact
-    is still updated.
-
-    ``stage`` must be a known lifecycle stage; an unknown value is a programming
-    error (raises ValueError) rather than silently writing garbage. ``artifact_key``
-    must be one of the known artifact columns.
+    With ``hashes`` (file name -> content hash of the bytes the work used), a
+    workflow is only moved if it still holds those bytes, so a run on an old
+    version can't mark a newer upload. Best-effort; returns rows touched.
     """
-    if stage not in STAGES:
-        raise ValueError(f"unknown stage {stage!r}; valid: {', '.join(STAGES)}")
-    if artifact_key is not None and artifact_key not in _ARTIFACT_COLUMNS:
-        raise ValueError(f"unknown artifact_key {artifact_key!r}")
-
-    pool = history._get_pool()
-    if pool is None or not _initialized:
-        return False
+    _check_stage(stage)
+    pool = _pool()
+    if pool is None or not file_names:
+        return 0
+    touched = 0
     try:
         with pool.connection() as conn:
-            if artifact_key is not None:
-                column = _ARTIFACT_COLUMNS[artifact_key]
+            for name in file_names:
                 result = conn.execute(
-                    f"""UPDATE project_workflow
-                        SET stage = {_FORWARD_STAGE_SQL}, {column} = %(artifact)s::jsonb, updated_at = NOW()
-                        WHERE id = %(wid)s AND project_id = %(pid)s""",
+                    f"""UPDATE project_workflow SET stage = {_FORWARD_STAGE_SQL}, updated_at = NOW()
+                        WHERE project_id = %(pid)s AND file_name = %(name)s
+                          AND (%(hash)s::text IS NULL OR content_hash = %(hash)s::text)""",
                     {
                         "stages": list(STAGES),
                         "stage": stage,
-                        "artifact": json.dumps(artifact),
-                        "wid": workflow_id,
                         "pid": project_id,
+                        "name": name,
+                        "hash": (hashes or {}).get(name),
                     },
                 )
-            else:
-                result = conn.execute(
-                    f"""UPDATE project_workflow
-                        SET stage = {_FORWARD_STAGE_SQL}, updated_at = NOW()
-                        WHERE id = %(wid)s AND project_id = %(pid)s""",
-                    {"stages": list(STAGES), "stage": stage, "wid": workflow_id, "pid": project_id},
-                )
+                touched += result.rowcount or 0
             conn.commit()
-            if (result.rowcount or 0) == 0:
-                return False
-        _refresh_rollups(project_id)
-        return True
-    except _DatabaseError:
-        logger.exception("Failed to set stage on workflow %s", workflow_id)
-        return False
-
-
-def advance_workflows_by_name(project_id: str, file_names: list[str], stage: str) -> int:
-    """Move the named workflows forward to ``stage`` (never backward).
-
-    Used by batch conversion, whose results are keyed by file name. Returns the
-    number of rows touched. Best-effort; never raises on a database problem.
-    """
-    if stage not in STAGES:
-        raise ValueError(f"unknown stage {stage!r}; valid: {', '.join(STAGES)}")
-    if not file_names:
-        return 0
-    pool = history._get_pool()
-    if pool is None or not _initialized:
-        return 0
-    try:
-        with pool.connection() as conn:
-            result = conn.execute(
-                f"""UPDATE project_workflow SET stage = {_FORWARD_STAGE_SQL}, updated_at = NOW()
-                    WHERE project_id = %(pid)s AND file_name = ANY(%(names)s)""",
-                {"stages": list(STAGES), "stage": stage, "pid": project_id, "names": list(file_names)},
-            )
-            conn.commit()
-            touched = result.rowcount or 0
-        if touched:
-            _refresh_rollups(project_id)
-        return touched
     except _DatabaseError:
         logger.exception("Failed to advance workflows for project %s", project_id)
         return 0
+    if touched:
+        _refresh_rollups(project_id)
+    return touched
 
 
-def record_conversion(project_id: str, file_name: str, summary: dict) -> bool:
+def record_conversion(project_id: str, file_name: str, summary: dict, expected_hash: str | None = None) -> bool:
     """Mark a workflow (by file name) converted and keep a small summary of the
-    conversion (coverage, best format, when), so the Convert screen can show the
-    last result per workflow after a reload. Forward-only. Best-effort.
-    """
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    conversion, so the Convert step shows the last result after a reload.
+    Forward-only; with ``expected_hash`` only if the workflow still holds the
+    converted bytes. Best-effort."""
+    pool = _pool()
+    if pool is None:
         return False
     try:
         with pool.connection() as conn:
             result = conn.execute(
                 f"""UPDATE project_workflow
                     SET stage = {_FORWARD_STAGE_SQL}, conversion_refs = %(summary)s::jsonb, updated_at = NOW()
-                    WHERE project_id = %(pid)s AND file_name = %(name)s""",
+                    WHERE project_id = %(pid)s AND file_name = %(name)s
+                      AND (%(hash)s::text IS NULL OR content_hash = %(hash)s::text)""",
                 {
                     "stages": list(STAGES),
                     "stage": "converted",
                     "summary": json.dumps(summary),
                     "pid": project_id,
                     "name": file_name,
+                    "hash": expected_hash,
                 },
             )
             conn.commit()
             touched = (result.rowcount or 0) > 0
-        if touched:
-            _refresh_rollups(project_id)
-        return touched
     except _DatabaseError:
         logger.exception("Failed to record conversion for %s in project %s", file_name, project_id)
         return False
+    if touched:
+        _refresh_rollups(project_id)
+    return touched
 
 
-def store_analysis(project_id: str, rows: list[dict]) -> int:
-    """Save each workflow's analysis summary (coverage, complexity, effort) on its
-    project row, matched by file name, so the project's rollups (average
-    coverage) reflect the estate. Returns the number of rows stored. Best-effort.
-    """
-    pool = history._get_pool()
-    if pool is None or not _initialized or not rows:
+def store_analysis(project_id: str, rows: list[dict], hashes: dict[str, str] | None = None) -> int:
+    """Save each workflow's analysis summary on its project row, matched by the
+    uploaded file name (and, with ``hashes``, only if the bytes are unchanged).
+    Feeds the project's average coverage. Best-effort; returns rows stored."""
+    pool = _pool()
+    if pool is None or not rows:
         return 0
     keep = ("coverage_percentage", "complexity_score", "complexity_level", "migration_priority", "estimated_effort")
     stored = 0
@@ -499,24 +545,78 @@ def store_analysis(project_id: str, rows: list[dict]) -> int:
                     continue
                 summary = {k: row.get(k) for k in keep if k in row}
                 result = conn.execute(
-                    """UPDATE project_workflow SET analysis = %s::jsonb, updated_at = NOW()
-                       WHERE project_id = %s AND file_name = %s""",
-                    (json.dumps(summary), project_id, name),
+                    """UPDATE project_workflow SET analysis = %(summary)s::jsonb, updated_at = NOW()
+                       WHERE project_id = %(pid)s AND file_name = %(name)s
+                         AND (%(hash)s::text IS NULL OR content_hash = %(hash)s::text)""",
+                    {"summary": json.dumps(summary), "pid": project_id, "name": name, "hash": (hashes or {}).get(name)},
                 )
                 stored += result.rowcount or 0
             conn.commit()
-        if stored:
-            _refresh_rollups(project_id)
-        return stored
     except _DatabaseError:
         logger.exception("Failed to store analysis for project %s", project_id)
         return 0
+    if stored:
+        _refresh_rollups(project_id)
+    return stored
+
+
+def set_workflow_stage(
+    project_id: str,
+    workflow_id: str,
+    stage: str,
+    *,
+    artifact_key: str | None = None,
+    artifact: dict | None = None,
+) -> bool:
+    """Move a workflow forward to ``stage`` and optionally store the artifact that
+    stage produced. Returns True if the workflow exists.
+
+    Forward-only: a workflow already past ``stage`` keeps its stage while the
+    artifact is still updated. An unknown stage or artifact key is a caller error
+    (ValueError).
+    """
+    _check_stage(stage)
+    if artifact_key is not None and artifact_key not in _ARTIFACT_COLUMNS:
+        raise ValueError(f"unknown artifact_key {artifact_key!r}")
+    pool = _pool()
+    if pool is None:
+        return False
+    params = {"stages": list(STAGES), "stage": stage, "wid": workflow_id, "pid": project_id}
+    try:
+        with pool.connection() as conn:
+            if artifact_key is not None:
+                column = _ARTIFACT_COLUMNS[artifact_key]
+                result = conn.execute(
+                    f"""UPDATE project_workflow
+                        SET stage = {_FORWARD_STAGE_SQL}, {column} = %(artifact)s::jsonb, updated_at = NOW()
+                        WHERE id = %(wid)s AND project_id = %(pid)s""",
+                    {**params, "artifact": json.dumps(artifact)},
+                )
+            else:
+                result = conn.execute(
+                    f"""UPDATE project_workflow SET stage = {_FORWARD_STAGE_SQL}, updated_at = NOW()
+                        WHERE id = %(wid)s AND project_id = %(pid)s""",
+                    params,
+                )
+            conn.commit()
+            if (result.rowcount or 0) == 0:
+                return False
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
+            return False
+        logger.exception("Failed to set stage on workflow %s", workflow_id)
+        raise StoreUnavailableError("Could not update the workflow; the database isn't responding.") from exc
+    _refresh_rollups(project_id)
+    return True
+
+
+# ── project management ─────────────────────────────────────────────────────
 
 
 def delete_workflow(project_id: str, workflow_id: str) -> bool:
     """Remove one workflow from a project. Returns True if it was removed."""
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    pool = _pool()
+    if pool is None:
         return False
     try:
         with pool.connection() as conn:
@@ -526,12 +626,14 @@ def delete_workflow(project_id: str, workflow_id: str) -> bool:
             )
             conn.commit()
             removed = (result.rowcount or 0) > 0
-        if removed:
-            _refresh_rollups(project_id)
-        return removed
-    except _DatabaseError:
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
+            return False
         logger.exception("Failed to delete workflow %s", workflow_id)
-        return False
+        raise StoreUnavailableError("Could not remove the workflow; the database isn't responding.") from exc
+    if removed:
+        _refresh_rollups(project_id)
+    return removed
 
 
 def rename_project(project_id: str, name: str) -> bool:
@@ -539,8 +641,10 @@ def rename_project(project_id: str, name: str) -> bool:
     clean = (name or "").strip()
     if not clean:
         raise ValueError("project name must not be empty")
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    if len(clean) > MAX_NAME_LENGTH:
+        raise ValueError(f"project name must be at most {MAX_NAME_LENGTH} characters")
+    pool = _pool()
+    if pool is None:
         return False
     try:
         with pool.connection() as conn:
@@ -550,43 +654,49 @@ def rename_project(project_id: str, name: str) -> bool:
             )
             conn.commit()
             return (result.rowcount or 0) > 0
-    except _DatabaseError:
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
+            return False
         logger.exception("Failed to rename project %s", project_id)
-        return False
+        raise StoreUnavailableError("Could not rename the project; the database isn't responding.") from exc
 
 
 def delete_project(project_id: str) -> bool:
     """Delete a project and its workflows (cascade). Returns True if deleted."""
-    pool = history._get_pool()
-    if pool is None or not _initialized:
+    pool = _pool()
+    if pool is None:
         return False
     try:
         with pool.connection() as conn:
             result = conn.execute("DELETE FROM migration_project WHERE id = %s", (project_id,))
             conn.commit()
             return (result.rowcount or 0) > 0
-    except _DatabaseError:
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
+            return False
         logger.exception("Failed to delete project %s", project_id)
-        return False
+        raise StoreUnavailableError("Could not delete the project; the database isn't responding.") from exc
 
 
-def _refresh_rollups(project_id: str) -> None:
-    """Recompute and persist a project's rollups. Best-effort; never raises."""
-    pool = history._get_pool()
-    if pool is None or not _initialized:
-        return
+def advance_uploaded_workflows(project_id: str, stage: str) -> int:
+    """Move a project's still-``uploaded`` workflows forward to ``stage``.
+    Best-effort; kept for callers that assess a whole project at once."""
+    _check_stage(stage)
+    pool = _pool()
+    if pool is None:
+        return 0
     try:
         with pool.connection() as conn:
-            wrows = conn.execute(
-                "SELECT stage, analysis FROM project_workflow WHERE project_id = %s",
-                (project_id,),
-            ).fetchall()
-            workflows = [{"stage": w[0], "analysis": w[1]} for w in wrows]
-            rollups = _rollups_from_workflows(workflows)
-            conn.execute(
-                "UPDATE migration_project SET rollups = %s::jsonb, updated_at = NOW() WHERE id = %s",
-                (json.dumps(rollups), project_id),
+            result = conn.execute(
+                """UPDATE project_workflow SET stage = %s, updated_at = NOW()
+                   WHERE project_id = %s AND stage = 'uploaded'""",
+                (stage, project_id),
             )
             conn.commit()
+            advanced = result.rowcount or 0
     except _DatabaseError:
-        logger.exception("Failed to refresh rollups for project %s", project_id)
+        logger.exception("Failed to advance workflows for project %s", project_id)
+        return 0
+    if advanced:
+        _refresh_rollups(project_id)
+    return advanced

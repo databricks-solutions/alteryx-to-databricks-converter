@@ -39,13 +39,16 @@ export function useEstateView<K extends EstateResultKind, A = undefined>({
   );
   const saveResult = useEstateStore((s) => s.saveResult);
 
-  const mutation = useMutation<EstateResultData[K], Error, { args?: A; signature: string }>({
+  const mutation = useMutation<EstateResultData[K], Error, { args?: A; signature: string; projectId: string | null }>({
     mutationFn: ({ args }) => {
       if (!ctx.source) throw new Error("This project has no workflows yet.");
       return run(ctx.source, args);
     },
-    onSuccess: (data, { signature }) => {
-      if (projectId) saveResult(projectId, kind, data, signature);
+    // Saved under the project and file signature the run started with, so a run
+    // that finishes after the user switched projects or changed files can't
+    // attach to the wrong estate.
+    onSuccess: (data, vars) => {
+      if (vars.projectId) saveResult(vars.projectId, kind, data, vars.signature, vars.args);
       onResult?.(data, ctx);
     },
   });
@@ -56,9 +59,9 @@ export function useEstateView<K extends EstateResultKind, A = undefined>({
   const rerun = useCallback(
     (args?: A) => {
       lastRunSignature.current = ctx.signature;
-      mutation.mutate({ args, signature: ctx.signature });
+      mutation.mutate({ args, signature: ctx.signature, projectId });
     },
-    [ctx.signature, mutation],
+    [ctx.signature, mutation, projectId],
   );
 
   useEffect(() => {
@@ -73,6 +76,8 @@ export function useEstateView<K extends EstateResultKind, A = undefined>({
   return {
     ctx,
     data: current?.data ?? null,
+    /** The inputs the shown result was computed with, if any. */
+    args: (current?.args as A | undefined) ?? undefined,
     computedAt: current?.at ?? null,
     isPending: mutation.isPending,
     error: mutation.error,

@@ -91,21 +91,27 @@ async def convert_batch(
     workflow_names: str | None = Form(None),
     opts: ConversionOptions = Depends(conversion_options),
 ) -> BatchStartResponse:
-    """Convert many workflows at once — uploaded, or a saved project's.
+    """Convert many workflows at once: uploaded, or a saved project's.
 
     With ``project_id`` the workflows come from the project (no re-upload) and each
     one that converts is recorded on it. ``workflow_names`` (JSON list of file
-    names) narrows a project run to a selection; omitted, the whole project runs.
+    names) narrows a project run to a selection; every name must be in the
+    project. Omitted, the whole project runs.
     """
-    file_data = await resolve_input_files(files, project_id)
-    if project_id and workflow_names:
+    only: set[str] | None = None
+    if workflow_names is not None:
+        if not project_id:
+            raise HTTPException(status_code=422, detail="workflow_names only applies with a project_id.")
         try:
-            wanted = set(json.loads(workflow_names))
-        except (ValueError, TypeError):
+            parsed = json.loads(workflow_names)
+        except ValueError:
+            parsed = None
+        if not isinstance(parsed, list) or not all(isinstance(n, str) for n in parsed):
             raise HTTPException(status_code=422, detail="workflow_names must be a JSON list of file names") from None
-        file_data = [(name, content) for name, content in file_data if name in wanted]
-        if not file_data:
-            raise HTTPException(status_code=422, detail="None of the selected workflows are in this project.")
+        if not parsed:
+            raise HTTPException(status_code=422, detail="Select at least one workflow to convert.")
+        only = set(parsed)
+    file_data = await resolve_input_files(files, project_id, only=only)
 
     logger.info("Starting batch conversion: %d files (multi-format)", len(file_data))
     job_id = await batch_service.create_batch_job(

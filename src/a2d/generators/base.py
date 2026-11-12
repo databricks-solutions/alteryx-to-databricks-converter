@@ -34,6 +34,11 @@ class GeneratedOutput:
     files: list[GeneratedFile] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     stats: dict = field(default_factory=dict)
+    # For a Databricks source notebook: the node each ``# COMMAND ----------``
+    # cell was generated from (None for the header, imports, comments and
+    # footer), keyed by filename. Metadata only; the file content is unchanged.
+    # Lets tools address "the cell for node N" without parsing comment text.
+    cell_nodes: dict[str, list[int | None]] = field(default_factory=dict)
 
 
 @dataclass

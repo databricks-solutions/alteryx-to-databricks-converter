@@ -49,19 +49,31 @@ function appendOptions(fd: FormData, opts?: ConvertOptions) {
 
 async function requestText(path: string, init?: RequestInit): Promise<string> {
   const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || res.statusText);
-  }
+  if (!res.ok) throw await failure(res);
   return res.text();
+}
+
+/** A failed API call, with the HTTP status so callers can tell cases apart
+ * (e.g. 503 "no database configured" vs 503 "database not responding"). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function failure(res: Response): Promise<ApiError> {
+  const body = await res.json().catch(() => ({ detail: res.statusText }));
+  const detail = typeof body.detail === "string" ? body.detail : body.error || res.statusText;
+  return new ApiError(detail || `Request failed (${res.status})`, res.status);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail || res.statusText);
-  }
+  if (!res.ok) throw await failure(res);
   return res.json();
 }
 
@@ -104,14 +116,11 @@ export const api = {
     });
   },
 
-  batchDownload: (jobId: string) =>
-    fetch(`${BASE}/convert/batch/${jobId}/download`).then((res) => {
-      if (!res.ok) throw new Error("Download failed");
-      return res.blob();
-    }),
-
-  batchStatus: (jobId: string) =>
-    request<BatchStatus>(`/convert/batch/${jobId}`),
+  batchDownload: async (jobId: string) => {
+    const res = await fetch(`${BASE}/convert/batch/${jobId}/download`);
+    if (!res.ok) throw await failure(res);
+    return res.blob();
+  },
 
   /** Actually stop server-side conversion (not just stop listening). */
   batchCancel: (jobId: string) =>
@@ -246,7 +255,7 @@ export const api = {
   /** Fetch a stored workflow's bytes as a File, so a screen runs it without a re-upload. */
   getProjectWorkflowFile: async (projectId: string, workflowId: string, fileName: string) => {
     const res = await fetch(`${BASE}/projects/${projectId}/workflows/${workflowId}/file`);
-    if (!res.ok) throw new Error("Could not fetch the stored workflow");
+    if (!res.ok) throw await failure(res);
     const blob = await res.blob();
     return new File([blob], fileName, { type: "application/octet-stream" });
   },
@@ -404,7 +413,8 @@ export interface FileResult {
   node_count: number;
   edge_count: number;
   warnings: string[];
-  formats: Record<string, FormatResult>;
+  /** Left out of live progress messages (too heavy to stream). */
+  formats?: Record<string, FormatResult>;
   best_format: string;
 }
 
@@ -447,6 +457,8 @@ export interface WorkflowAnalysis {
 }
 
 export interface AnalysisResult {
+  /** Uploaded names that couldn't be read or analyzed. */
+  skipped_files?: string[];
   total_workflows: number;
   total_nodes: number;
   avg_coverage: number;
@@ -475,6 +487,9 @@ export interface AssessWorkflow {
 }
 
 export interface AssessResult {
+  skipped_files?: string[];
+  /** Uploaded names that were profiled. */
+  analyzed_files?: string[];
   totals: {
     workflows: number;
     tools: number;
@@ -584,7 +599,16 @@ export interface MigrationDecision {
   notes: string[];
 }
 
+/** A step AI completion would work on (from /api/ai/gaps). */
+export interface CompletableStep {
+  node_id: number;
+  tool_type: string | null;
+  reason: string;
+}
+
 export interface MigrationContext {
+  /** Present on /api/ai/gaps: the steps AI completion would fill in. */
+  completable?: CompletableStep[];
   workflow_name: string;
   output_format: FormatId;
   node_count: number;
@@ -849,6 +873,8 @@ export interface ProjectSummary {
 
 export interface Project extends ProjectSummary {
   workflows: ProjectWorkflow[];
+  /** On create/add: what happened to each file sent. */
+  changes?: { added: string[]; replaced: string[]; unchanged: string[] };
 }
 
 // ── AI completion ──────────────────────────────────────────────────────

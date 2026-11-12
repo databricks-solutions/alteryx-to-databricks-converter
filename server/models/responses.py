@@ -210,6 +210,8 @@ class AnalysisResponse(BaseModel):
     workflows: list[WorkflowAnalysisResponse]
     tool_frequency: dict[str, int]
     unsupported_tools: list[str]
+    # Uploaded names that couldn't be read or analyzed.
+    skipped_files: list[str] = []
 
 
 class HistoryListItem(BaseModel):

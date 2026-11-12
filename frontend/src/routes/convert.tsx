@@ -8,17 +8,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HeaderActions } from "@/components/layout/header-actions";
+import { EmptyProject } from "@/components/shared/empty-project";
 import { useProjectContext } from "@/hooks/use-project-context";
 import { useConvertOptions } from "@/hooks/use-convert-options";
 import { useBatchConversion } from "@/hooks/use-batch";
 import { useConversion } from "@/hooks/use-conversion";
 import { useBatchStore } from "@/stores/batch";
-import { useSettingsStore } from "@/stores/settings";
+import { useProjectSettingsStore } from "@/stores/project-settings";
 import { useToastStore } from "@/stores/toast";
-import { isAtOrPast } from "@/stores/local-project";
-import { api, type FileResult } from "@/lib/api";
-import { STAGE_VARIANT } from "@/routes/workflows";
-import { EmptyProject } from "@/routes/assess-hub";
+import { ApiError, type FileResult } from "@/lib/api";
+import { api } from "@/lib/api";
+import { isAtOrPast, STAGE_VARIANT } from "@/lib/stages";
+import { slugify } from "@/lib/files";
 import { ArrowLeft, Download, Loader2, Play, RefreshCcw, XCircle, FileCode2 } from "lucide-react";
 
 /**
@@ -50,27 +52,31 @@ export function ConvertPage() {
   );
 }
 
-/** Where generated code reads and writes tables — the one setting worth asking here. */
+/** Where this project's generated code reads and writes tables. */
 function TargetLocation() {
-  const catalog = useSettingsStore((s) => s.catalogName);
-  const schema = useSettingsStore((s) => s.schemaName);
-  const setCatalog = useSettingsStore((s) => s.setCatalogName);
-  const setSchema = useSettingsStore((s) => s.setSchemaName);
+  const ctx = useProjectContext();
+  const opts = useConvertOptions(ctx.projectId);
+  const catalogName = opts.catalogName ?? "";
+  const schemaName = opts.schemaName ?? "";
+  const setLocation = useProjectSettingsStore((s) => s.setLocation);
+  const update = (next: { catalogName?: string; schemaName?: string }) => {
+    if (ctx.projectId) setLocation(ctx.projectId, { catalogName, schemaName, ...next });
+  };
   const input =
     "w-36 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-sm text-[var(--fg)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]";
   return (
     <Card className="flex flex-col gap-2">
-      <p className="text-sm font-medium text-[var(--fg)]">Where should the generated code read and write tables?</p>
+      <p className="text-sm font-medium text-[var(--fg)]">Where should this project's code read and write tables?</p>
       <div className="flex flex-wrap items-center gap-1.5 text-sm">
-        <input aria-label="Catalog" className={input} value={catalog} onChange={(e) => setCatalog(e.target.value)} />
+        <input aria-label="Catalog" className={input} value={catalogName} onChange={(e) => update({ catalogName: e.target.value })} />
         <span className="text-[var(--fg-muted)]">.</span>
-        <input aria-label="Schema" className={input} value={schema} onChange={(e) => setSchema(e.target.value)} />
+        <input aria-label="Schema" className={input} value={schemaName} onChange={(e) => update({ schemaName: e.target.value })} />
         <span className="text-xs text-[var(--fg-muted)]">.&lt;table&gt;</span>
       </div>
       <p className="text-xs text-[var(--fg-muted)]">
         The generated notebooks and SQL name tables as <code>catalog.schema.table</code>. Set this to the Unity
-        Catalog location the migrated tables will live in. Other output options (comments, DDL, asset bundle) are
-        in{" "}
+        Catalog location this project's migrated tables will live in; it applies to this project only. The default
+        for new projects, and the other output options (comments, DDL, asset bundle), are in{" "}
         <Link to="/settings" className="text-[var(--ring)] hover:underline">
           Settings
         </Link>
@@ -82,7 +88,7 @@ function TargetLocation() {
 
 function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
   const ctx = useProjectContext();
-  const opts = useConvertOptions();
+  const opts = useConvertOptions(ctx.projectId);
   const addToast = useToastStore((s) => s.add);
   const batch = useBatchConversion();
   const status = useBatchStore((s) => s.status);
@@ -92,6 +98,8 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
   const errorMessage = useBatchStore((s) => s.errorMessage);
   const resetBatch = useBatchStore((s) => s.reset);
   const disconnect = useBatchStore((s) => s.disconnect);
+  const recordedJobId = useBatchStore((s) => s.recordedJobId);
+  const markRecorded = useBatchStore((s) => s.markRecorded);
   const mine = jobProject === ctx.projectId;
   const running = mine && status === "running";
 
@@ -102,6 +110,7 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
   });
   const [downloading, setDownloading] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [starting, setStarting] = useState(false);
 
   // This job's result per workflow, matched by the name it was sent under.
   const resultByName = useMemo(() => {
@@ -110,24 +119,25 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
     return map;
   }, [mine, fileResults]);
 
-  // When this project's job finishes, record what converted.
-  const recordedJob = useRef<string | null>(null);
+  // When this project's job finishes, record what converted, once per job
+  // (the store remembers, so revisiting the step doesn't repeat it).
+  const { afterBatch } = ctx;
   useEffect(() => {
-    if (!mine || status !== "completed" || !jobId || recordedJob.current === jobId) return;
-    recordedJob.current = jobId;
+    if (!mine || status !== "completed" || !jobId || recordedJobId === jobId) return;
+    markRecorded(jobId);
     const converted = fileResults
       .filter((fr) => fr.success)
       .map((fr) => ({
         fileName: fr.source_file_name ?? fr.file_name,
         summary: { coverage: fr.coverage ?? null, best_format: fr.best_format, warnings: fr.warnings.length, at: new Date().toISOString() },
       }));
-    ctx.afterBatch(converted);
+    afterBatch(converted);
     const failed = fileResults.length - converted.length;
     addToast(
       failed > 0 ? `Converted ${converted.length}, ${failed} failed` : `Converted ${converted.length} workflow(s)`,
       failed > 0 ? "error" : "success",
     );
-  }, [mine, status, jobId, fileResults, ctx, addToast]);
+  }, [mine, status, jobId, recordedJobId, markRecorded, fileResults, afterBatch, addToast]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -138,17 +148,28 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
     });
   const allSelected = selected.size === ctx.workflows.length;
 
-  const start = (ids: Set<string>) => {
-    if (ids.size === 0 || !ctx.projectId) return;
+  const start = async (ids: Set<string>) => {
+    if (ids.size === 0 || !ctx.projectId || starting) return;
     const chosen = ctx.workflows.filter((w) => ids.has(w.id));
+    setStarting(true);
     resetBatch();
-    if (ctx.saved) {
-      batch.mutate({ ...opts, source: { projectId: ctx.projectId }, workflowNames: chosen.map((w) => w.file_name), projectId: ctx.projectId });
-    } else {
-      // Session-only project: send the selected files themselves.
-      Promise.all(chosen.map((w) => ctx.getFile(w.id)))
-        .then((files) => batch.mutate({ ...opts, source: { files }, projectId: ctx.projectId }))
-        .catch((e) => addToast(e instanceof Error ? e.message : "Could not read the files", "error"));
+    try {
+      if (ctx.saved) {
+        await batch.mutateAsync({
+          ...opts,
+          source: { projectId: ctx.projectId },
+          workflowNames: chosen.map((w) => w.file_name),
+          projectId: ctx.projectId,
+        });
+      } else {
+        // Session-only project: send the selected files themselves.
+        const files = await Promise.all(chosen.map((w) => ctx.getFile(w.id)));
+        await batch.mutateAsync({ ...opts, source: { files }, projectId: ctx.projectId });
+      }
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Could not start the conversion", "error");
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -166,7 +187,14 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
       disconnect();
       resetBatch();
     } catch (e) {
-      addToast(e instanceof Error ? `Could not stop: ${e.message}` : "Could not stop", "error");
+      if (e instanceof ApiError && e.status === 404) {
+        // The server no longer has this job (it restarted, or the job expired).
+        addToast("That run is no longer on the server, so there was nothing to stop.", "info");
+        disconnect();
+        resetBatch();
+      } else {
+        addToast(e instanceof Error ? `Could not stop: ${e.message}` : "Could not stop", "error");
+      }
     } finally {
       setStopping(false);
     }
@@ -176,9 +204,14 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
     if (!jobId) return;
     setDownloading(true);
     try {
-      saveAs(await api.batchDownload(jobId), `${ctx.name.replace(/[^A-Za-z0-9_-]+/g, "_") || "project"}_converted.zip`);
-    } catch {
-      addToast("Download failed", "error");
+      saveAs(await api.batchDownload(jobId), `${slugify(ctx.name)}_converted.zip`);
+    } catch (e) {
+      addToast(
+        e instanceof ApiError && e.status === 404
+          ? "That run is no longer on the server. Convert again to download."
+          : "Download failed",
+        "error",
+      );
     } finally {
       setDownloading(false);
     }
@@ -197,17 +230,23 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
             {stopping ? "Stopping…" : "Stop"}
           </Button>
         ) : (
-          <Button onClick={() => start(selected)} disabled={selected.size === 0 || batch.isPending}>
-            {batch.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          <Button onClick={() => start(selected)} disabled={selected.size === 0 || starting}>
+            {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             Convert {selected.size === ctx.workflows.length ? "all" : "selected"} ({selected.size})
           </Button>
         )}
         {mine && status === "completed" && (
           <>
-            <Button variant="secondary" size="sm" onClick={downloadZip} disabled={downloading}>
-              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              Download this run (ZIP)
-            </Button>
+            <HeaderActions>
+              <Button variant="secondary" size="sm" onClick={downloadZip} disabled={downloading}>
+                {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Download ZIP
+              </Button>
+            </HeaderActions>
+            <span className="text-xs text-[var(--fg-muted)]">
+              The ZIP has one folder per workflow in this run, with every output format. Workflows that failed
+              aren't in it.
+            </span>
             {failedCount > 0 && (
               <Button variant="secondary" size="sm" onClick={retryFailed}>
                 <RefreshCcw className="h-4 w-4" />
@@ -272,7 +311,7 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <Button size="sm" variant="ghost" onClick={() => onOpen(w.id)}>
+                    <Button size="sm" variant="ghost" onClick={() => onOpen(w.id)} aria-label={`Open ${w.file_name}`}>
                       <FileCode2 className="h-3.5 w-3.5" />
                       Open
                     </Button>
@@ -287,39 +326,27 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-/** One workflow's full conversion result (converted on open — it's deterministic). */
+/**
+ * One workflow's full result: the graph, code in every format, deploy
+ * readiness. Opening only looks; it doesn't mark the workflow converted (that
+ * happens when you convert it with the button above).
+ */
 function WorkflowResult({ workflowId, fileName, onBack }: { workflowId: string; fileName: string; onBack: () => void }) {
   const ctx = useProjectContext();
-  const opts = useConvertOptions();
+  const opts = useConvertOptions(ctx.projectId);
   const mutation = useConversion();
   const [loadError, setLoadError] = useState<string | null>(null);
   const started = useRef(false);
+  const { getFile } = ctx;
+  const { mutate } = mutation;
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    ctx
-      .getFile(workflowId)
-      .then((file) =>
-        mutation.mutate(
-          { file, ...opts },
-          {
-            onSuccess: (result) =>
-              ctx
-                .setStage(workflowId, "converted", {
-                  coverage: result.coverage ?? null,
-                  best_format: result.best_format,
-                  warnings: result.warnings.length,
-                  at: new Date().toISOString(),
-                })
-                .catch(() => {
-                  /* recording the stage is best-effort; the conversion itself succeeded */
-                }),
-          },
-        ),
-      )
+    getFile(workflowId)
+      .then((file) => mutate({ file, ...opts }))
       .catch((e) => setLoadError(e instanceof Error ? e.message : "Could not load the workflow"));
-  }, [ctx, workflowId, mutation, opts]);
+  }, [getFile, workflowId, mutate, opts]);
 
   return (
     <div className="space-y-6">
@@ -332,7 +359,7 @@ function WorkflowResult({ workflowId, fileName, onBack }: { workflowId: string; 
         <div className="space-y-4" role="status" aria-live="polite">
           <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Converting {fileName} to every output format…
+            Generating {fileName} in every output format…
           </div>
           <Skeleton className="h-24 rounded-xl" />
           <Skeleton className="h-64 rounded-xl" />

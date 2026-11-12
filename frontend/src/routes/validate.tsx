@@ -162,7 +162,7 @@ export function ValidatePage({ embedded = false }: { embedded?: boolean }) {
           </li>
           <li>
             <span className="font-medium text-[var(--fg)]">2. Generator warnings resolved</span> —
-            see the Convert page's blockers and manual-review items.
+            see a project's Convert and Review steps for blockers and manual-review items.
           </li>
           <li>
             <span className="font-medium text-[var(--fg)]">3. Semantic equivalence</span> —{" "}
@@ -180,7 +180,7 @@ export function ValidatePage({ embedded = false }: { embedded?: boolean }) {
         </ol>
         {!result && !loading && (
           <p className="mt-3 text-xs text-[var(--fg-muted)]">
-            Paste generated PySpark or Spark Declarative Pipelines code from the Convert page.
+            Paste generated PySpark or Spark Declarative Pipelines code, for example a cell you edited.
             Databricks notebook magics (<code className="font-mono">%sql</code>,{" "}
             <code className="font-mono">%pip</code>) are handled automatically.
           </p>

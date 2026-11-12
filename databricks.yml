@@ -54,7 +54,7 @@ variables:
     description: "Capacity of the provisioned Lakebase instance."
     default: "CU_1"
   fmapi_endpoint:
-    description: "[optional] Foundation Model API serving-endpoint invocations URL for the AI migration assistant. Empty (default) disables AI entirely — conversion never needs a model. Example: https://<workspace>.cloud.databricks.com/serving-endpoints/databricks-meta-llama-3-3-70b-instruct/invocations"
+    description: "[optional] Foundation Model API serving-endpoint invocations URL for the optional AI completion step. Empty (default) disables AI entirely — conversion never needs a model. Example: https://<workspace>.cloud.databricks.com/serving-endpoints/databricks-meta-llama-3-3-70b-instruct/invocations"
     default: ""
   # Legacy fallbacks — only consumed when the native apps.resources: binding is
   # not picked up by the Apps runtime (e.g. older bundle CLI). Safe to leave empty.

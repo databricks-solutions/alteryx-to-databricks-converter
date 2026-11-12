@@ -8,7 +8,14 @@ All notable changes to this project are documented here. Follows [Keep a Changel
 - **The web app is one project-centric flow.** Create a project, add its Alteryx files once on the **Workflows** step, then work through **Assess**, **Business case**, **Convert**, **Review** and the optional **AI completion** step from the sidebar, which is now the only navigation and shows each step's progress. Steps live under `/p/<project>/...`, so links to a project work and the URL always says which project you're in. No other screen takes an upload. Single and batch conversion are one **Convert** step; the Cost & Performance Advisor moved into **Review**; Tool coverage moved under Reference. The journey rail, the "next step" footers and the global History page are gone (each workflow's latest conversion is shown on its project). Old URLs redirect to the matching step of the last project opened.
 - Without a database the app keeps the same flow with a project held in the browser tab (cleared on reload).
 - Project stage moves are forward-only (re-converting a deployed workflow keeps it deployed); re-adding a file name replaces that workflow; workflows can be removed and projects renamed; per-workflow analysis is stored so the project's average coverage fills in.
-- `POST /api/convert/batch` accepts `project_id` (and an optional `workflow_names` selection) and records each converted workflow on the project. Analysis and batch results carry `source_file_name`.
+- `POST /api/convert/batch` accepts `project_id` (and an optional `workflow_names` selection; every name must be in the project) and records each converted workflow on the project, only if it still holds the converted bytes. Project-sourced runs get the same file-count and size limits as uploads. A batch request with no files now answers 400 (was 422). Analysis and batch results carry `source_file_name`; analysis skips (and names, in `skipped_files`) a workflow it can't read instead of failing the whole estate.
+- Project store: one row per file name per project (enforced by a unique index; older duplicates are cleaned up on start), identical re-uploads leave a workflow as it was, and a configured database that isn't responding answers 503 "temporarily unavailable" (distinct from 503 "not configured") instead of empty lists or 404s. Startup retries the database if it wasn't reachable at boot.
+- Batch jobs are evicted after a period without progress, not a fixed time after they started, so a long run isn't cut off.
+- The table location (catalog and schema) is per project, set on the Convert step; Settings holds the default for new projects.
+- The syntax checker moved from Review to Reference; Review and AI completion list only converted workflows.
+
+### Removed
+- The `/api/chat` endpoints and their server session store. The app's chat page was already gone; AI completion replaces it. `a2d suggest` and the `a2d.advisor.chat` library are unchanged.
 
 ### Fixed
 - The readiness report's summary said complexity "out of 10" on a 0–100 score; it now says "out of 100" and uses the 25/50/75 bands.

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MetricCard } from "@/components/shared/metric-card";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -14,8 +15,9 @@ const PRIORITY_VARIANT: Record<string, "destructive" | "warning" | "secondary"> 
   low: "secondary",
 };
 
-/** Cluster sizing and Spark hints for one workflow from the project (picked by the Review step). */
-export function AdvisePage({ file }: { file: File | null }) {
+/** Cluster sizing and Spark hints for one workflow from the project (picked by
+ * the Review step). Its header action only appears while the tab is showing. */
+export function AdvisePage({ file, active = true }: { file: File | null; active?: boolean }) {
   const [cloud, setCloud] = useState<CloudName>("aws");
   const mutation = useAdvise();
   const report = mutation.data;
@@ -33,17 +35,17 @@ export function AdvisePage({ file }: { file: File | null }) {
 
   return (
     <div className="space-y-6">
-      {report && (
-        <div className="flex justify-end">
+      {report && active && (
+        <HeaderActions>
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => downloadJson(report, `${report.workflow_name}-advisory.json`)}
+            onClick={() => downloadJson(report, `${report.workflow_name}-cluster-advice.json`)}
           >
             <Download className="h-4 w-4" />
-            Export JSON
+            Download JSON
           </Button>
-        </div>
+        </HeaderActions>
       )}
 
       {/* Set expectations: this is a planning aid, not a benchmark. */}
@@ -57,9 +59,10 @@ export function AdvisePage({ file }: { file: File | null }) {
         </span>
       </div>
 
-      {!report && (
+      {/* Always visible, so you can compare clouds without re-picking the workflow. */}
+      {(
         <div className="space-y-4">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <label htmlFor="advise-cloud" className="text-sm text-[var(--fg-muted)]">
               Target cloud
             </label>
@@ -79,7 +82,7 @@ export function AdvisePage({ file }: { file: File | null }) {
               ) : (
                 <Play className="h-4 w-4" />
               )}
-              Get Advisory
+              {report ? "Size it again" : "Size the cluster"}
             </Button>
           </div>
           {mutation.isError && (

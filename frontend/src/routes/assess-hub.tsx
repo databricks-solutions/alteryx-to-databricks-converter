@@ -4,10 +4,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useCurrentResult } from "@/hooks/use-current-result";
 import { useProjectContext } from "@/hooks/use-project-context";
-import { downloadAnalysisCSV } from "@/lib/csv";
+import { EmptyProject } from "@/components/shared/empty-project";
+import { downloadAnalysisCSV, profileToCsv } from "@/lib/csv";
+import { downloadText, slugify } from "@/lib/files";
 import { downloadJson } from "@/lib/portfolio-download";
 import { AnalyzePage } from "@/routes/analyze";
-import { AssessPage, downloadBlob, profileToCsv } from "@/routes/assess";
+import { AssessPage } from "@/routes/assess";
 import { PortfolioPage } from "@/routes/portfolio";
 import { Download } from "lucide-react";
 
@@ -23,33 +25,33 @@ export function AssessHubPage() {
   const report = useCurrentResult("analyze");
   const profile = useCurrentResult("profile");
   const portfolio = useCurrentResult("portfolio");
-  const slug = ctx.name.replace(/[^A-Za-z0-9_-]+/g, "_") || "project";
+  const slug = slugify(ctx.name);
 
   const exportButton =
     view === "report" && report ? (
-      <Button variant="secondary" size="sm" onClick={() => downloadAnalysisCSV(report.workflows)}>
+      <Button variant="secondary" size="sm" onClick={() => downloadAnalysisCSV(report.workflows, `${slug}_report.csv`)}>
         <Download className="h-4 w-4" />
-        Export CSV
+        Download CSV
       </Button>
     ) : view === "difficulty" && profile ? (
       <>
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => downloadBlob(`${slug}_profile.csv`, profileToCsv(profile), "text/csv")}
+          onClick={() => downloadText(`${slug}_difficulty.csv`, profileToCsv(profile), "text/csv;charset=utf-8")}
         >
           <Download className="h-4 w-4" />
-          Export CSV
+          Download CSV
         </Button>
-        <Button variant="secondary" size="sm" onClick={() => downloadJson(profile, `${slug}_profile.json`)}>
+        <Button variant="secondary" size="sm" onClick={() => downloadJson(profile, `${slug}_difficulty.json`)}>
           <Download className="h-4 w-4" />
-          Export JSON
+          Download JSON
         </Button>
       </>
     ) : view === "portfolio" && portfolio ? (
-      <Button variant="secondary" size="sm" onClick={() => downloadJson(portfolio, `${slug}_portfolio.json`)}>
+      <Button variant="secondary" size="sm" onClick={() => downloadJson(portfolio, `${slug}_waves.json`)}>
         <Download className="h-4 w-4" />
-        Export JSON
+        Download JSON
       </Button>
     ) : null;
 
@@ -61,7 +63,7 @@ export function AssessHubPage() {
       ) : (
         <Tabs value={view} onValueChange={setView}>
           <TabsList>
-            <TabsTrigger value="report">Readiness report</TabsTrigger>
+            <TabsTrigger value="report">Workflow report</TabsTrigger>
             <TabsTrigger value="difficulty">Difficulty tiers</TabsTrigger>
             <TabsTrigger value="portfolio">Dependencies &amp; waves</TabsTrigger>
           </TabsList>
@@ -77,13 +79,5 @@ export function AssessHubPage() {
         </Tabs>
       )}
     </div>
-  );
-}
-
-export function EmptyProject() {
-  return (
-    <p className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-6 text-sm text-[var(--fg-muted)]">
-      This project has no workflows yet. Add its Alteryx files on the Workflows step (step 1 in the sidebar).
-    </p>
   );
 }

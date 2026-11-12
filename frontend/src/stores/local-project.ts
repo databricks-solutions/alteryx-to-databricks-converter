@@ -4,6 +4,7 @@ import type {
   WorkflowConversionSummary,
   WorkflowStage,
 } from "@/lib/api";
+import { isAtOrPast } from "@/lib/stages";
 
 /**
  * A session-only project, for servers with no database (local development).
@@ -13,9 +14,14 @@ import type {
  * reload clears it. The deployed app has a database and never uses this.
  */
 
-export const LOCAL_PROJECT_ID = "local";
+/** Session-only project ids look like ``local-<random>``; each new one is fresh,
+ * so nothing cached for an earlier session project (results, a batch run,
+ * readiness answers) can attach to it. */
+export const LOCAL_PREFIX = "local";
 
-const STAGE_ORDER: WorkflowStage[] = ["uploaded", "assessed", "converted", "reviewed", "deployed"];
+export function isLocalProjectId(id: string | null | undefined): boolean {
+  return id != null && (id === LOCAL_PREFIX || id.startsWith(`${LOCAL_PREFIX}-`));
+}
 
 export interface LocalWorkflow {
   id: string;
@@ -27,9 +33,11 @@ export interface LocalWorkflow {
 }
 
 interface LocalProjectState {
+  id: string | null;
   name: string | null;
   workflows: LocalWorkflow[];
-  create: (name: string, files: File[]) => void;
+  /** Start a new session project; returns its id. */
+  create: (name: string, files: File[]) => string;
   add: (files: File[]) => void;
   remove: (id: string) => void;
   rename: (name: string) => void;
@@ -62,18 +70,20 @@ function upsert(workflows: LocalWorkflow[], files: File[]): LocalWorkflow[] {
   return next.sort((a, b) => a.file_name.localeCompare(b.file_name));
 }
 
-export function isAtOrPast(stage: WorkflowStage, target: WorkflowStage): boolean {
-  return STAGE_ORDER.indexOf(stage) >= STAGE_ORDER.indexOf(target);
-}
-
 export const useLocalProjectStore = create<LocalProjectState>((set) => ({
+  id: null,
   name: null,
   workflows: [],
-  create: (name, files) => set({ name: name || "Untitled migration", workflows: upsert([], files) }),
+  create: (name, files) => {
+    const nonce = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
+    const id = `${LOCAL_PREFIX}-${nonce}`;
+    set({ id, name: name || "Untitled migration", workflows: upsert([], files) });
+    return id;
+  },
   add: (files) => set((s) => ({ workflows: upsert(s.workflows, files) })),
   remove: (id) => set((s) => ({ workflows: s.workflows.filter((w) => w.id !== id) })),
   rename: (name) => set({ name }),
-  clear: () => set({ name: null, workflows: [] }),
+  clear: () => set({ id: null, name: null, workflows: [] }),
   advance: (match, stage) =>
     set((s) => ({
       workflows: s.workflows.map((w) =>

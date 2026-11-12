@@ -84,13 +84,14 @@ export function SavingsPage() {
     run: (source, config) => api.savings(source, config),
   });
 
-  // Seed the assumptions form from server defaults once they arrive.
+  // Seed the form once: from the assumptions the shown estimate was computed
+  // with (so the inputs match the numbers), else from the server defaults.
   useEffect(() => {
-    if (defaults && form === null) {
-      setForm({ ...defaults });
-      setAutoOverride(defaults.automation_factor !== null);
-    }
-  }, [defaults, form]);
+    if (!defaults || form !== null) return;
+    const last = view.args as CostAssumptions | undefined;
+    setForm({ ...defaults, ...(last ?? {}) });
+    setAutoOverride((last ?? defaults).automation_factor !== null);
+  }, [defaults, form, view.args]);
 
   const report = view.data;
   const showForm = !report || editing;

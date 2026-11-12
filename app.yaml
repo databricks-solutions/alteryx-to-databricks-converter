@@ -44,10 +44,10 @@ env:
   - name: "PGDATABASE"
     value: "databricks_postgres"
 
-  # --- AI migration assistant (OPT-IN) -----------------------------------
+  # --- AI completion (OPT-IN) --------------------------------------------
   # MUST stay empty in source control. a2d calls no language model unless an
   # operator sets this to a Foundation Model API invocations URL — that is a
-  # product rule, not a default. Empty means /api/chat/status reports disabled
-  # and the assistant page shows setup instructions.
+  # product rule, not a default. Empty means /api/ai/status reports disabled
+  # and the AI completion step says it isn't turned on.
   - name: "A2D_FMAPI_ENDPOINT"
     value: ""

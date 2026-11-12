@@ -28,7 +28,7 @@ export function AnalyzePage() {
           estimated_effort: w.estimated_effort,
         };
       }
-      ctx.afterEstatePass({ assessed: true, analysis: byName });
+      ctx.afterEstatePass({ analyzed: Object.keys(byName), analysis: byName });
     },
   });
   const displayData = view.data;
@@ -39,6 +39,13 @@ export function AnalyzePage() {
         Profiles workflow footprint and complexity (tools, coverage, structure). It doesn't measure data volumes or
         row counts, which depend on the source systems.
       </p>
+
+      {displayData?.skipped_files && displayData.skipped_files.length > 0 && (
+        <p className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-2 text-xs text-[var(--fg-muted)]">
+          Couldn't read {displayData.skipped_files.join(", ")}, so {displayData.skipped_files.length === 1 ? "it isn't" : "they aren't"}{" "}
+          in these numbers. Check the file on the Workflows step.
+        </p>
+      )}
 
       {view.isPending && (
         <div className="space-y-4" role="status" aria-live="polite">

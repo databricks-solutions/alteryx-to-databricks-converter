@@ -78,3 +78,33 @@ def materialize_uploads(
             continue
         paths.append(workflow_path)
     return paths
+
+
+def upload_name_for(file_path: str | Path, base_dir: Path, files: list[tuple[str, bytes]]) -> str:
+    """Map a path produced by :func:`materialize_uploads` back to the uploaded
+    file's name.
+
+    Upload *i* is written under ``base_dir/upload_<i>/`` (a package's primary
+    workflow may sit deeper), so the first path component identifies it. This is
+    how an analysis row for a ``.yxzp`` finds the package it came from.
+    """
+    try:
+        first = Path(file_path).resolve().relative_to(base_dir.resolve()).parts[0]
+        return files[int(first.removeprefix("upload_"))][0]
+    except (ValueError, IndexError):
+        return Path(file_path).name
+
+
+def analyze_each(analyzer, paths: list[Path], base_dir: Path, files: list[tuple[str, bytes]], skipped: list[str]):
+    """Run ``analyzer.analyze_files`` one path at a time, so one unreadable
+    workflow is reported in ``skipped`` instead of failing the whole estate."""
+    analyses: list = []
+    for path in paths:
+        before = len(analyses)
+        try:
+            analyses.extend(analyzer.analyze_files([path]))
+        except Exception:
+            logger.warning("Skipping workflow that could not be analyzed: %s", path, exc_info=True)
+        if len(analyses) == before:
+            skipped.append(upload_name_for(path, base_dir, files))
+    return analyses

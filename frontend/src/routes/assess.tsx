@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { MetricCard } from "@/components/shared/metric-card";
 import { ToolDifficulty, DifficultyDistribution } from "@/components/assess/tool-difficulty";
@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAssessDefaults } from "@/hooks/use-assess";
 import { useEstateView } from "@/hooks/use-estate-view";
-import { api, type AssessResult } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   Workflow,
   Boxes,
@@ -20,60 +20,6 @@ import {
   Loader2,
   Clock,
 } from "lucide-react";
-
-export function downloadBlob(filename: string, content: string, mime: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-export function profileToCsv(result: AssessResult): string {
-  const header = [
-    "workflow_name",
-    "file_name",
-    "node_count",
-    "connection_count",
-    "unique_tool_types",
-    "coverage_percentage",
-    "complexity_level",
-    "complexity_score",
-    "unsupported_count",
-    "expression_count",
-    "max_dag_depth",
-    "has_macros",
-    "migration_priority",
-    "estimated_effort",
-    "estimated_hours",
-  ];
-  // RFC-4180 quoting: workflow names can contain commas, quotes, or newlines,
-  // which would otherwise shift columns or corrupt the export.
-  const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
-  const rows = result.workflows.map((w) =>
-    [
-      w.workflow_name,
-      w.file_name,
-      w.node_count,
-      w.connection_count,
-      w.unique_tool_types,
-      w.coverage_percentage.toFixed(1),
-      w.complexity_level,
-      w.complexity_score.toFixed(1),
-      w.unsupported_count,
-      w.expression_count,
-      w.max_dag_depth,
-      w.has_macros ? "yes" : "no",
-      w.migration_priority,
-      w.estimated_effort,
-      w.estimated_hours ?? "",
-    ]
-      .map(esc)
-      .join(","),
-  );
-  return [header.map(esc).join(","), ...rows].join("\n");
-}
 
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
@@ -96,15 +42,22 @@ export function AssessPage() {
     kind: "profile",
     run: (source, args) => api.assess(source, args),
     auto: true,
-    onResult: (_data, ctx) => ctx.afterEstatePass({ assessed: true }),
+    onResult: (data, ctx) => ctx.afterEstatePass({ analyzed: data.analyzed_files ?? [] }),
   });
 
-  // Seed the tier editor from the server defaults once they arrive.
+  // Seed the tier editor once: from the settings the shown profile was run with
+  // (so the inputs match the numbers), else from the server defaults.
+  const seeded = useRef(false);
   useEffect(() => {
-    if (defaults && Object.keys(categoryTiers).length === 0) {
-      setCategoryTiers({ ...defaults.category_tiers });
-    }
-  }, [defaults, categoryTiers]);
+    if (seeded.current || !defaults) return;
+    seeded.current = true;
+    const last = view.args?.config as
+      | { category_tiers?: Record<string, string>; tool_overrides?: Record<string, string> }
+      | undefined;
+    setCategoryTiers({ ...defaults.category_tiers, ...(last?.category_tiers ?? {}) });
+    setToolOverrides({ ...(last?.tool_overrides ?? {}) });
+    setHours(Boolean(view.args?.hours));
+  }, [defaults, view.args]);
 
   const result = view.data;
 
@@ -147,7 +100,7 @@ export function AssessPage() {
               <span className="text-sm text-[var(--fg)]">
                 Include effort estimate (hours)
                 <span className="mt-0.5 block text-xs text-[var(--fg-muted)]">
-                  Model-based estimate from per-tier anchors. Treat any hours as indicative, not a quote.
+                  Rule-based estimate from per-tier hour anchors. Treat any hours as indicative, not a quote.
                 </span>
               </span>
             </label>
@@ -260,7 +213,7 @@ export function AssessPage() {
                 </div>
               </div>
               <p className="text-[11px] text-[var(--fg-muted)]">
-                Model-based estimate from configurable per-tier anchors, not a quote. Conversion effort varies with team
+                Rule-based estimate from configurable per-tier hour anchors, not a quote. Conversion effort varies with team
                 skills and data specifics.
               </p>
             </Card>

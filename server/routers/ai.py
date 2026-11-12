@@ -1,13 +1,13 @@
-"""AI completion endpoints — the only routes that return model-written code.
+"""AI completion endpoints: the only routes that return model-written content.
 
 Each takes one workflow, either uploaded or from a saved project
 (``project_id`` + ``workflow_id``), and the same conversion options as Convert:
 
-* ``POST /api/ai/gaps`` — what the deterministic converter couldn't finish. No
-  model call, so it works without AI configured.
-* ``POST /api/ai/complete`` — a separate, clearly marked copy of the PySpark
-  notebook with only those cells filled in by the model.
-* ``POST /api/ai/notes`` — the Markdown suggestions notes, as a download.
+* ``POST /api/ai/gaps``: what the deterministic converter couldn't finish, and
+  which steps AI completion would work on. No model call, so it works without AI.
+* ``POST /api/ai/complete``: a separate, clearly marked copy of the PySpark
+  notebook with only those steps filled in by the model.
+* ``POST /api/ai/notes``: the Markdown suggestions notes, as a download.
 
 AI is opt-in: without a configured FMAPI endpoint, ``complete`` and ``notes``
 answer 422 with what to set. The deterministic output is never modified.
@@ -19,13 +19,17 @@ import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
+from lxml.etree import XMLSyntaxError
+from starlette.concurrency import run_in_threadpool
 
-from a2d.advisor.llm_client import LLMRequestError
+from a2d.advisor.completion import CompletionUnavailableError
+from a2d.exceptions import A2dError
 from server.models.requests import ConversionOptions, conversion_options
 from server.services import ai_completion
-from server.services import chat as chat_service
 from server.services import project as project_service
 from server.utils.deadline import run_with_timeout
+from server.utils.headers import content_disposition
+from server.utils.project_input import check_project_id, require_projects
 from server.utils.validation import read_upload, validate_yxmd_file
 
 logger = logging.getLogger("a2d.server.routers.ai")
@@ -40,7 +44,7 @@ _NOT_CONFIGURED = (
 
 
 def _require_client():
-    client = chat_service.get_client()
+    client = ai_completion.get_client()
     if client is None:
         raise HTTPException(status_code=422, detail=_NOT_CONFIGURED)
     return client
@@ -48,9 +52,14 @@ def _require_client():
 
 async def _one_workflow(file: UploadFile | None, project_id: str | None, workflow_id: str | None) -> tuple[str, bytes]:
     if project_id or workflow_id:
+        if file is not None and file.filename:
+            raise HTTPException(status_code=422, detail="Send either a file or project_id + workflow_id, not both.")
         if not (project_id and workflow_id):
             raise HTTPException(status_code=422, detail="Pass both project_id and workflow_id.")
-        stored = project_service.get_workflow_file(project_id, workflow_id)
+        require_projects()
+        check_project_id(project_id)
+        check_project_id(workflow_id)
+        stored = await run_in_threadpool(project_service.get_workflow_file, project_id, workflow_id)
         if stored is None:
             raise HTTPException(status_code=404, detail="Unknown project or workflow.")
         return stored
@@ -60,10 +69,15 @@ async def _one_workflow(file: UploadFile | None, project_id: str | None, workflo
     return file.filename or "upload.yxmd", await read_upload(file)
 
 
+def _bad_workflow(name: str, exc: Exception) -> HTTPException:
+    logger.warning("Could not convert %s for AI: %s", name, exc)
+    return HTTPException(status_code=422, detail=f"{name} couldn't be converted: {exc}")
+
+
 @router.get("/status")
 async def ai_status() -> dict:
     """Whether a model endpoint is configured, so the UI can show the opt-in note."""
-    return {"enabled": chat_service.is_enabled()}
+    return {"enabled": ai_completion.is_enabled()}
 
 
 @router.post("/gaps")
@@ -73,13 +87,12 @@ async def gaps(
     workflow_id: str | None = Form(None),
     opts: ConversionOptions = Depends(conversion_options),
 ) -> dict:
-    """List what the converter couldn't finish for one workflow (no model call)."""
+    """What the converter couldn't finish for one workflow (no model call)."""
     name, content = await _one_workflow(file, project_id, workflow_id)
     try:
-        ctx = await run_with_timeout(ai_completion.gap_summary, name, content, opts, label=f"Checking {name}")
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from None
-    return ctx.to_dict()
+        return await run_with_timeout(ai_completion.gap_summary, name, content, opts, label=f"Checking {name}")
+    except (ValueError, XMLSyntaxError, A2dError) as e:
+        raise _bad_workflow(name, e) from None
 
 
 @router.post("/complete")
@@ -101,10 +114,12 @@ async def complete(
             opts,
             label=f"AI completion for {name}",
         )
-    except ValueError as e:
+    except ai_completion.CompletionBusyError as e:
+        raise HTTPException(status_code=429, detail=str(e)) from None
+    except CompletionUnavailableError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
-    except LLMRequestError as e:
-        raise HTTPException(status_code=502, detail=f"Model endpoint error: {e}") from None
+    except (ValueError, XMLSyntaxError, A2dError) as e:
+        raise _bad_workflow(name, e) from None
 
 
 @router.post("/notes", response_class=PlainTextResponse)
@@ -114,19 +129,17 @@ async def notes(
     workflow_id: str | None = Form(None),
     opts: ConversionOptions = Depends(conversion_options),
 ) -> PlainTextResponse:
-    """Return the Markdown suggestions notes for one workflow, as a download."""
+    """Return the AI suggestions notes (Markdown) for one workflow, as a download."""
     client = _require_client()
     name, content = await _one_workflow(file, project_id, workflow_id)
     try:
         filename, markdown = await run_with_timeout(
             ai_completion.suggestions_markdown, name, content, client, opts, label=f"Notes for {name}"
         )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from None
-    except LLMRequestError as e:
-        raise HTTPException(status_code=502, detail=f"Model endpoint error: {e}") from None
+    except (ValueError, XMLSyntaxError, A2dError) as e:
+        raise _bad_workflow(name, e) from None
     return PlainTextResponse(
         content=markdown,
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )

@@ -7,14 +7,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MetricCard } from "@/components/shared/metric-card";
 import { FileDropzone } from "@/components/shared/file-dropzone";
 import { useStats } from "@/hooks/use-tools";
-import { useProjects, useCreateProject, isProjectsUnavailable } from "@/hooks/use-project";
+import { useProjects, useCreateProject, isProjectsNotConfigured } from "@/hooks/use-project";
 import { useProjectStore } from "@/stores/project";
-import { LOCAL_PROJECT_ID, useLocalProjectStore, isAtOrPast } from "@/stores/local-project";
+import { useLocalProjectStore } from "@/stores/local-project";
+import { useBatchStore } from "@/stores/batch";
 import { STEPS, stepPath } from "@/lib/steps";
+import { STAGE_ORDER, isAtOrPast } from "@/lib/stages";
 import type { ProjectSummary, WorkflowStage } from "@/lib/api";
 import { Boxes, Code, Database, Zap, FolderPlus, Loader2, X, ArrowRight, Info } from "lucide-react";
-
-const STAGE_ORDER: WorkflowStage[] = ["uploaded", "assessed", "converted", "reviewed", "deployed"];
 
 /** How far a project is: workflows converted and reviewed, out of the total. */
 function ProjectProgress({ project }: { project: ProjectSummary }) {
@@ -36,8 +36,10 @@ export function HomePage() {
   const projects = useProjects();
   const create = useCreateProject();
   const createLocal = useLocalProjectStore((s) => s.create);
+  const localId = useLocalProjectStore((s) => s.id);
   const localName = useLocalProjectStore((s) => s.name);
   const localCount = useLocalProjectStore((s) => s.workflows.length);
+  const resetBatch = useBatchStore((s) => s.reset);
   const lastProjectId = useProjectStore((s) => s.lastProjectId);
   const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
@@ -45,7 +47,9 @@ export function HomePage() {
   const [files, setFiles] = useState<File[]>([]);
 
   // No database on this server: projects can still be used, just not saved.
-  const unavailable = isProjectsUnavailable(projects.error);
+  // (A database that's configured but not responding is an error, not this.)
+  const unavailable = isProjectsNotConfigured(projects.error);
+  const storeDown = projects.isError && !unavailable;
   const list = projects.data?.projects ?? [];
   const resume = list.find((p) => p.id === lastProjectId);
 
@@ -54,8 +58,9 @@ export function HomePage() {
     const projectName = name.trim() || "Untitled migration";
     if (unavailable) {
       if (localName && !window.confirm(`This replaces the session project "${localName}". Continue?`)) return;
-      createLocal(projectName, files);
-      navigate({ to: stepPath(LOCAL_PROJECT_ID, "workflows") });
+      resetBatch();
+      const id = createLocal(projectName, files);
+      navigate({ to: stepPath(id, "workflows") });
       return;
     }
     create.mutate(
@@ -82,7 +87,8 @@ export function HomePage() {
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               onClick={() => setCreating(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-white text-blue-700 hover:bg-white/90 px-4 py-2 text-sm font-medium transition-colors"
+              disabled={storeDown}
+              className="inline-flex items-center gap-2 rounded-lg bg-white text-blue-700 hover:bg-white/90 px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60"
             >
               <FolderPlus className="h-4 w-4" />
               Start a new migration
@@ -148,18 +154,10 @@ export function HomePage() {
 
       {/* Projects */}
       <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-[var(--fg-muted)]">Your migrations</h2>
-          {!creating && list.length > 0 && (
-            <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
-              <FolderPlus className="h-4 w-4" />
-              New migration
-            </Button>
-          )}
-        </div>
-        {localName && (
+        <h2 className="mb-3 text-sm font-semibold text-[var(--fg-muted)]">Your migrations</h2>
+        {localId && localName && (
           <Link
-            to={stepPath(LOCAL_PROJECT_ID, "workflows")}
+            to={stepPath(localId, "workflows")}
             className="mb-3 flex items-center gap-4 rounded-xl border border-warning/30 bg-[var(--bg-card)] px-4 py-3 hover:bg-[var(--bg-sidebar)]"
           >
             <Boxes className="h-4 w-4 shrink-0 text-warning" />
@@ -207,34 +205,36 @@ export function HomePage() {
             <Card className="border-[var(--ring)]/20 bg-[var(--ring)]/5 p-4">
               <p className="text-sm font-medium text-[var(--fg)]">No migrations yet</p>
               <p className="mt-1 text-xs text-[var(--fg-muted)]">
-                A project holds one migration: its Alteryx files and where each one is in the process.{" "}
-                <button onClick={() => setCreating(true)} className="text-[var(--ring)] hover:underline">
-                  Start one
-                </button>{" "}
-                to begin.
+                A project holds one migration: its Alteryx files and where each one is in the process. Use "Start a
+                new migration" above to begin.
               </p>
             </Card>
           )
         )}
-        {projects.isError && !unavailable && (
-          <p className="mt-2 text-xs text-destructive">Couldn't load projects: {projects.error.message}</p>
+        {storeDown && (
+          <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            Saved projects are unavailable right now: {projects.error?.message}{" "}
+            <button className="underline" onClick={() => projects.refetch()}>
+              Try again
+            </button>
+          </p>
         )}
       </div>
 
       {/* How a project moves — a description, not more navigation. */}
       <div>
         <h2 className="text-sm font-semibold text-[var(--fg-muted)] mb-3">How a migration works here</h2>
-        <ol className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ol className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
           {STEPS.map((s, i) => (
-            <li key={s.slug} className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-4">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--ring)]/10 text-[10px] font-semibold text-[var(--ring)]">
-                  {i + 1}
-                </span>
+            <li key={s.slug} className="flex gap-3">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--ring)]/10 text-[10px] font-semibold text-[var(--ring)]">
+                {i + 1}
+              </span>
+              <div>
                 <span className="text-sm font-semibold text-[var(--fg)]">{s.label}</span>
-                {s.optional && <span className="text-[10px] text-[var(--fg-muted)]">optional</span>}
+                {s.optional && <span className="ml-1.5 text-[10px] text-[var(--fg-muted)]">optional</span>}
+                <p className="text-xs text-[var(--fg-muted)]">{s.blurb}</p>
               </div>
-              <p className="text-xs text-[var(--fg-muted)]">{s.blurb}</p>
             </li>
           ))}
         </ol>

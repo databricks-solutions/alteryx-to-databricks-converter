@@ -1,11 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Home, Grid3X3, Info, Moon, Sun, Menu, X, Settings, Check, ArrowLeftRight } from "lucide-react";
-import { useState } from "react";
+import { Home, Grid3X3, Info, Moon, Sun, Menu, X, Settings, Check, ArrowLeftRight, FileCheck2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useThemeStore } from "@/stores/theme";
 import { Button } from "@/components/ui/button";
 import { useProjectContext, type ProjectWorkflowView } from "@/hooks/use-project-context";
-import { isAtOrPast } from "@/stores/local-project";
+import { isAtOrPast } from "@/lib/stages";
 import { STEPS, stepPath, type StepDef } from "@/lib/steps";
 
 declare const __BUILD_SHA__: string;
@@ -13,6 +13,7 @@ declare const __BUILD_DATE__: string;
 
 const REFERENCE = [
   { to: "/reference/tools", label: "Tool coverage", icon: Grid3X3 },
+  { to: "/reference/syntax-check", label: "Syntax check", icon: FileCheck2 },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/about", label: "About", icon: Info },
 ];
@@ -40,7 +41,18 @@ export function Sidebar() {
   const [open, setOpen] = useState(false);
   const currentPath = useRouterState().location.pathname;
   const ctx = useProjectContext();
-  const inProject = ctx.projectId != null;
+  const inProject = ctx.projectId != null && !ctx.sessionGone;
+  const navRef = useRef<HTMLElement>(null);
+
+  // On small screens the sidebar is a drawer: Escape closes it, and focus moves
+  // into it when it opens.
+  useEffect(() => {
+    if (!open) return;
+    navRef.current?.querySelector<HTMLElement>("a, button")?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   const linkClass = (active: boolean, disabled = false) =>
     cn(
@@ -84,7 +96,7 @@ export function Sidebar() {
           </div>
         </div>
 
-        <nav className="flex-1 px-3 py-4 overflow-y-auto" aria-label="Main">
+        <nav ref={navRef} className="flex-1 px-3 py-4 overflow-y-auto" aria-label="Main">
           <Link to="/" onClick={() => setOpen(false)} className={linkClass(currentPath === "/")}>
             <Home className="h-4 w-4" />
             Projects

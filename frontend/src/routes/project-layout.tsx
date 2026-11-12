@@ -1,24 +1,36 @@
 import { useEffect } from "react";
 import { Link, Outlet } from "@tanstack/react-router";
-import { Info } from "lucide-react";
+import { Info, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { HeaderActionsProvider } from "@/components/layout/header-actions";
 import { useProjectContext } from "@/hooks/use-project-context";
-import { useLocalProjectStore } from "@/stores/local-project";
+import { ApiError } from "@/lib/api";
 import { useProjectStore } from "@/stores/project";
 
 /**
  * Wraps every step of a project. Makes sure the project in the URL exists
- * before a step renders, and remembers it as the last one opened.
+ * before a step renders, remembers it as the last one opened, and keeps the
+ * project on screen if a background refresh fails.
  */
 export function ProjectLayout() {
   const ctx = useProjectContext();
-  const localName = useLocalProjectStore((s) => s.name);
   const setLast = useProjectStore((s) => s.setLastProject);
 
   useEffect(() => {
-    if (ctx.saved && ctx.projectId && ctx.name) setLast(ctx.projectId);
-  }, [ctx.saved, ctx.projectId, ctx.name, setLast]);
+    if (ctx.saved && ctx.projectId && ctx.hasData) setLast(ctx.projectId);
+  }, [ctx.saved, ctx.projectId, ctx.hasData, setLast]);
+
+  // A session-only project is gone on reload; ask before that happens.
+  const guardReload = !ctx.saved && ctx.hasData && ctx.workflows.length > 0;
+  useEffect(() => {
+    if (!guardReload) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [guardReload]);
 
   if (ctx.isLoading) {
     return (
@@ -29,39 +41,51 @@ export function ProjectLayout() {
     );
   }
 
-  if (ctx.error) {
+  if (ctx.sessionGone) {
     return (
-      <Message title="This project couldn't be opened">
-        {/404|unknown project/i.test(ctx.error.message)
-          ? "It may have been deleted. "
-          : `The server said: ${ctx.error.message}. `}
-        Pick a project from the Projects page.
+      <Message title="This session-only project is gone">
+        Projects that aren't saved live in the browser tab, so a reload or a new session project clears them. Start
+        it again from the Projects page.
       </Message>
     );
   }
 
-  if (!ctx.saved && localName == null) {
+  if (ctx.error && !ctx.hasData) {
+    const notFound = ctx.error instanceof ApiError && ctx.error.status === 404;
     return (
-      <Message title="This session-only project is gone">
-        Projects that aren't saved live in the browser tab, so a reload clears them. Start it again from the
-        Projects page.
+      <Message title={notFound ? "This project doesn't exist" : "This project couldn't be opened"}>
+        {notFound ? "It may have been deleted. " : `${ctx.error.message} `}
+        {notFound ? "Pick a project from the Projects page." : "Try again in a moment, or go back to Projects."}
       </Message>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {!ctx.saved && (
-        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-xs text-[var(--fg-muted)]">
-          <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-          <span>
-            <strong className="text-[var(--fg)]">Not saved — this browser session only.</strong> This server has no
-            database, so the project lives in this tab and a reload clears it. Everything else works the same.
-          </span>
-        </div>
-      )}
-      <Outlet />
-    </div>
+    <HeaderActionsProvider>
+      <div className="space-y-6">
+        {!ctx.saved && (
+          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-xs text-[var(--fg-muted)]">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>
+              <strong className="text-[var(--fg)]">Not saved — this browser session only.</strong> This server has
+              no database, so the project lives in this tab and a reload clears it. Everything else works the same.
+            </span>
+          </div>
+        )}
+        {ctx.error && ctx.hasData && (
+          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-xs text-[var(--fg-muted)]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>
+              Couldn't refresh this project ({ctx.error.message}). What's shown may be a little out of date.{" "}
+              <button className="text-[var(--ring)] hover:underline" onClick={ctx.refresh}>
+                Try again
+              </button>
+            </span>
+          </div>
+        )}
+        <Outlet />
+      </div>
+    </HeaderActionsProvider>
   );
 }
 

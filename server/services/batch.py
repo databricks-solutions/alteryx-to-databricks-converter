@@ -61,6 +61,9 @@ class BatchJob:
     error_message: str | None = None
     subscribers: list[asyncio.Queue] = field(default_factory=list)
     created_at: float = field(default_factory=time.monotonic)
+    # Last time the job made progress (or finished). Eviction counts from here,
+    # so a long batch that is still converting is never cut off mid-run.
+    last_activity: float = field(default_factory=time.monotonic)
     task: asyncio.Task | None = None
 
 
@@ -102,11 +105,13 @@ class JobStore:
                 job.subscribers.remove(queue)
 
     def evict_expired(self) -> int:
-        """Remove jobs older than the configured TTL. Returns count of evicted jobs."""
+        """Remove jobs idle for longer than the configured TTL: finished jobs a TTL
+        after they finished, running jobs only if they've stopped making progress
+        for a TTL (a stuck job). Returns the number evicted."""
         now = time.monotonic()
         expired_jobs: list[BatchJob] = []
         with self._lock:
-            expired_ids = [jid for jid, job in self._jobs.items() if now - job.created_at > settings.job_ttl_seconds]
+            expired_ids = [jid for jid, job in self._jobs.items() if now - job.last_activity > settings.job_ttl_seconds]
             for jid in expired_ids:
                 expired_jobs.append(self._jobs.pop(jid))
         # Cancel running tasks and notify lingering subscribers outside the lock
@@ -314,6 +319,7 @@ async def _run_batch(
     """Run multi-format batch conversion in the background."""
     job.status = JobStatus.RUNNING
     logger.info("Batch job %s started", job.job_id)
+    content_hashes = {name: project_service.content_hash(content) for name, content in files} if project_id else {}
 
     started_at = time.monotonic()
 
@@ -431,20 +437,27 @@ async def _run_batch(
                 # result back to the file it sent, or to its project workflow.
                 file_result["source_file_name"] = original_filename
                 if project_id and file_result.get("success"):
-                    await asyncio.to_thread(
-                        project_service.record_conversion,
-                        project_id,
-                        original_filename,
-                        {
-                            "coverage": file_result.get("coverage"),
-                            "best_format": file_result.get("best_format"),
-                            "warnings": len(file_result.get("warnings") or []),
-                            "at": datetime.now(timezone.utc).isoformat(),
-                        },
-                    )
+                    # Only if the workflow still holds these bytes: a re-upload
+                    # during the run must not be marked converted by the old one.
+                    try:
+                        await asyncio.to_thread(
+                            project_service.record_conversion,
+                            project_id,
+                            original_filename,
+                            {
+                                "coverage": file_result.get("coverage"),
+                                "best_format": file_result.get("best_format"),
+                                "warnings": len(file_result.get("warnings") or []),
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            },
+                            content_hashes.get(original_filename),
+                        )
+                    except Exception:
+                        logger.exception("Could not record %s on project %s", original_filename, project_id)
 
                 # Progress callback (per-file)
                 job.progress = idx
+                job.last_activity = time.monotonic()
                 job.file_results.append(file_result)
 
                 # Send lightweight WS message (drop heavy 'formats' payload)
@@ -484,6 +497,7 @@ async def _run_batch(
         }
         job.errors_by_kind = errors_by_kind
         job.status = JobStatus.COMPLETED
+        job.last_activity = time.monotonic()
 
         logger.info(
             "Batch job %s completed: %d files (%d ok, %d partial, %d failed)",
@@ -510,6 +524,7 @@ async def _run_batch(
     except Exception:
         logger.exception("Batch job %s failed", job.job_id)
         job.status = JobStatus.FAILED
+        job.last_activity = time.monotonic()
         job.error_message = "Internal batch conversion error"
         error_msg = {"type": "error", "message": job.error_message}
         for q in list(job.subscribers):

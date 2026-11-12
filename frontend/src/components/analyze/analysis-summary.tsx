@@ -1,5 +1,5 @@
 import { Card } from "@/components/ui/card";
-import { Sparkles } from "lucide-react";
+import { ListChecks } from "lucide-react";
 import type { AnalysisResult } from "@/lib/api";
 
 interface AnalysisSummaryProps {
@@ -40,13 +40,13 @@ function buildSummary(data: AnalysisResult): string[] {
   const unsupCount = data.unsupported_tools.length;
   if (unsupCount === 0) {
     sentences.push(
-      `Every tool you used is supported by the converter — ${cov.toFixed(0)}% can be migrated automatically.`,
+      `Every tool type in this project has a converter rule (${cov.toFixed(0)}% of tools are covered).`,
     );
   } else {
     const shown = data.unsupported_tools.slice(0, 3);
     const more = unsupCount > 3 ? ` and ${unsupCount - 3} other type${unsupCount - 3 === 1 ? "" : "s"}` : "";
     sentences.push(
-      `${cov.toFixed(0)}% can be migrated automatically. ${unsupCount} tool ${plural(
+      `${cov.toFixed(0)}% of tools have a converter rule. ${unsupCount} tool ${plural(
         unsupCount,
         "type",
       )} (${listJoin(shown)}${more}) will need manual work.`,
@@ -82,16 +82,10 @@ function buildSummary(data: AnalysisResult): string[] {
     sentences.push(`Most-used tools: ${listJoin(top)}.`);
   }
 
-  // 6. Suggested next step
+  // 6. Where to start, only when it narrows things down
   const high = data.workflows.filter((w) => w.migration_priority === "High").length;
-  if (high > 0) {
-    sentences.push(
-      `Suggested next step: start with the ${high} high-priority ${plural(high, "workflow")} below.`,
-    );
-  } else {
-    sentences.push(
-      `Suggested next step: pick a workflow from the table below and click Convert to generate Databricks code.`,
-    );
+  if (high > 0 && high < data.workflows.length) {
+    sentences.push(`Good place to start: the ${high} high-priority ${plural(high, "workflow")} in the table below.`);
   }
 
   return sentences;
@@ -102,9 +96,9 @@ export function AnalysisSummary({ data }: AnalysisSummaryProps) {
   return (
     <Card className="border-[var(--ring)]/20 bg-[var(--ring)]/5">
       <div className="flex items-start gap-3">
-        <Sparkles className="h-5 w-5 shrink-0 text-[var(--ring)]" />
+        <ListChecks className="h-5 w-5 shrink-0 text-[var(--ring)]" />
         <div>
-          <p className="text-sm font-semibold text-[var(--fg)] mb-1.5">Quick read</p>
+          <p className="text-sm font-semibold text-[var(--fg)] mb-1.5">Summary</p>
           <ul className="space-y-1 text-sm text-[var(--fg-muted)]">
             {sentences.map((s, i) => (
               <li key={i}>{s}</li>

@@ -44,6 +44,7 @@ const ConvertPage = lazyWithRetry(() => import("@/routes/convert").then((m) => (
 const ReviewHubPage = lazyWithRetry(() => import("@/routes/review-hub").then((m) => ({ default: m.ReviewHubPage })));
 const AiCompletionPage = lazyWithRetry(() => import("@/routes/ai-completion").then((m) => ({ default: m.AiCompletionPage })));
 const ToolsPage = lazyWithRetry(() => import("@/routes/tools").then((m) => ({ default: m.ToolsPage })));
+const SyntaxCheckPage = lazyWithRetry(() => import("@/routes/syntax-check").then((m) => ({ default: m.SyntaxCheckPage })));
 const AboutPage = lazyWithRetry(() => import("@/routes/about").then((m) => ({ default: m.AboutPage })));
 const SettingsPage = lazyWithRetry(() => import("@/routes/settings").then((m) => ({ default: m.SettingsPage })));
 
@@ -103,6 +104,7 @@ const reviewRoute = step("review", ReviewHubPage);
 const aiRoute = step("ai-completion", AiCompletionPage);
 
 const toolsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reference/tools", component: ToolsPage });
+const syntaxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reference/syntax-check", component: SyntaxCheckPage });
 const aboutRoute = createRoute({ getParentRoute: () => rootRoute, path: "/about", component: AboutPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 
@@ -139,7 +141,7 @@ const legacyRoutes = [
   legacyStep("/convert/batch", "convert"),
   legacyStep("/history", "convert"),
   legacyStep("/review", "review"),
-  legacyStep("/validate", "review"),
+  legacyRedirect("/validate", "/reference/syntax-check"),
   legacyStep("/advise", "review"),
   legacyStep("/chat", "ai-completion"),
   legacyRedirect("/tools", "/reference/tools"),
@@ -157,6 +159,7 @@ const routeTree = rootRoute.addChildren([
     aiRoute,
   ]),
   toolsRoute,
+  syntaxRoute,
   aboutRoute,
   settingsRoute,
   ...legacyRoutes,

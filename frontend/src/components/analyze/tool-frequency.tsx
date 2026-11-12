@@ -25,7 +25,7 @@ export function ToolFrequency({ data }: ToolFrequencyProps) {
           Tool Usage Frequency
         </h3>
         <p className="text-sm text-[var(--fg-muted)] text-center py-8">
-          No tool usage data available. Upload workflows to see frequency analysis.
+          No tool usage found in this project's workflows.
         </p>
       </div>
     );

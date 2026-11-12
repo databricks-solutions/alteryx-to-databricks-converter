@@ -8,10 +8,19 @@ interface WorkflowTableProps {
   workflows: WorkflowAnalysis[];
 }
 
-const priorityVariant: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
-  High: "success",
+// Priority is "do this first", not good/bad, so it uses the accent and grey.
+const priorityVariant: Record<string, "default" | "secondary"> = {
+  High: "default",
+  Medium: "secondary",
+  Low: "secondary",
+};
+
+// Effort is a cost: low is good, high is the warning.
+const effortVariant: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
+  Low: "success",
   Medium: "warning",
-  Low: "destructive",
+  High: "destructive",
+  "Very High": "destructive",
 };
 
 type SortKey = "workflow_name" | "node_count" | "coverage_percentage" | "complexity_score" | "migration_priority";
@@ -100,7 +109,7 @@ export function WorkflowTable({ workflows }: WorkflowTableProps) {
                   </Badge>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <Badge variant={priorityVariant[w.estimated_effort] ?? "secondary"}>
+                  <Badge variant={effortVariant[w.estimated_effort] ?? "secondary"}>
                     {w.estimated_effort}
                   </Badge>
                 </td>
