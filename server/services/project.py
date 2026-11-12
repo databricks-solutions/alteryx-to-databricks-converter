@@ -121,6 +121,29 @@ def _rollups_from_workflows(workflows: list[dict]) -> dict:
     return rollups
 
 
+def _upsert_workflow(conn, project_id: str, file_name: str, content: bytes) -> None:
+    """Store one uploaded workflow, replacing an existing one with the same name.
+
+    Re-uploading ``sales.yxmd`` means "here is the new version", not "track a
+    second copy": the row keeps its id, takes the new bytes, and goes back to
+    ``uploaded`` with its artifacts cleared, because they described the old file.
+    """
+    encoded = base64.b64encode(content).decode("ascii")
+    updated = conn.execute(
+        """UPDATE project_workflow
+           SET source_b64 = %s, stage = 'uploaded', analysis = NULL, savings_inputs = NULL,
+               conversion_refs = NULL, review_decisions = NULL, updated_at = NOW()
+           WHERE project_id = %s AND file_name = %s""",
+        (encoded, project_id, file_name),
+    )
+    if (updated.rowcount or 0) == 0:
+        conn.execute(
+            """INSERT INTO project_workflow (project_id, file_name, source_b64, stage)
+               VALUES (%s, %s, %s, 'uploaded')""",
+            (project_id, file_name, encoded),
+        )
+
+
 def create_project(name: str, files: list[tuple[str, bytes]]) -> dict | None:
     """Create a project and store its uploaded workflows. Returns the project dict.
 
@@ -140,11 +163,7 @@ def create_project(name: str, files: list[tuple[str, bytes]]) -> dict | None:
                 (project_id, name or "Untitled migration"),
             )
             for file_name, content in files:
-                conn.execute(
-                    """INSERT INTO project_workflow (project_id, file_name, source_b64, stage)
-                       VALUES (%s, %s, %s, 'uploaded')""",
-                    (project_id, file_name, base64.b64encode(content).decode("ascii")),
-                )
+                _upsert_workflow(conn, project_id, file_name, content)
             conn.commit()
         _refresh_rollups(project_id)
         return get_project(project_id)
@@ -164,11 +183,7 @@ def add_workflows(project_id: str, files: list[tuple[str, bytes]]) -> dict | Non
             if not exists:
                 return None
             for file_name, content in files:
-                conn.execute(
-                    """INSERT INTO project_workflow (project_id, file_name, source_b64, stage)
-                       VALUES (%s, %s, %s, 'uploaded')""",
-                    (project_id, file_name, base64.b64encode(content).decode("ascii")),
-                )
+                _upsert_workflow(conn, project_id, file_name, content)
             conn.commit()
         _refresh_rollups(project_id)
         return get_project(project_id)
@@ -222,7 +237,8 @@ def get_project(project_id: str) -> dict | None:
             if not prow:
                 return None
             wrows = conn.execute(
-                """SELECT id, file_name, stage, analysis, updated_at
+                """SELECT id, file_name, stage, analysis, updated_at,
+                          octet_length(decode(source_b64, 'base64')), conversion_refs
                    FROM project_workflow WHERE project_id = %s ORDER BY file_name""",
                 (project_id,),
             ).fetchall()
@@ -233,6 +249,8 @@ def get_project(project_id: str) -> dict | None:
                 "stage": w[2],
                 "analysis": w[3],
                 "updated_at": w[4].isoformat() if w[4] else "",
+                "size_bytes": w[5] or 0,
+                "conversion": w[6],
             }
             for w in wrows
         ]
@@ -282,9 +300,7 @@ def get_project_files(project_id: str) -> list[tuple[str, bytes]] | None:
         return None
     try:
         with pool.connection() as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM migration_project WHERE id = %s", (project_id,)
-            ).fetchone()
+            exists = conn.execute("SELECT 1 FROM migration_project WHERE id = %s", (project_id,)).fetchone()
             if not exists:
                 return None
             rows = conn.execute(
@@ -326,6 +342,12 @@ def advance_uploaded_workflows(project_id: str, stage: str) -> int:
         return 0
 
 
+# SQL for "move to %(stage)s unless already further along", by STAGES order.
+_FORWARD_STAGE_SQL = (
+    "CASE WHEN array_position(%(stages)s::text[], stage) < array_position(%(stages)s::text[], %(stage)s::text) "
+    "THEN %(stage)s ELSE stage END"
+)
+
 _ARTIFACT_COLUMNS = {
     "analysis": "analysis",
     "savings_inputs": "savings_inputs",
@@ -345,6 +367,10 @@ def set_workflow_stage(
     """Advance a workflow's stage and optionally store the artifact that stage
     produced, then refresh the project's rollups. Returns True on success.
 
+    Forward-only: a workflow already past ``stage`` keeps its stage (re-converting
+    a deployed workflow must not send it back to "converted"), while the artifact
+    is still updated.
+
     ``stage`` must be a known lifecycle stage; an unknown value is a programming
     error (raises ValueError) rather than silently writing garbage. ``artifact_key``
     must be one of the known artifact columns.
@@ -363,16 +389,22 @@ def set_workflow_stage(
                 column = _ARTIFACT_COLUMNS[artifact_key]
                 result = conn.execute(
                     f"""UPDATE project_workflow
-                        SET stage = %s, {column} = %s::jsonb, updated_at = NOW()
-                        WHERE id = %s AND project_id = %s""",
-                    (stage, json.dumps(artifact), workflow_id, project_id),
+                        SET stage = {_FORWARD_STAGE_SQL}, {column} = %(artifact)s::jsonb, updated_at = NOW()
+                        WHERE id = %(wid)s AND project_id = %(pid)s""",
+                    {
+                        "stages": list(STAGES),
+                        "stage": stage,
+                        "artifact": json.dumps(artifact),
+                        "wid": workflow_id,
+                        "pid": project_id,
+                    },
                 )
             else:
                 result = conn.execute(
-                    """UPDATE project_workflow
-                       SET stage = %s, updated_at = NOW()
-                       WHERE id = %s AND project_id = %s""",
-                    (stage, workflow_id, project_id),
+                    f"""UPDATE project_workflow
+                        SET stage = {_FORWARD_STAGE_SQL}, updated_at = NOW()
+                        WHERE id = %(wid)s AND project_id = %(pid)s""",
+                    {"stages": list(STAGES), "stage": stage, "wid": workflow_id, "pid": project_id},
                 )
             conn.commit()
             if (result.rowcount or 0) == 0:
@@ -381,6 +413,142 @@ def set_workflow_stage(
         return True
     except _DatabaseError:
         logger.exception("Failed to set stage on workflow %s", workflow_id)
+        return False
+
+
+def advance_workflows_by_name(project_id: str, file_names: list[str], stage: str) -> int:
+    """Move the named workflows forward to ``stage`` (never backward).
+
+    Used by batch conversion, whose results are keyed by file name. Returns the
+    number of rows touched. Best-effort; never raises on a database problem.
+    """
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage {stage!r}; valid: {', '.join(STAGES)}")
+    if not file_names:
+        return 0
+    pool = history._get_pool()
+    if pool is None or not _initialized:
+        return 0
+    try:
+        with pool.connection() as conn:
+            result = conn.execute(
+                f"""UPDATE project_workflow SET stage = {_FORWARD_STAGE_SQL}, updated_at = NOW()
+                    WHERE project_id = %(pid)s AND file_name = ANY(%(names)s)""",
+                {"stages": list(STAGES), "stage": stage, "pid": project_id, "names": list(file_names)},
+            )
+            conn.commit()
+            touched = result.rowcount or 0
+        if touched:
+            _refresh_rollups(project_id)
+        return touched
+    except _DatabaseError:
+        logger.exception("Failed to advance workflows for project %s", project_id)
+        return 0
+
+
+def record_conversion(project_id: str, file_name: str, summary: dict) -> bool:
+    """Mark a workflow (by file name) converted and keep a small summary of the
+    conversion (coverage, best format, when), so the Convert screen can show the
+    last result per workflow after a reload. Forward-only. Best-effort.
+    """
+    pool = history._get_pool()
+    if pool is None or not _initialized:
+        return False
+    try:
+        with pool.connection() as conn:
+            result = conn.execute(
+                f"""UPDATE project_workflow
+                    SET stage = {_FORWARD_STAGE_SQL}, conversion_refs = %(summary)s::jsonb, updated_at = NOW()
+                    WHERE project_id = %(pid)s AND file_name = %(name)s""",
+                {
+                    "stages": list(STAGES),
+                    "stage": "converted",
+                    "summary": json.dumps(summary),
+                    "pid": project_id,
+                    "name": file_name,
+                },
+            )
+            conn.commit()
+            touched = (result.rowcount or 0) > 0
+        if touched:
+            _refresh_rollups(project_id)
+        return touched
+    except _DatabaseError:
+        logger.exception("Failed to record conversion for %s in project %s", file_name, project_id)
+        return False
+
+
+def store_analysis(project_id: str, rows: list[dict]) -> int:
+    """Save each workflow's analysis summary (coverage, complexity, effort) on its
+    project row, matched by file name, so the project's rollups (average
+    coverage) reflect the estate. Returns the number of rows stored. Best-effort.
+    """
+    pool = history._get_pool()
+    if pool is None or not _initialized or not rows:
+        return 0
+    keep = ("coverage_percentage", "complexity_score", "complexity_level", "migration_priority", "estimated_effort")
+    stored = 0
+    try:
+        with pool.connection() as conn:
+            for row in rows:
+                name = row.get("source_file_name") or row.get("file_name")
+                if not name:
+                    continue
+                summary = {k: row.get(k) for k in keep if k in row}
+                result = conn.execute(
+                    """UPDATE project_workflow SET analysis = %s::jsonb, updated_at = NOW()
+                       WHERE project_id = %s AND file_name = %s""",
+                    (json.dumps(summary), project_id, name),
+                )
+                stored += result.rowcount or 0
+            conn.commit()
+        if stored:
+            _refresh_rollups(project_id)
+        return stored
+    except _DatabaseError:
+        logger.exception("Failed to store analysis for project %s", project_id)
+        return 0
+
+
+def delete_workflow(project_id: str, workflow_id: str) -> bool:
+    """Remove one workflow from a project. Returns True if it was removed."""
+    pool = history._get_pool()
+    if pool is None or not _initialized:
+        return False
+    try:
+        with pool.connection() as conn:
+            result = conn.execute(
+                "DELETE FROM project_workflow WHERE id = %s AND project_id = %s",
+                (workflow_id, project_id),
+            )
+            conn.commit()
+            removed = (result.rowcount or 0) > 0
+        if removed:
+            _refresh_rollups(project_id)
+        return removed
+    except _DatabaseError:
+        logger.exception("Failed to delete workflow %s", workflow_id)
+        return False
+
+
+def rename_project(project_id: str, name: str) -> bool:
+    """Rename a project. Returns True if it exists and was renamed."""
+    clean = (name or "").strip()
+    if not clean:
+        raise ValueError("project name must not be empty")
+    pool = history._get_pool()
+    if pool is None or not _initialized:
+        return False
+    try:
+        with pool.connection() as conn:
+            result = conn.execute(
+                "UPDATE migration_project SET name = %s, updated_at = NOW() WHERE id = %s",
+                (clean, project_id),
+            )
+            conn.commit()
+            return (result.rowcount or 0) > 0
+    except _DatabaseError:
+        logger.exception("Failed to rename project %s", project_id)
         return False
 
 

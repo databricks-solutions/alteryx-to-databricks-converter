@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from fastapi import HTTPException
 
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.pipeline import ConversionPipeline, MultiFormatConversionResult
+from server.services import project as project_service
 from server.services.conversion import (
     _serialize_dag,
     _serialize_format_result,
@@ -162,8 +164,13 @@ async def create_batch_job(
     generate_ddl: bool = False,
     generate_dab: bool = False,
     expand_macros: bool = False,
+    project_id: str | None = None,
 ) -> str:
-    """Create a multi-format batch job and return job_id. Starts conversion in background."""
+    """Create a multi-format batch job and return job_id. Starts conversion in background.
+
+    With ``project_id`` the files came from a saved project: each workflow that
+    converts is recorded on the project (stage + a small summary) as it finishes.
+    """
     job = _store.create(total=len(files))
     logger.info("Created batch job %s: %d files (multi-format)", job.job_id, len(files))
     job.task = asyncio.create_task(
@@ -178,6 +185,7 @@ async def create_batch_job(
             generate_ddl=generate_ddl,
             generate_dab=generate_dab,
             expand_macros=expand_macros,
+            project_id=project_id,
         )
     )
     return job.job_id
@@ -301,6 +309,7 @@ async def _run_batch(
     generate_ddl: bool = False,
     generate_dab: bool = False,
     expand_macros: bool = False,
+    project_id: str | None = None,
 ) -> None:
     """Run multi-format batch conversion in the background."""
     job.status = JobStatus.RUNNING
@@ -416,6 +425,23 @@ async def _run_batch(
                     total_nodes += outcome.dag.node_count
                     total_warnings += sum(len(fr.warnings) for fr in outcome.formats.values())
                     total_warnings += len(outcome.warnings)
+
+                # The uploaded name, which can differ from file_name for a .yxzp
+                # (file_name is the package's primary workflow). Lets a client map a
+                # result back to the file it sent, or to its project workflow.
+                file_result["source_file_name"] = original_filename
+                if project_id and file_result.get("success"):
+                    await asyncio.to_thread(
+                        project_service.record_conversion,
+                        project_id,
+                        original_filename,
+                        {
+                            "coverage": file_result.get("coverage"),
+                            "best_format": file_result.get("best_format"),
+                            "warnings": len(file_result.get("warnings") or []),
+                            "at": datetime.now(timezone.utc).isoformat(),
+                        },
+                    )
 
                 # Progress callback (per-file)
                 job.progress = idx

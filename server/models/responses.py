@@ -136,6 +136,8 @@ class ErrorDetail(BaseModel):
 
 class FileResultResponse(BaseModel):
     file_name: str
+    # The name as uploaded — differs from file_name for a .yxzp package.
+    source_file_name: str | None = None
     workflow_name: str
     success: bool
     coverage: float
@@ -185,6 +187,8 @@ class ToolMatrixResponse(BaseModel):
 
 class WorkflowAnalysisResponse(BaseModel):
     file_name: str
+    # The name as uploaded — differs from file_name for a .yxzp package.
+    source_file_name: str | None = None
     workflow_name: str
     node_count: int
     connection_count: int

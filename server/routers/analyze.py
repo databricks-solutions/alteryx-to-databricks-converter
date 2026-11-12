@@ -39,6 +39,9 @@ async def analyze(
 
     # Reflect that the estate's freshly-uploaded workflows have now been assessed.
     if project_id:
+        # Keep each workflow's summary on the project (feeds the coverage rollup),
+        # then move freshly-uploaded workflows to "assessed".
+        project_service.store_analysis(project_id, result.get("workflows", []))
         project_service.advance_uploaded_workflows(project_id, "assessed")
 
     logger.info("Analysis complete: %d workflows", len(file_data))

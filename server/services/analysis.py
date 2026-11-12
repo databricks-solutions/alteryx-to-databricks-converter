@@ -13,6 +13,21 @@ from server.utils.package import materialize_uploads
 logger = logging.getLogger("a2d.server.services.analysis")
 
 
+def _source_name(file_path: str | Path, base_dir: Path, files: list[tuple[str, bytes]]) -> str:
+    """Map a materialized workflow path back to the uploaded file's name.
+
+    ``materialize_uploads`` writes upload *i* under ``base_dir/upload_<i>/``
+    (a package's primary workflow may sit deeper), so the first path component
+    identifies the upload.
+    """
+    try:
+        first = Path(file_path).resolve().relative_to(base_dir.resolve()).parts[0]
+        index = int(first.removeprefix("upload_"))
+        return files[index][0]
+    except (ValueError, IndexError):
+        return Path(file_path).name
+
+
 def analyze_files(files: list[tuple[str, bytes]]) -> dict:
     """Analyze uploaded .yxmd files and return analysis dict."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -23,6 +38,7 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
         # as an unsupported Unknown; a no-op for bare uploads with no macro file.
         analyzer = BatchAnalyzer(expand_macros=True)
         analyses = analyzer.analyze_files(paths)
+        sources = [_source_name(a.file_path, Path(tmpdir), files) for a in analyses]
 
     total = len(analyses)
     if total == 0:
@@ -50,6 +66,9 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
     workflows = [
         {
             "file_name": Path(a.file_path).name,
+            # The name as uploaded (a .yxzp's own name, not its primary workflow's),
+            # so a result maps back to the file — or project workflow — it came from.
+            "source_file_name": source,
             "workflow_name": a.workflow_name,
             "node_count": a.node_count,
             "connection_count": a.connection_count,
@@ -62,7 +81,7 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
             "unsupported_types": sorted(a.coverage.unsupported_types),
             "warnings": a.warnings,
         }
-        for a in analyses
+        for a, source in zip(analyses, sources, strict=True)
     ]
 
     logger.info(

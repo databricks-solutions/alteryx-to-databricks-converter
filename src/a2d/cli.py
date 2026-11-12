@@ -1281,6 +1281,95 @@ def suggest(
     console.print("[dim]Advisory only — no generated file was modified.[/dim]")
 
 
+@app.command()
+def complete(
+    input_path: Path = typer.Argument(..., help="Path to the .yxmd/.yxmc workflow to convert and complete"),
+    endpoint: str | None = typer.Option(
+        None, "--endpoint", help=f"FMAPI serving endpoint URL (or set ${ENV_FMAPI_ENDPOINT})"
+    ),
+    token: str | None = typer.Option(
+        None, "--token", help=f"Bearer token for the endpoint (or set ${ENV_FMAPI_TOKEN})"
+    ),
+    output_file: Path | None = typer.Option(
+        None, "--output", "-o", help="Where to write the copy (default: <workflow>.ai-completed.py)"
+    ),
+    catalog: str = typer.Option("main", "--catalog", help="Unity Catalog catalog the generated code uses"),
+    schema: str = typer.Option("default", "--schema", help="Unity Catalog schema the generated code uses"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Write an AI-completed copy of the PySpark notebook (opt-in, not deterministic).
+
+    Converts the workflow deterministically, then asks the configured model to
+    fill in only the cells the converter could not finish (unsupported tools,
+    TODO stubs). The result is a **separate file** with every AI-written cell
+    marked; cells whose AI code doesn't parse keep their deterministic version.
+    The deterministic notebook is never modified.
+
+    Requires ``--endpoint`` (or ``$A2D_FMAPI_ENDPOINT``).
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    if not input_path.exists():
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+
+    from a2d.advisor import build_migration_context, resolve_client
+    from a2d.advisor.completion import complete_notebook, completed_filename
+    from a2d.pipeline import ConversionPipeline
+
+    client = resolve_client(endpoint, token)
+    if client is None:
+        console.print(
+            f"[red]AI completion needs a model endpoint.[/red] Set --endpoint or ${ENV_FMAPI_ENDPOINT}. "
+            "[dim](a2d convert never needs one.)[/dim]"
+        )
+        raise typer.Exit(code=1)
+
+    cfg = ConversionConfig(
+        input_path=input_path,
+        output_format=OutputFormat.PYSPARK,
+        catalog_name=catalog,
+        schema_name=schema,
+    )
+    try:
+        result = ConversionPipeline(cfg).convert(input_path)
+    except Exception as e:
+        console.print(f"[red]Conversion failed: {e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    notebook = next((f.content for f in result.output.files if f.filename.endswith(".py")), "")
+    if not notebook:
+        console.print("[red]The converter produced no PySpark notebook for this workflow.[/red]")
+        raise typer.Exit(code=1)
+
+    ctx = build_migration_context(
+        result.dag,
+        workflow_name=input_path.stem,
+        output_format=OutputFormat.PYSPARK.value,
+        format_warnings=list(result.output.warnings),
+        generated_code=notebook,
+        coverage=result.output.stats.get("coverage_percentage"),
+        confidence=result.confidence.overall if result.confidence else None,
+    )
+    completion = complete_notebook(notebook, ctx, client, result.dag)
+
+    destination = output_file or input_path.parent / completed_filename(input_path.stem)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(completion.content)
+
+    console.print()
+    console.rule(f"[bold]AI completion — {ctx.workflow_name}[/bold]")
+    if not completion.cells:
+        console.print("Every cell converted deterministically — nothing for the model to complete.")
+    for cell in completion.cells:
+        colour = {"completed": "green", "failed": "red", "skipped": "yellow"}[cell.status]
+        why = f" — {cell.reason}" if cell.reason else ""
+        console.print(f"  [{colour}]{cell.status:<9}[/{colour}] step {cell.node_id} {cell.tool_type or ''}{why}")
+    console.print(f"\n[green]AI-completed copy written to {destination}[/green]")
+    console.print("[dim]Not deterministic and not verified — review every AI-GENERATED cell.[/dim]")
+
+
 def _print_advisor_report(report) -> None:
     """Render the cost/performance advisory to the console."""
     c = report.cluster

@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from a2d.__about__ import __version__
 from server.routers import (
+    ai,
     analyze,
     assess,
     chat,
@@ -145,6 +146,7 @@ app.include_router(chat.router)
 app.include_router(insights.router)
 app.include_router(readiness.router)
 app.include_router(projects.router)
+app.include_router(ai.router)
 
 # WebSocket
 app.include_router(ws_batch.router)

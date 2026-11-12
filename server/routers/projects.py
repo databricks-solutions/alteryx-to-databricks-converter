@@ -1,7 +1,8 @@
 """Migration Project endpoints — the durable estate behind the whole app.
 
-Read/write a project: create it with an estate of workflows (stored once), list
-and fetch projects, add workflows, fetch a stored workflow's bytes (so any screen
+Read/write a project: create it with an estate of workflows (stored once), list,
+fetch, rename and delete projects, add or remove workflows (re-adding a file
+name replaces that workflow), fetch a stored workflow's bytes (so any screen
 operates on it without a re-upload), and advance a workflow's lifecycle stage.
 
 Projects are optional. When no database is configured the service is unavailable
@@ -112,6 +113,31 @@ async def update_workflow(project_id: str, workflow_id: str, payload: dict = Bod
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
     if not ok:
+        raise HTTPException(status_code=404, detail="Unknown project or workflow")
+    return project_service.get_project(project_id) or {}
+
+
+@router.patch("/{project_id}")
+async def rename_project(project_id: str, payload: dict = Body(...)) -> dict:
+    """Rename a project."""
+    _require_available()
+    name = payload.get("name")
+    if not isinstance(name, str):
+        raise HTTPException(status_code=400, detail="'name' (string) is required")
+    try:
+        ok = project_service.rename_project(project_id, name)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Unknown project {project_id!r}")
+    return project_service.get_project(project_id) or {}
+
+
+@router.delete("/{project_id}/workflows/{workflow_id}")
+async def delete_workflow(project_id: str, workflow_id: str) -> dict:
+    """Remove one workflow from a project."""
+    _require_available()
+    if not project_service.delete_workflow(project_id, workflow_id):
         raise HTTPException(status_code=404, detail="Unknown project or workflow")
     return project_service.get_project(project_id) or {}
 

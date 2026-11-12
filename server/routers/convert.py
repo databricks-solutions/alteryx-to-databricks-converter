@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 import zipfile
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from lxml.etree import XMLSyntaxError
 
@@ -22,7 +23,8 @@ from server.services import batch as batch_service
 from server.services.conversion import convert_file
 from server.settings import settings
 from server.utils.deadline import run_with_timeout
-from server.utils.validation import read_upload, validate_and_read_files, validate_yxmd_file
+from server.utils.project_input import resolve_input_files
+from server.utils.validation import read_upload, validate_yxmd_file
 
 logger = logging.getLogger("a2d.server.routers.convert")
 
@@ -84,10 +86,26 @@ async def convert_single(
 
 @router.post("/convert/batch", response_model=BatchStartResponse)
 async def convert_batch(
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] = File(default=[]),
+    project_id: str | None = Form(None),
+    workflow_names: str | None = Form(None),
     opts: ConversionOptions = Depends(conversion_options),
 ) -> BatchStartResponse:
-    file_data = await validate_and_read_files(files)
+    """Convert many workflows at once — uploaded, or a saved project's.
+
+    With ``project_id`` the workflows come from the project (no re-upload) and each
+    one that converts is recorded on it. ``workflow_names`` (JSON list of file
+    names) narrows a project run to a selection; omitted, the whole project runs.
+    """
+    file_data = await resolve_input_files(files, project_id)
+    if project_id and workflow_names:
+        try:
+            wanted = set(json.loads(workflow_names))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="workflow_names must be a JSON list of file names") from None
+        file_data = [(name, content) for name, content in file_data if name in wanted]
+        if not file_data:
+            raise HTTPException(status_code=422, detail="None of the selected workflows are in this project.")
 
     logger.info("Starting batch conversion: %d files (multi-format)", len(file_data))
     job_id = await batch_service.create_batch_job(
@@ -100,6 +118,7 @@ async def convert_batch(
         generate_ddl=opts.generate_ddl,
         generate_dab=opts.generate_dab,
         expand_macros=opts.expand_macros,
+        project_id=project_id,
     )
 
     return BatchStartResponse(job_id=job_id, total_files=len(file_data))

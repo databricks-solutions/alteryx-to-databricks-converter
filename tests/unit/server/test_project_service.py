@@ -104,3 +104,51 @@ def test_create_project_503_when_unavailable(client, simple_yxmd, monkeypatch):
         data={"name": "Test migration"},
     )
     assert resp.status_code == 503
+
+
+# ── stage moves, workflow management, analysis mapping ─────────────────────
+
+
+def test_forward_only_sql_compares_stage_positions():
+    # The rule lives in SQL; make sure it compares positions in STAGES order
+    # rather than overwriting unconditionally.
+    sql = project_service._FORWARD_STAGE_SQL
+    assert "array_position" in sql
+    assert "ELSE stage END" in sql
+
+
+def test_advance_by_name_rejects_unknown_stage():
+    with pytest.raises(ValueError, match="unknown stage"):
+        project_service.advance_workflows_by_name("p", ["a.yxmd"], "nonsense")
+
+
+def test_rename_rejects_blank_name():
+    with pytest.raises(ValueError, match="must not be empty"):
+        project_service.rename_project("p", "   ")
+
+
+def test_new_calls_degrade_without_backend(_no_backend):
+    assert project_service.advance_workflows_by_name("p", ["a.yxmd"], "converted") == 0
+    assert project_service.store_analysis("p", [{"file_name": "a.yxmd"}]) == 0
+    assert project_service.record_conversion("p", "a.yxmd", {}) is False
+    assert project_service.delete_workflow("p", "w") is False
+    assert project_service.rename_project("p", "New name") is False
+
+
+def test_new_endpoints_503_when_unavailable(client, monkeypatch):
+    monkeypatch.setattr(project_service, "is_available", lambda: False)
+    assert client.patch("/api/projects/abc", json={"name": "x"}).status_code == 503
+    assert client.delete("/api/projects/abc/workflows/w").status_code == 503
+
+
+def test_batch_from_unknown_project_is_404(client):
+    # No database in the test env: a project-sourced batch must say so, not run empty.
+    resp = client.post("/api/convert/batch", data={"project_id": "missing"})
+    assert resp.status_code == 404
+
+
+def test_analysis_rows_carry_the_uploaded_name(simple_yxmd):
+    from server.services.analysis import analyze_files
+
+    result = analyze_files([("renamed_upload.yxmd", simple_yxmd)])
+    assert result["workflows"][0]["source_file_name"] == "renamed_upload.yxmd"
