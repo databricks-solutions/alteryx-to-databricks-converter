@@ -27,6 +27,7 @@ rather than on the event loop.
 from __future__ import annotations
 
 import io
+import json
 import logging
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
@@ -41,6 +42,10 @@ from server.utils.validation import validate_and_read_files
 logger = logging.getLogger("a2d.server.routers.projects")
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+
+# A stored artifact (review decisions with edited code, conversion refs) is small;
+# this keeps one request from filling the row.
+MAX_ARTIFACT_BYTES = 2_000_000
 
 
 async def _reread(project_id: str) -> dict:
@@ -150,6 +155,8 @@ async def update_workflow(project_id: str, workflow_id: str, payload: dict = Bod
         raise HTTPException(status_code=422, detail="'artifact_key' must be a string")
     if artifact is not None and not isinstance(artifact, dict):
         raise HTTPException(status_code=422, detail="'artifact' must be an object")
+    if artifact is not None and len(json.dumps(artifact)) > MAX_ARTIFACT_BYTES:
+        raise HTTPException(status_code=413, detail="That's too much to store for one workflow.")
     try:
         ok = await run_in_threadpool(
             lambda: project_service.set_workflow_stage(

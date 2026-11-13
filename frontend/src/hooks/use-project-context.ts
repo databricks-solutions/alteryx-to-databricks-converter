@@ -7,6 +7,7 @@ import {
   type EstateSource,
   type Project,
   type WorkflowAnalysisSummary,
+  type ReviewDecisionsRecord,
   type WorkflowConversionSummary,
   type WorkflowSource,
   type WorkflowStage,
@@ -21,6 +22,8 @@ export interface ProjectWorkflowView {
   size_bytes: number;
   analysis: WorkflowAnalysisSummary | null;
   conversion: WorkflowConversionSummary | null;
+  /** The reviewer's saved per-step decisions from Review, if any. */
+  review: ReviewDecisionsRecord | null;
 }
 
 export interface ProjectContext {
@@ -56,6 +59,8 @@ export interface ProjectContext {
   localMacros: File[];
   /** Move one workflow forward to `stage` (never backward). */
   setStage: (workflowId: string, stage: WorkflowStage, conversion?: WorkflowConversionSummary) => Promise<void>;
+  /** Save a workflow's Review decisions (to the project, or this tab's session). */
+  saveReview: (workflowId: string, record: ReviewDecisionsRecord) => Promise<void>;
   /** After a whole-estate pass: refetch a saved project, or record it locally. */
   afterEstatePass: (opts: { analyzed?: string[]; analysis?: Record<string, WorkflowAnalysisSummary> }) => void;
   /** After a batch conversion of a session-only project (a saved one is updated by the server). */
@@ -103,6 +108,7 @@ export function useProjectContext(): ProjectContext {
             size_bytes: w.file.size,
             analysis: w.analysis,
             conversion: w.conversion,
+            review: w.review,
           }))
         : [];
     }
@@ -113,6 +119,7 @@ export function useProjectContext(): ProjectContext {
       size_bytes: w.size_bytes ?? 0,
       analysis: w.analysis ?? null,
       conversion: w.conversion ?? null,
+      review: w.review ?? null,
     }));
   }, [isLocal, localLive, localWorkflows, query.data]);
   const workflows = useMemo(() => files.filter((w) => !isMacroFile(w.file_name)), [files]);
@@ -193,6 +200,23 @@ export function useProjectContext(): ProjectContext {
     [isLocal, local, projectId, refresh],
   );
 
+  const saveReview = useCallback(
+    async (workflowId: string, record: ReviewDecisionsRecord) => {
+      if (isLocal) {
+        local().setReview(workflowId, record);
+        return;
+      }
+      if (!projectId) return;
+      // "converted" never moves a workflow back: Review only lists converted ones.
+      await api.updateWorkflowStage(projectId, workflowId, "converted", {
+        key: "review_decisions",
+        value: record as unknown as Record<string, unknown>,
+      });
+      refresh();
+    },
+    [isLocal, local, projectId, refresh],
+  );
+
   const afterEstatePass = useCallback(
     (opts: { analyzed?: string[]; analysis?: Record<string, WorkflowAnalysisSummary> }) => {
       if (isLocal) {
@@ -244,6 +268,7 @@ export function useProjectContext(): ProjectContext {
       getFile,
       localMacros,
       setStage,
+      saveReview,
       afterEstatePass,
       afterBatch,
       refresh,
@@ -265,6 +290,7 @@ export function useProjectContext(): ProjectContext {
       getFile,
       localMacros,
       setStage,
+      saveReview,
       afterEstatePass,
       afterBatch,
       refresh,

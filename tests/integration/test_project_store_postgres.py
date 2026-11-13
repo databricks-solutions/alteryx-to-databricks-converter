@@ -87,6 +87,23 @@ def test_new_bytes_replace_and_start_over(store, project):
     assert len(result["workflows"]) == 2  # no duplicate row
 
 
+def test_review_decisions_are_kept_and_cleared_with_new_bytes(store, project):
+    a = _wf(store, project["id"], "a.yxmd")
+    decisions = {
+        "output_format": "pyspark",
+        "nodes": {"2": {"decision": "edited", "code": "x", "source": "ai", "base": "h"}},
+    }
+    store.record_conversion(project["id"], "a.yxmd", {"coverage": 90})
+    assert store.set_workflow_stage(
+        project["id"], a["id"], "converted", artifact_key="review_decisions", artifact=decisions
+    )
+    a = _wf(store, project["id"], "a.yxmd")
+    assert a["review"] == decisions
+    assert a["stage"] == "converted"  # saving decisions doesn't move the stage
+    store.add_workflows(project["id"], [("a.yxmd", b"<A v='3'/>")])
+    assert _wf(store, project["id"], "a.yxmd")["review"] is None
+
+
 def test_a_run_on_old_bytes_does_not_mark_the_new_version(store, project):
     old_hash = store.content_hash(b"<A v='1'/>")
     store.add_workflows(project["id"], [("a.yxmd", b"<A v='2'/>")])

@@ -13,7 +13,8 @@ import {
 import { useProjectContext } from "@/hooks/use-project-context";
 import { useToastStore } from "@/stores/toast";
 import { isAtOrPast, STAGE_VARIANT } from "@/lib/stages";
-import type { WorkflowStage } from "@/lib/api";
+import type { ReviewDecisionsRecord, WorkflowStage } from "@/lib/api";
+import { useConvertOptions } from "@/hooks/use-convert-options";
 import { ReviewPage } from "@/routes/review";
 import { AdvisePage } from "@/routes/advise";
 import { CheckCircle2, Rocket } from "lucide-react";
@@ -41,6 +42,12 @@ export function ReviewHubPage() {
   // The picked workflow as the API takes it: a saved project's reference (the
   // server reads it, with the project's macros), or the session file.
   const { workflowSource } = ctx;
+  const opts = useConvertOptions(ctx.projectId);
+  const { saveReview: saveFor } = ctx;
+  const saveReview = useCallback(
+    (record: ReviewDecisionsRecord) => (workflowId ? saveFor(workflowId, record) : undefined),
+    [saveFor, workflowId],
+  );
   const source = useMemo(() => (workflowId ? workflowSource(workflowId) : null), [workflowId, workflowSource]);
 
   const mark = async (stage: WorkflowStage) => {
@@ -102,7 +109,15 @@ export function ReviewHubPage() {
             <TabsTrigger value="advise">Cluster &amp; performance</TabsTrigger>
           </TabsList>
           <TabsContent value="review" forceMount className="data-[state=inactive]:hidden">
-            <ReviewPage key={workflowId ?? ""} source={source} active={view === "review"} onProgress={onProgress} />
+            <ReviewPage
+              key={workflowId ?? ""}
+              source={source}
+              active={view === "review"}
+              onProgress={onProgress}
+              opts={opts}
+              savedReview={workflow?.review ?? null}
+              onSaveReview={saveReview}
+            />
           </TabsContent>
           <TabsContent value="advise" forceMount className="data-[state=inactive]:hidden">
             <AdvisePage key={workflowId ?? ""} source={source} active={view === "advise"} />

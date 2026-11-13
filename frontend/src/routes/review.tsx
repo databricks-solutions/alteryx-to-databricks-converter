@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ReviewGraph } from "@/components/review/review-graph";
 import { HeaderActions } from "@/components/layout/header-actions";
 import { CodeBlock } from "@/components/shared/code-block";
@@ -7,16 +8,21 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useReview } from "@/hooks/use-review";
 import { useToastStore } from "@/stores/toast";
+import { api } from "@/lib/api";
+import { restore, sameDecisions, sourceKey, toRecord, type LocalDecision } from "@/lib/review-decisions";
 import type {
+  AISuggestion,
+  ConvertOptions,
   FormatId,
   ReviewDecision,
+  ReviewDecisionsRecord,
   ReviewNode,
   ReviewSession,
   ReviewStatus,
   WorkflowSource,
 } from "@/lib/api";
 import { saveAs } from "file-saver";
-import { Play, Loader2, Check, X, Pencil, Download } from "lucide-react";
+import { Play, Loader2, Check, X, Pencil, Download, Sparkles, RotateCcw } from "lucide-react";
 
 const FORMAT_LANGUAGE: Record<FormatId, "python" | "sql" | "json"> = {
   pyspark: "python",
@@ -45,11 +51,16 @@ const DECISION_VARIANT: Record<ReviewDecision, "default" | "success" | "destruct
   rejected: "destructive",
 };
 
-// Local reviewer overlay: node_id -> {decision, edited_code}. Kept separate
-// from the server session so re-selecting a node preserves in-progress edits.
-interface LocalDecision {
-  decision: ReviewDecision;
-  editedCode: string | null;
+// Local reviewer overlay: node_id -> {decision, edited code, who wrote it}. Kept
+// separate from the server session so re-selecting a node preserves in-progress
+// edits; saved to the project (or this tab's session) as it changes.
+
+/** One step's AI suggestion as the screen holds it. */
+interface SuggestionState {
+  loading: boolean;
+  result: AISuggestion | null;
+  error: string | null;
+  hint: string;
 }
 
 function effectiveCode(node: ReviewNode, local: LocalDecision | undefined): string {
@@ -64,17 +75,37 @@ export function ReviewPage({
   source,
   active = true,
   onProgress,
+  opts,
+  savedReview,
+  onSaveReview,
 }: {
   source: WorkflowSource | null;
   active?: boolean;
   onProgress?: (p: { needsReview: number; resolved: number; started: boolean }) => void;
+  /** The project's conversion options, so steps read as they do in Convert. */
+  opts?: ConvertOptions;
+  /** Decisions saved from an earlier review of this workflow. */
+  savedReview?: ReviewDecisionsRecord | null;
+  /** Save the decisions (to the project, or this tab's session). */
+  onSaveReview?: (record: ReviewDecisionsRecord) => Promise<void> | void;
 }) {
   const [outputFormat, setOutputFormat] = useState<FormatId>("pyspark");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [decisions, setDecisions] = useState<Record<number, LocalDecision>>({});
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // Who wrote the draft being edited: an AI suggestion, or the reviewer.
+  const [draftSource, setDraftSource] = useState<"ai" | "user">("user");
+  const [suggestions, setSuggestions] = useState<Record<number, SuggestionState>>({});
+  const [restoredNote, setRestoredNote] = useState<string | null>(null);
   const addToast = useToastStore((s) => s.add);
+  const aiStatus = useQuery({ queryKey: ["ai-status"], queryFn: api.aiStatus, staleTime: 60_000 });
+  const aiEnabled = aiStatus.data?.enabled === true;
+  // The saved decisions as of the latest render, read when a session loads.
+  const savedRef = useRef(savedReview);
+  savedRef.current = savedReview;
+  // What was last saved (or restored), so only real changes are written.
+  const lastSaved = useRef<Record<number, LocalDecision>>({});
   const mutation = useReview();
   const session: ReviewSession | undefined = mutation.data;
 
@@ -88,8 +119,37 @@ export function ReviewPage({
       (n) => n.status === "needs_review" || n.status === "cannot_convert",
     );
     setSelectedId((firstNeedsReview ?? session.nodes[0]).node_id);
-    setDecisions({});
+    const back = restore(session, savedRef.current);
+    setDecisions(back.decisions);
+    lastSaved.current = back.decisions;
+    setSuggestions({});
+    const notes: string[] = [];
+    if (back.restored) {
+      notes.push(`Picked up ${back.restored} decision${back.restored === 1 ? "" : "s"} from your last review.`);
+    }
+    if (back.stale) {
+      notes.push(
+        back.stale === 1
+          ? "1 earlier decision was left out because that step's code has changed since."
+          : `${back.stale} earlier decisions were left out because those steps' code has changed since.`,
+      );
+    }
+    setRestoredNote(notes.length ? notes.join(" ") : null);
   }, [session]);
+
+  // Save decisions as they change, shortly after the last change.
+  useEffect(() => {
+    if (!session || !onSaveReview || sameDecisions(decisions, lastSaved.current)) return;
+    const handle = window.setTimeout(() => {
+      const snapshot = decisions;
+      Promise.resolve(onSaveReview(toRecord(session, snapshot)))
+        .then(() => {
+          lastSaved.current = snapshot;
+        })
+        .catch((e: unknown) => addToast(e instanceof Error ? e.message : "Couldn't save the review", "error"));
+    }, 700);
+    return () => window.clearTimeout(handle);
+  }, [decisions, session, onSaveReview, addToast]);
 
   const selectedNode = useMemo(
     () => session?.nodes.find((n) => n.node_id === selectedId) ?? null,
@@ -116,7 +176,7 @@ export function ReviewPage({
 
   const handleReview = () => {
     if (!source) return;
-    mutation.mutate({ source, outputFormat });
+    mutation.mutate({ source, outputFormat, opts });
   };
 
   // An in-progress edit whose draft diverges from the saved code would be lost
@@ -126,14 +186,20 @@ export function ReviewPage({
   const confirmDiscard = () =>
     !hasUnsavedEdit() || window.confirm("You have an unsaved edit to this node. Discard it?");
 
-  // A different workflow was picked: start over on it.
+  // A different workflow (or new file content) was picked: start over on it.
+  // Keyed on what the source points at, not the object: saving a decision
+  // updates the project, which hands this screen a new but equal source.
   const { reset: resetReview } = mutation;
+  const key = sourceKey(source);
   useEffect(() => {
     resetReview();
     setSelectedId(null);
     setDecisions({});
+    lastSaved.current = {};
+    setSuggestions({});
+    setRestoredNote(null);
     setEditing(false);
-  }, [source, resetReview]);
+  }, [key, resetReview]);
 
   const selectNode = (nodeId: number) => {
     if (nodeId === selectedId) return;
@@ -145,13 +211,15 @@ export function ReviewPage({
   const decide = (nodeId: number, decision: ReviewDecision) => {
     setDecisions((prev) => ({
       ...prev,
-      [nodeId]: { decision, editedCode: prev[nodeId]?.editedCode ?? null },
+      [nodeId]: { decision, editedCode: prev[nodeId]?.editedCode ?? null, source: prev[nodeId]?.source ?? null },
     }));
   };
 
-  const startEdit = () => {
+  /** Edit the step's current code, or (from a suggestion) the given code. */
+  const startEdit = (code?: string, from: "ai" | "user" = "user") => {
     if (!selectedNode) return;
-    setDraft(effectiveCode(selectedNode, selectedLocal));
+    setDraft(code ?? effectiveCode(selectedNode, selectedLocal));
+    setDraftSource(code !== undefined ? from : selectedLocal?.source === "ai" ? "ai" : "user");
     setEditing(true);
   };
 
@@ -159,9 +227,55 @@ export function ReviewPage({
     if (selectedId == null) return;
     setDecisions((prev) => ({
       ...prev,
-      [selectedId]: { decision: "edited", editedCode: draft },
+      [selectedId]: { decision: "edited", editedCode: draft, source: draftSource },
     }));
     setEditing(false);
+  };
+
+  // ── AI suggestions: PySpark, flagged steps ──
+  const canSuggest = (node: ReviewNode) =>
+    aiEnabled &&
+    source != null &&
+    session?.output_format === "pyspark" &&
+    (node.status === "needs_review" || node.status === "cannot_convert");
+
+  const suggest = (nodeId: number, hint = "") => {
+    if (!source) return;
+    setSuggestions((prev) => ({ ...prev, [nodeId]: { loading: true, result: null, error: null, hint } }));
+    api
+      .aiSuggest(source, nodeId, opts, hint)
+      .then((result) =>
+        setSuggestions((prev) => ({ ...prev, [nodeId]: { loading: false, result, error: null, hint } })),
+      )
+      .catch((e: unknown) =>
+        setSuggestions((prev) => ({
+          ...prev,
+          [nodeId]: { loading: false, result: null, error: e instanceof Error ? e.message : String(e), hint },
+        })),
+      );
+  };
+
+  const setHint = (nodeId: number, hint: string) =>
+    setSuggestions((prev) => ({
+      ...prev,
+      [nodeId]: { ...(prev[nodeId] ?? { loading: false, result: null, error: null }), hint },
+    }));
+
+  const discardSuggestion = (nodeId: number) =>
+    setSuggestions((prev) => {
+      const next = { ...prev };
+      delete next[nodeId];
+      return next;
+    });
+
+  const takeSuggestion = (nodeId: number, code: string) => {
+    setDecisions((prev) => ({ ...prev, [nodeId]: { decision: "edited", editedCode: code, source: "ai" } }));
+    discardSuggestion(nodeId);
+  };
+
+  const editSuggestion = (nodeId: number, code: string) => {
+    startEdit(code, "ai");
+    discardSuggestion(nodeId);
   };
 
   const handleExport = () => {
@@ -235,6 +349,7 @@ export function ReviewPage({
               </HeaderActions>
             )}
             <Progress value={progress.pct} />
+            {restoredNote && <p className="mt-2 text-xs text-[var(--fg-muted)]">{restoredNote}</p>}
           </div>
 
           {/* Two synced panes */}
@@ -265,7 +380,9 @@ export function ReviewPage({
                     </Badge>
                     {selectedLocal && selectedLocal.decision !== "pending" && (
                       <Badge variant={DECISION_VARIANT[selectedLocal.decision]}>
-                        {selectedLocal.decision}
+                        {selectedLocal.decision === "edited" && selectedLocal.source === "ai"
+                          ? "AI suggestion used"
+                          : selectedLocal.decision}
                       </Badge>
                     )}
                     <span className="text-xs text-[var(--fg-muted)]">
@@ -293,6 +410,11 @@ export function ReviewPage({
 
                   {editing ? (
                     <div className="space-y-2">
+                      {draftSource === "ai" && (
+                        <p className="text-xs text-[var(--fg-muted)]">
+                          Editing the AI suggestion. It hasn't been run or verified.
+                        </p>
+                      )}
                       <textarea
                         value={draft}
                         onChange={(e) => setDraft(e.target.value)}
@@ -326,7 +448,7 @@ export function ReviewPage({
                         <Check className="h-4 w-4" />
                         Accept
                       </Button>
-                      <Button size="sm" variant="secondary" onClick={startEdit}>
+                      <Button size="sm" variant="secondary" onClick={() => startEdit()}>
                         <Pencil className="h-4 w-4" />
                         Edit
                       </Button>
@@ -340,6 +462,20 @@ export function ReviewPage({
                       </Button>
                     </div>
                   )}
+                  {!editing && (
+                    <SuggestPanel
+                      node={selectedNode}
+                      available={canSuggest(selectedNode)}
+                      aiEnabled={aiEnabled}
+                      format={session.output_format}
+                      state={suggestions[selectedNode.node_id]}
+                      onSuggest={(hint) => suggest(selectedNode.node_id, hint)}
+                      onHint={(hint) => setHint(selectedNode.node_id, hint)}
+                      onUse={(code) => takeSuggestion(selectedNode.node_id, code)}
+                      onEdit={(code) => editSuggestion(selectedNode.node_id, code)}
+                      onDiscard={() => discardSuggestion(selectedNode.node_id)}
+                    />
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-[var(--fg-muted)]">
@@ -350,6 +486,134 @@ export function ReviewPage({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** "Suggest code" for one flagged step: ask the model, then use, edit or discard
+ * what it wrote. Nothing changes until the reviewer picks. */
+function SuggestPanel({
+  node,
+  available,
+  aiEnabled,
+  format,
+  state,
+  onSuggest,
+  onHint,
+  onUse,
+  onEdit,
+  onDiscard,
+}: {
+  node: ReviewNode;
+  available: boolean;
+  aiEnabled: boolean;
+  format: string;
+  state: SuggestionState | undefined;
+  onSuggest: (hint: string) => void;
+  onHint: (hint: string) => void;
+  onUse: (code: string) => void;
+  onEdit: (code: string) => void;
+  onDiscard: () => void;
+}) {
+  const flagged = node.status === "needs_review" || node.status === "cannot_convert";
+  if (!aiEnabled || !flagged) return null;
+  if (!available) {
+    return (
+      <p className="text-xs text-[var(--fg-muted)]">
+        {format === "pyspark"
+          ? "AI suggestions need the workflow from the project."
+          : "AI suggestions are for PySpark. Pick PySpark as the target format to ask for one."}
+      </p>
+    );
+  }
+  const hint = state?.hint ?? "";
+  const result = state?.result ?? null;
+
+  if (!state || (!state.loading && !result && !state.error)) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" onClick={() => onSuggest(hint)}>
+          <Sparkles className="h-4 w-4" />
+          Suggest code with AI
+        </Button>
+        <span className="text-xs text-[var(--fg-muted)]">A model drafts this step; you decide whether to use it.</span>
+      </div>
+    );
+  }
+  if (state.loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Asking the model for this step. This usually takes a few seconds.
+      </div>
+    );
+  }
+
+  const retry = (
+    <div className="space-y-2">
+      <label htmlFor={`hint-${node.node_id}`} className="block text-xs text-[var(--fg-muted)]">
+        Add a note for the model (optional), for example which columns to join on
+      </label>
+      <textarea
+        id={`hint-${node.node_id}`}
+        value={hint}
+        maxLength={2000}
+        onChange={(e) => onHint(e.target.value)}
+        rows={2}
+        className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-card)] p-2 text-sm text-[var(--fg)]"
+      />
+      <Button size="sm" variant="secondary" onClick={() => onSuggest(hint)}>
+        <RotateCcw className="h-4 w-4" />
+        Try again
+      </Button>
+    </div>
+  );
+
+  if (state.error || !result) {
+    return (
+      <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+        <p className="text-sm text-[var(--fg)]">The suggestion didn't come through: {state.error}</p>
+        {retry}
+      </div>
+    );
+  }
+  if (result.status !== "completed" || !result.code) {
+    return (
+      <div className="space-y-2 rounded-lg border border-warning/30 bg-warning/5 p-3">
+        <p className="text-sm text-[var(--fg)]">
+          {result.status === "skipped" ? "No suggestion for this step: " : "The model's code wasn't usable: "}
+          {result.reason}
+        </p>
+        {result.status === "failed" ? retry : (
+          <Button size="sm" variant="secondary" onClick={onDiscard}>
+            Close
+          </Button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] p-3">
+      <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--fg)]">
+        <Sparkles className="h-4 w-4" />
+        AI suggestion, not run or verified
+      </p>
+      <CodeBlock code={result.code} language="python" wrap />
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => onUse(result.code!)}>
+          <Check className="h-4 w-4" />
+          Use it
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => onEdit(result.code!)}>
+          <Pencil className="h-4 w-4" />
+          Edit it
+        </Button>
+        <Button size="sm" variant="secondary" onClick={onDiscard}>
+          <X className="h-4 w-4" />
+          Discard
+        </Button>
+      </div>
+      {retry}
     </div>
   );
 }

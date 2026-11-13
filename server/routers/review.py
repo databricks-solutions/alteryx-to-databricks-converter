@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from server.models.requests import ConversionOptions, conversion_options
 from server.services.review import build_review
 from server.utils.deadline import run_with_timeout
 from server.utils.project_input import resolve_one_workflow
@@ -22,6 +23,7 @@ async def review(
     workflow_id: str | None = Form(None),
     macros: list[UploadFile] = File(default=[]),
     output_format: str = Form("pyspark"),
+    opts: ConversionOptions = Depends(conversion_options),
 ) -> dict:
     """Return a per-node review session (canvas + generated code) for one file.
 
@@ -42,6 +44,7 @@ async def review(
             wf.content,
             output_format,
             wf.macros,
+            opts,
             label=f"Building review for {wf.name}",
         )
     except ValueError as e:
