@@ -43,7 +43,23 @@ def fake_mlflow(monkeypatch):
         return FakeSpan(spans, name, span_type, parent_span, inputs, attributes)
 
     mod.start_span_no_context = start_span_no_context
+    mod.set_experiment = lambda experiment_id=None, **kw: None
+    mod.feedback = []
+
+    def log_feedback(trace_id, name, value, source=None, rationale=None):
+        mod.feedback.append((trace_id, name, value, source.source_type if source else None))
+
+    mod.log_feedback = log_feedback
+    entities = types.ModuleType("mlflow.entities")
+
+    class AssessmentSource:
+        def __init__(self, source_type, source_id):
+            self.source_type, self.source_id = source_type, source_id
+
+    entities.AssessmentSource = AssessmentSource
+    mod.entities = entities
     monkeypatch.setitem(sys.modules, "mlflow", mod)
+    monkeypatch.setitem(sys.modules, "mlflow.entities", entities)
     monkeypatch.setenv(tracing.ENV_EXPERIMENT, "123")
     tracing.reset()
     yield spans
@@ -156,44 +172,35 @@ def test_a_tracing_error_never_fails_the_request(monkeypatch, fake_mlflow):
     assert out.completed == 1 and out.trace_id is None
 
 
-def test_outcome_is_logged_as_human_feedback(monkeypatch, fake_mlflow):
-    calls = []
+def test_outcome_is_logged_as_human_feedback(fake_mlflow):
+    import mlflow
 
-    class Api:
-        def do(self, method, path, body=None):
-            calls.append((method, path, body))
-
-    class WC:
-        api_client = Api()
-
-    sdk = types.ModuleType("databricks.sdk")
-    sdk.WorkspaceClient = WC
-    monkeypatch.setitem(sys.modules, "databricks.sdk", sdk)
-    assert tracing.log_outcome("tr-0123456789abcdef", "edited") is True
-    method, path, body = calls[0]
-    assert (method, path) == ("POST", "/api/3.0/mlflow/traces/tr-0123456789abcdef/assessments")
-    assert body["assessment"]["assessment_name"] == "reviewer_outcome"
-    assert body["assessment"]["feedback"] == {"value": "edited"}
-    assert body["assessment"]["source"]["source_type"] == "HUMAN"
+    assert tracing.log_outcome("trace:/cat.sch.a2d/0123456789abcdef", "edited") is True
+    assert mlflow.feedback == [("trace:/cat.sch.a2d/0123456789abcdef", "reviewer_outcome", "edited", "HUMAN")]
     with pytest.raises(ValueError):
         tracing.log_outcome("tr-0123456789abcdef", "liked")
 
 
 def test_outcome_waits_for_a_trace_that_is_still_exporting(monkeypatch, fake_mlflow):
+    import mlflow
+
     attempts = []
 
-    class Api:
-        def do(self, method, path, body=None):
-            attempts.append(path)
-            if len(attempts) < 3:
-                raise RuntimeError("NOT_FOUND: Trace with ID tr-x not found.")
+    def flaky(trace_id, name, value, source=None, rationale=None):
+        attempts.append(trace_id)
+        if len(attempts) < 3:
+            raise RuntimeError("NOT_FOUND: Trace with ID tr-x not found.")
 
-    class WC:
-        api_client = Api()
-
-    sdk = types.ModuleType("databricks.sdk")
-    sdk.WorkspaceClient = WC
-    monkeypatch.setitem(sys.modules, "databricks.sdk", sdk)
+    monkeypatch.setattr(mlflow, "log_feedback", flaky)
     monkeypatch.setattr(tracing, "_FEEDBACK_WAIT_SECONDS", 0)
     assert tracing.log_outcome("tr-0123456789abcdef", "used") is True
     assert len(attempts) == 3
+
+
+def test_tracing_makes_the_experiment_active(fake_mlflow, monkeypatch):
+    """So MLflow finds the experiment's Unity Catalog link and exports there."""
+    import os
+
+    result, nb, ctx = _convert()
+    complete_notebook(nb.content, ctx, UsageClient(), result.dag, result.output.cell_nodes[nb.filename])
+    assert os.environ["MLFLOW_EXPERIMENT_ID"] == "123"

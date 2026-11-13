@@ -187,6 +187,8 @@ def test_feedback_validates_and_is_a_no_op_without_tracing(client, monkeypatch):
     ok = client.post("/api/ai/feedback", json={"trace_id": "tr-0123456789abcdef", "outcome": "used"})
     assert ok.status_code == 200 and ok.json() == {"recorded": False}
     assert client.post("/api/ai/feedback", json={"trace_id": "nope", "outcome": "used"}).status_code == 422
+    uc = client.post("/api/ai/feedback", json={"trace_id": "trace:/cat.sch.a2d/0123456789abcdef", "outcome": "used"})
+    assert uc.status_code == 200  # a Unity Catalog trace id
     assert (
         client.post("/api/ai/feedback", json={"trace_id": "tr-0123456789abcdef", "outcome": "liked"}).status_code == 422
     )

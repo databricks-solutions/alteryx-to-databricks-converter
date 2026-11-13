@@ -7,6 +7,12 @@ not, the time it took and the tokens used. A reviewer's use / edit / discard of
 a suggestion is logged on its trace as feedback (``reviewer_outcome``), which is
 what tells you how often the AI helps, per tool.
 
+Link the experiment to Unity Catalog (``mlflow.set_experiment(...,
+trace_location=UnityCatalog(catalog, schema, table_prefix))``). Traces then go
+to Delta tables through the workspace host, which a Databricks App can reach;
+experiment artifact storage is behind presigned URLs an App can't reach, so
+there only the trace summaries arrive, without spans.
+
 Needs ``mlflow-skinny`` 3.18 or later (the MLflow client Databricks Apps
 already ship; ``mlflow-tracing`` clashes with it there). Without it, or without the variable, or
 when the experiment can't be found, every call here does nothing. A tracing
@@ -67,6 +73,14 @@ def _resolve() -> tuple[Any, str | None]:
         except Exception as exc:
             logger.warning("AI tracing is off: experiment %r couldn't be found (%s)", target, exc)
             return None, None
+        # Make it the active experiment too: that's how MLflow finds out the
+        # experiment stores its traces in Unity Catalog and exports there (through
+        # the workspace host) instead of to experiment artifact storage.
+        os.environ["MLFLOW_EXPERIMENT_ID"] = experiment_id
+        try:
+            mlflow.set_experiment(experiment_id=experiment_id)
+        except Exception as exc:
+            logger.debug("set_experiment(%s) failed; MLFLOW_EXPERIMENT_ID is set: %s", experiment_id, exc)
         _state["mlflow"], _state["experiment_id"] = mlflow, experiment_id
         logger.info("AI tracing on: MLflow experiment %s", experiment_id)
         return mlflow, experiment_id
@@ -149,27 +163,20 @@ def log_outcome(trace_id: str, outcome: str, rationale: str | None = None) -> bo
     """Record a reviewer's use / edit / discard of a suggestion on its trace."""
     if outcome not in OUTCOMES:
         raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}")
-    if not enabled():
+    mlflow, _ = _resolve()
+    if mlflow is None:
         return False
     try:
-        from databricks.sdk import WorkspaceClient
+        from mlflow.entities import AssessmentSource
 
-        body: dict[str, Any] = {
-            "assessment": {
-                "trace_id": trace_id,
-                "assessment_name": FEEDBACK_NAME,
-                "source": {"source_type": "HUMAN", "source_id": "reviewer"},
-                "feedback": {"value": outcome},
-            }
-        }
-        if rationale:
-            body["assessment"]["rationale"] = rationale[:1000]
-        api = WorkspaceClient().api_client
+        source = AssessmentSource(source_type="HUMAN", source_id="reviewer")
         # A trace is exported in the background a few seconds after its request,
         # so a quick reviewer can be ahead of it: wait a little for it to land.
         for attempt in range(_FEEDBACK_ATTEMPTS):
             try:
-                api.do("POST", f"/api/3.0/mlflow/traces/{trace_id}/assessments", body=body)
+                mlflow.log_feedback(
+                    trace_id=trace_id, name=FEEDBACK_NAME, value=outcome, source=source, rationale=rationale
+                )
                 return True
             except Exception as exc:
                 if "not found" not in str(exc).lower() or attempt == _FEEDBACK_ATTEMPTS - 1:
