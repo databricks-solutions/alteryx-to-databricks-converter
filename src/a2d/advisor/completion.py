@@ -41,6 +41,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from a2d.advisor import tracing
 from a2d.advisor.context import Gap, MigrationContext
 from a2d.advisor.llm_client import AdvisoryClient, ChatMessage
 from a2d.ir.graph import WorkflowDAG
@@ -154,6 +155,7 @@ class CompletionResult:
     filename: str
     content: str
     cells: list[CellCompletion] = field(default_factory=list)
+    trace_id: str | None = None  # the MLflow trace, when AI tracing is on
 
     @property
     def completed(self) -> int:
@@ -169,6 +171,7 @@ class CompletionResult:
             "filename": self.filename,
             "content": self.content,
             "cells": [c.to_dict() for c in self.cells],
+            "trace_id": self.trace_id,
             "summary": {
                 "cells_needing_work": len(self.cells),
                 "completed": self.completed,
@@ -595,14 +598,21 @@ class _OutOfTimeError(Exception):
     pass
 
 
-def _call_model(client: AdvisoryClient, messages: list[ChatMessage], deadline: float | None) -> str:
+def _call_model(client: AdvisoryClient, messages: list[ChatMessage], deadline: float | None) -> tuple[str, dict, float]:
+    """The reply, the endpoint's token counts (when it sends them) and the seconds it took."""
     remaining = None if deadline is None else deadline - time.monotonic()
     if remaining is not None and remaining <= 0:
         raise _OutOfTimeError
     if not MODEL_CALL_SLOTS.acquire(timeout=remaining):
         raise _OutOfTimeError
     try:
-        return client.chat(messages)
+        started = time.monotonic()
+        with_usage = getattr(client, "chat_with_usage", None)
+        if callable(with_usage):
+            text, usage = with_usage(messages)
+        else:
+            text, usage = client.chat(messages), {}
+        return text, usage, time.monotonic() - started
     finally:
         MODEL_CALL_SLOTS.release()
 
@@ -688,13 +698,22 @@ def complete_notebook(
         wiring = _wiring(cell, dag, (node_io or {}).get(cell.node_id), required, before)
         prompt = _cell_prompt(cell, gaps, ctx, wiring=wiring, rebind=rebind, hint=hint)
         messages = [ChatMessage(role="system", content=SYSTEM_PROMPT), ChatMessage(role="user", content=prompt)]
+        span = root.child(
+            f"step {cell.node_id} {tool or ''}".strip(),
+            span_type="LLM",
+            inputs={"messages": [m.to_dict() for m in messages]},
+            attributes={"node_id": cell.node_id, "tool_type": tool, "model": model},
+        )
         try:
-            code = _clean_reply(_call_model(client, messages, deadline), cell.node_id)
+            reply, usage, seconds = _call_model(client, messages, deadline)
         except _OutOfTimeError:
+            span.end(attributes={"status": "skipped"})
             return outcome("skipped", "ran out of time before this step was sent to the model")
         except Exception as exc:  # one step's failure must not lose the others
             logger.warning("Completion failed for node %s: %s", cell.node_id, exc)
+            span.end(attributes={"status": "failed"}, error=str(exc))
             return outcome("failed", f"the model endpoint failed: {exc}")
+        code = _clean_reply(reply, cell.node_id)
         # A rebind reads the variable it rebinds, so it counts as defined here.
         problem = _check_reply(
             code,
@@ -703,11 +722,27 @@ def complete_notebook(
             defined_before=before | ({rebind} if rebind else set()),
             owned_elsewhere=elsewhere - required,
         )
+        span.end(
+            outputs={"reply": reply},
+            attributes={
+                "status": "failed" if problem else "completed",
+                "check": problem or "passed",
+                "seconds": round(seconds, 2),
+                "prompt_tokens": usage.get("prompt_tokens"),
+                "completion_tokens": usage.get("completion_tokens"),
+            },
+        )
         if problem:
             return outcome("failed", problem)
         return outcome("completed", "", _wrap(cell, code))
 
     to_run, over_limit = targets[:MAX_CELLS], targets[MAX_CELLS:]
+    model = getattr(client, "model_name", None) or type(client).__name__
+    root = tracing.start_trace(
+        "ai_suggestion" if only is not None else "ai_completion",
+        inputs={"workflow": ctx.workflow_name, "steps": [c.node_id for c in to_run], "hint": hint or None},
+        attributes={"workflow": ctx.workflow_name, "model": model},
+    )
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         outcomes = list(pool.map(run, to_run))
     for cell in over_limit:
@@ -733,9 +768,20 @@ def complete_notebook(
     if len(split_cells(content)) != len(cells) + 1:  # pragma: no cover - guarded by _check_reply
         raise RuntimeError("AI completion changed the notebook's cell structure")
 
+    root.end(
+        outputs=[
+            {"node_id": c.node_id, "tool_type": c.tool_type, "status": c.status, "reason": c.reason} for c in report
+        ],
+        attributes={
+            "completed": completed,
+            "failed": sum(1 for c in report if c.status == "failed"),
+            "skipped": sum(1 for c in report if c.status == "skipped"),
+        },
+    )
     return CompletionResult(
         workflow_name=ctx.workflow_name,
         filename=completed_filename(ctx.workflow_name),
         content=content,
         cells=report,
+        trace_id=root.trace_id,
     )

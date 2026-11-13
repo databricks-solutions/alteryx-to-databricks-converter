@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: ci help install dev test test-cov lint format typecheck clean all frontend serve run lock deploy-dev deploy-prod bundle-validate
+.PHONY: ci eval-ai help install dev test test-cov lint format typecheck clean all frontend serve run lock deploy-dev deploy-prod bundle-validate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -31,6 +31,12 @@ clean: ## Remove build artifacts
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 all: lint typecheck test ## Lint + typecheck + test
+
+MODEL ?= databricks-claude-opus-5-5
+AI_EVAL_BASELINE := tests/fixtures/ai_eval/baseline.json
+eval-ai: ## AI completion eval on 13 real workflows (MODEL=<endpoint name> PROFILE=<databricks profile>)
+	DATABRICKS_CONFIG_PROFILE=$(PROFILE) PYTHONPATH=src:. python -m a2d.cli eval-ai --model $(MODEL) \
+		--output .local/ai-eval-$(MODEL).json --baseline $(AI_EVAL_BASELINE)
 
 ci: ## Run what .github/workflows/ci.yml runs (lint, format check, mypy, tests with coverage, frontend)
 	ruff check src/ tests/ server/

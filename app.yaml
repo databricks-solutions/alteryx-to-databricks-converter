@@ -52,3 +52,13 @@ env:
   # and the AI completion step says it isn't turned on.
   - name: "A2D_FMAPI_ENDPOINT"
     value: ""
+
+  # --- AI tracing (OPT-IN) -----------------------------------------------
+  # An MLflow experiment path (or id) in this workspace. When set, every AI
+  # completion and Review suggestion is logged as a trace (prompt, reply,
+  # check result, time, tokens) and a reviewer's use / edit / discard of a
+  # suggestion as feedback on it. Prompts carry workflow configuration
+  # (credentials masked), so grant the experiment to the people who should see
+  # it, and CAN_EDIT to the app's service principal. Empty means no tracing.
+  - name: "A2D_MLFLOW_EXPERIMENT"
+    value: ""

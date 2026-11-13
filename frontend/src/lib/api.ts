@@ -301,6 +301,14 @@ export const api = {
     return request<AISuggestion>("/ai/suggest", { method: "POST", body: fd });
   },
 
+  /** Record what the reviewer did with a suggestion on its trace (no-op without tracing). */
+  aiFeedback: (traceId: string, outcome: "used" | "edited" | "discarded") =>
+    request<{ recorded: boolean }>("/ai/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ trace_id: traceId, outcome }),
+    }),
+
   aiComplete: (source: WorkflowSource, opts?: ConvertOptions) => {
     const fd = new FormData();
     appendWorkflow(fd, source);
@@ -904,6 +912,8 @@ export interface AISuggestion {
   reason: string;
   code: string | null;
   before: string;
+  /** The MLflow trace, when the server traces AI calls. */
+  trace_id?: string | null;
 }
 
 /** A reviewer's saved decisions for one workflow, per step. `base` is a hash of

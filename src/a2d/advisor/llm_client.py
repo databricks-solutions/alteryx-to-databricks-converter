@@ -116,6 +116,18 @@ class FMAPIClient:
         return self._resolved_token
 
     def chat(self, messages: list[ChatMessage], *, max_tokens: int = DEFAULT_MAX_TOKENS) -> str:
+        return self.chat_with_usage(messages, max_tokens=max_tokens)[0]
+
+    @property
+    def model_name(self) -> str:
+        """The serving endpoint's name, from its invocations URL."""
+        parts = [p for p in self.endpoint.rstrip("/").split("/") if p]
+        if len(parts) >= 2 and parts[-1] == "invocations":
+            return parts[-2]
+        return parts[-1] if parts else ""
+
+    def chat_with_usage(self, messages: list[ChatMessage], *, max_tokens: int = DEFAULT_MAX_TOKENS) -> tuple[str, dict]:
+        """The reply text and the endpoint's token counts (``usage``, empty if not sent)."""
         payload = json.dumps({"messages": [m.to_dict() for m in messages], "max_tokens": max_tokens}).encode("utf-8")
 
         headers = {"Content-Type": "application/json"}
@@ -135,7 +147,8 @@ class FMAPIClient:
         except json.JSONDecodeError as exc:
             raise LLMRequestError(f"FMAPI endpoint returned invalid JSON: {exc}") from exc
 
-        return _extract_text(body)
+        usage = body.get("usage") if isinstance(body, dict) else None
+        return _extract_text(body), usage if isinstance(usage, dict) else {}
 
 
 def _extract_text(body: dict) -> str:

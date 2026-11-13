@@ -1871,6 +1871,104 @@ def profile(
         console.print(f"[dim]JSON profile written to {json_out}[/dim]")
 
 
+@app.command(name="eval-ai")
+def eval_ai(
+    paths: list[Path] = typer.Argument(None, help="Workflows to run (default: the repo's 13 Packt eval workflows)"),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        help="Serving endpoint name, e.g. databricks-claude-opus-5-5 (uses your Databricks login's host)",
+    ),
+    endpoint: str | None = typer.Option(
+        None, "--endpoint", help=f"Full invocations URL instead of --model (or set ${ENV_FMAPI_ENDPOINT})"
+    ),
+    token: str | None = typer.Option(None, "--token", help=f"Bearer token (or ${ENV_FMAPI_TOKEN}; else your login)"),
+    output_file: Path | None = typer.Option(None, "--output", "-o", help="Write the full report (JSON) here"),
+    baseline: Path | None = typer.Option(None, "--baseline", help="A report (or its summary) to compare against"),
+    min_completed_rate: float | None = typer.Option(
+        None, "--min-completed-rate", help="Exit 1 if the share of steps that pass the checks is below this (0-1)"
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Run AI completion on a fixed set of workflows and report how the model did.
+
+    Same conversion, prompt, wiring and checks as the app. Per step it records
+    whether the reply passed the checks, why not, the time and the tokens. Use
+    it before changing the model or the prompt, with ``--baseline`` to compare.
+    Passing the checks doesn't prove the code is right; read some replies too.
+    """
+    import json
+
+    setup_logging(quiet=quiet, debug=debug)
+    from a2d.advisor import resolve_client
+    from a2d.advisor.ai_eval import compare, default_paths, load_summary, run_eval
+
+    if model and not endpoint:
+        try:
+            from databricks.sdk.core import Config
+
+            endpoint = f"{Config().host.rstrip('/')}/serving-endpoints/{model}/invocations"
+        except Exception as exc:
+            console.print(f"[red]Couldn't find your workspace for --model ({exc}). Pass --endpoint instead.[/red]")
+            raise typer.Exit(code=1) from None
+    client = resolve_client(endpoint, token)
+    if client is None:
+        console.print(f"[red]Pass --model or --endpoint (or set ${ENV_FMAPI_ENDPOINT}).[/red]")
+        raise typer.Exit(code=1)
+
+    targets = list(paths) if paths else default_paths()
+    missing = [p for p in targets if not p.exists()]
+    if missing:
+        console.print(f"[red]Not found: {', '.join(str(p) for p in missing)}[/red]")
+        raise typer.Exit(code=1)
+
+    report = run_eval(targets, client)
+    summary = report.summary()
+    table = Table(title=f"AI completion eval: {summary['model']}")
+    for col in (
+        "workflows",
+        "steps",
+        "completed",
+        "failed",
+        "skipped",
+        "completed_rate",
+        "median_seconds",
+        "p90_seconds",
+    ):
+        table.add_column(col.replace("_", " "))
+    table.add_row(
+        *[
+            str(summary[c])
+            for c in (
+                "workflows",
+                "steps",
+                "completed",
+                "failed",
+                "skipped",
+                "completed_rate",
+                "median_seconds",
+                "p90_seconds",
+            )
+        ]
+    )
+    console.print(table)
+    for reason, count in list(summary["reasons"].items())[:8]:
+        console.print(f"  {count} x {reason}")
+    if output_file:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text(json.dumps(report.to_dict(), indent=1), encoding="utf-8")
+        console.print(f"Report written to {output_file}")
+    if baseline:
+        diff = compare(summary, load_summary(baseline))
+        console.print("Compared with the baseline: " + ("no change" if not diff else ""))
+        for line in diff:
+            console.print(f"  {line}")
+    if min_completed_rate is not None and summary["completed_rate"] < min_completed_rate:
+        console.print(f"[red]Completed rate {summary['completed_rate']} is below {min_completed_rate}.[/red]")
+        raise typer.Exit(code=1)
+
+
 @app.command(name="list-tools")
 def list_tools(
     supported_only: bool = typer.Option(False, "--supported", "-s", help="Show only supported tools"),

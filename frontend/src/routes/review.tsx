@@ -204,6 +204,8 @@ export function ReviewPage({
   const selectNode = (nodeId: number) => {
     if (nodeId === selectedId) return;
     if (!confirmDiscard()) return;
+    if (editing && editingTrace.current) report(editingTrace.current, "discarded");
+    editingTrace.current = null;
     setSelectedId(nodeId);
     setEditing(false);
   };
@@ -229,6 +231,14 @@ export function ReviewPage({
       ...prev,
       [selectedId]: { decision: "edited", editedCode: draft, source: draftSource },
     }));
+    if (editingTrace.current) report(editingTrace.current, "edited");
+    editingTrace.current = null;
+    setEditing(false);
+  };
+
+  const cancelEdit = () => {
+    if (editingTrace.current) report(editingTrace.current, "discarded");
+    editingTrace.current = null;
     setEditing(false);
   };
 
@@ -239,8 +249,18 @@ export function ReviewPage({
     session?.output_format === "pyspark" &&
     (node.status === "needs_review" || node.status === "cannot_convert");
 
+  // The trace of a suggestion being edited, reported when the edit is saved or cancelled.
+  const editingTrace = useRef<string | null>(null);
+  // Tell the server what the reviewer did with a suggestion (recorded on its
+  // MLflow trace when tracing is on; never in the reviewer's way).
+  const report = (traceId: string | null | undefined, outcome: "used" | "edited" | "discarded") => {
+    if (traceId) api.aiFeedback(traceId, outcome).catch(() => undefined);
+  };
+
   const suggest = (nodeId: number, hint = "") => {
     if (!source) return;
+    // Asking again replaces the suggestion on screen: that one was passed over.
+    report(suggestions[nodeId]?.result?.trace_id, "discarded");
     setSuggestions((prev) => ({ ...prev, [nodeId]: { loading: true, result: null, error: null, hint } }));
     api
       .aiSuggest(source, nodeId, opts, hint)
@@ -269,12 +289,19 @@ export function ReviewPage({
     });
 
   const takeSuggestion = (nodeId: number, code: string) => {
+    report(suggestions[nodeId]?.result?.trace_id, "used");
     setDecisions((prev) => ({ ...prev, [nodeId]: { decision: "edited", editedCode: code, source: "ai" } }));
     discardSuggestion(nodeId);
   };
 
   const editSuggestion = (nodeId: number, code: string) => {
+    editingTrace.current = suggestions[nodeId]?.result?.trace_id ?? null;
     startEdit(code, "ai");
+    discardSuggestion(nodeId);
+  };
+
+  const passOver = (nodeId: number) => {
+    report(suggestions[nodeId]?.result?.trace_id, "discarded");
     discardSuggestion(nodeId);
   };
 
@@ -426,7 +453,7 @@ export function ReviewPage({
                           <Check className="h-4 w-4" />
                           Save edit
                         </Button>
-                        <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>
+                        <Button size="sm" variant="secondary" onClick={cancelEdit}>
                           Cancel
                         </Button>
                       </div>
@@ -473,7 +500,7 @@ export function ReviewPage({
                       onHint={(hint) => setHint(selectedNode.node_id, hint)}
                       onUse={(code) => takeSuggestion(selectedNode.node_id, code)}
                       onEdit={(code) => editSuggestion(selectedNode.node_id, code)}
-                      onDiscard={() => discardSuggestion(selectedNode.node_id)}
+                      onDiscard={() => passOver(selectedNode.node_id)}
                     />
                   )}
                 </>
