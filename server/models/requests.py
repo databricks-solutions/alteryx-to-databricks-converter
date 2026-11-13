@@ -54,7 +54,9 @@ def conversion_options(
     include_performance_hints: bool = Form(False),
     generate_ddl: bool = Form(False),
     generate_dab: bool = Form(False),
-    expand_macros: bool = Form(False),
+    # On by default: a macro the run can find is inlined, and one it can't is
+    # reported. Off leaves every macro call as an unconverted stub.
+    expand_macros: bool = Form(True),
 ) -> ConversionOptions:
     """FastAPI dependency that collects shared conversion form params."""
     return ConversionOptions(

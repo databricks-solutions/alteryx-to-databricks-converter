@@ -5,8 +5,7 @@ export type BooleanSettingKey =
   | "includeExpressionAudit"
   | "includePerformanceHints"
   | "generateDdl"
-  | "generateDab"
-  | "expandMacros";
+  | "generateDab";
 
 interface SettingsStore {
   catalogName: string;
@@ -16,7 +15,6 @@ interface SettingsStore {
   includePerformanceHints: boolean;
   generateDdl: boolean;
   generateDab: boolean;
-  expandMacros: boolean;
   setCatalogName: (v: string) => void;
   setSchemaName: (v: string) => void;
   setBooleanSetting: (key: BooleanSettingKey, value: boolean) => void;
@@ -50,7 +48,6 @@ export const useSettingsStore = create<SettingsStore>((set) => {
     includePerformanceHints: load("includePerformanceHints", true),
     generateDdl: load("generateDdl", false),
     generateDab: load("generateDab", false),
-    expandMacros: load("expandMacros", false),
 
     setCatalogName: (v) => {
       save("catalogName", v);
@@ -70,7 +67,6 @@ export const useSettingsStore = create<SettingsStore>((set) => {
         includePerformanceHints: true,
         generateDdl: false,
         generateDab: false,
-        expandMacros: false,
       };
       for (const [k, v] of Object.entries(defaults)) {
         save(k, v);

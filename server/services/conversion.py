@@ -13,7 +13,7 @@ from a2d.pipeline import (
     FormatConversionResult,
     MultiFormatConversionResult,
 )
-from server.utils.package import materialize_upload
+from server.utils.package import materialize_upload, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.conversion")
 
@@ -147,16 +147,20 @@ def convert_file(
     include_performance_hints: bool = False,
     generate_ddl: bool = False,
     generate_dab: bool = False,
-    expand_macros: bool = False,
+    expand_macros: bool = True,
+    macros: list[tuple[str, bytes]] | None = None,
 ) -> dict:
     """Convert a single uploaded .yxmd file into ALL output formats.
 
-    Returns a response dict matching ``ConversionResponse``.
+    ``macros`` are ``.yxmc`` files the workflow may call (a project's macros);
+    they're searched after the workflow's own directory. Returns a response dict
+    matching ``ConversionResponse``.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         # A .yxzp is unzipped here; .yxmd/.yxmc/.yxwz are written verbatim.
         file_path, was_package = materialize_upload(file_bytes, filename, Path(tmpdir))
         workflow_stem = file_path.stem
+        library = write_macro_library(macros or [], Path(tmpdir))
 
         # A .yxzp bundles its macros; extraction co-locates them next to the
         # workflow, so expand them even if the caller didn't ask — otherwise
@@ -177,6 +181,7 @@ def convert_file(
             generate_ddl=generate_ddl,
             generate_dab=generate_dab,
             expand_macros=effective_expand_macros,
+            macro_search_paths=tuple(library),
         )
         pipeline = ConversionPipeline(config)
         result: MultiFormatConversionResult = pipeline.convert_all_formats(file_path)
@@ -258,48 +263,4 @@ def convert_file(
                 fr.error,
             )
 
-    # Save to history (non-blocking — multi-format records use output_format="multi")
-    try:
-        from server.services.history import is_available, save_conversion
-
-        if is_available():
-            history_record = {
-                "workflow_name": response["workflow_name"],
-                "output_format": "multi",
-                "node_count": response["node_count"],
-                "edge_count": response["edge_count"],
-                "warnings": response["warnings"],
-                "files": [],  # aggregate metadata only — full files live in the per-format response
-                "dag_data": response["dag_data"],
-                "stats": _aggregate_stats(result.formats),
-            }
-            save_conversion(history_record)
-    except Exception:
-        logger.warning("History save failed", exc_info=True)
-
     return response
-
-
-def _aggregate_stats(formats: dict[str, FormatConversionResult]) -> dict:
-    """Aggregate stats across formats. Coverage is averaged over successful formats."""
-    coverages: list[float] = []
-    for fr in formats.values():
-        if fr.status != "success" or fr.output is None:
-            continue
-        # Generators emit total_nodes/supported_nodes; derive coverage here
-        # to mirror what _serialize_format_result publishes.
-        stats = fr.output.stats
-        cov = stats.get("coverage_percentage")
-        if not isinstance(cov, (int | float)):
-            total = stats.get("total_nodes")
-            supported = stats.get("supported_nodes")
-            if isinstance(total, int) and total > 0 and isinstance(supported, int):
-                cov = supported / total * 100.0
-        if isinstance(cov, (int | float)):
-            coverages.append(float(cov))
-    avg_cov = sum(coverages) / len(coverages) if coverages else None
-    return {
-        "coverage_percentage": avg_cov,
-        "successful_formats": [k for k, fr in formats.items() if fr.status == "success"],
-        "failed_formats": [k for k, fr in formats.items() if fr.status == "failed"],
-    }

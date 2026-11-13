@@ -8,21 +8,26 @@ from collections import Counter
 from pathlib import Path
 
 from a2d.analyzer.batch import BatchAnalyzer
-from server.utils.package import materialize_uploads
+from server.utils.package import analyze_each, macro_files, materialize_uploads, upload_name_for, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.analysis")
 
 
 def analyze_files(files: list[tuple[str, bytes]]) -> dict:
     """Analyze uploaded .yxmd files and return analysis dict."""
+    skipped: list[str] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         # .yxzp packages are unzipped to their primary workflow; other files pass through.
-        paths = materialize_uploads(files, Path(tmpdir))
+        paths = materialize_uploads(files, Path(tmpdir), skipped=skipped)
 
-        # Expand macros so a .yxzp's co-located .yxmc is inlined rather than shown
-        # as an unsupported Unknown; a no-op for bare uploads with no macro file.
-        analyzer = BatchAnalyzer(expand_macros=True)
-        analyses = analyzer.analyze_files(paths)
+        # Expand macros so a .yxzp's co-located .yxmc, or a macro uploaded as its
+        # own file, is inlined rather than shown as an unsupported Unknown.
+        # One unreadable workflow is skipped and named, not fatal to the estate.
+        analyzer = BatchAnalyzer(
+            expand_macros=True, macro_search_paths=write_macro_library(macro_files(files), Path(tmpdir))
+        )
+        analyses = analyze_each(analyzer, paths, Path(tmpdir), files, skipped)
+        sources = [upload_name_for(a.file_path, Path(tmpdir), files) for a in analyses]
 
     total = len(analyses)
     if total == 0:
@@ -34,6 +39,7 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
             "workflows": [],
             "tool_frequency": {},
             "unsupported_tools": [],
+            "skipped_files": skipped,
         }
 
     avg_coverage = sum(a.coverage.coverage_percentage for a in analyses) / total
@@ -50,6 +56,9 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
     workflows = [
         {
             "file_name": Path(a.file_path).name,
+            # The name as uploaded (a .yxzp's own name, not its primary workflow's),
+            # so a result maps back to the file — or project workflow — it came from.
+            "source_file_name": source,
             "workflow_name": a.workflow_name,
             "node_count": a.node_count,
             "connection_count": a.connection_count,
@@ -62,7 +71,7 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
             "unsupported_types": sorted(a.coverage.unsupported_types),
             "warnings": a.warnings,
         }
-        for a in analyses
+        for a, source in zip(analyses, sources, strict=True)
     ]
 
     logger.info(
@@ -80,4 +89,7 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
         "workflows": workflows,
         "tool_frequency": dict(tool_counter.most_common()),
         "unsupported_tools": sorted(unsupported),
+        # Uploaded names that couldn't be read or analyzed, so totals aren't
+        # mistaken for the whole estate.
+        "skipped_files": skipped,
     }

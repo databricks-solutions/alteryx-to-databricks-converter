@@ -61,8 +61,10 @@ export interface ParsedWarning {
 // the tool name in parens; SQL/DLT emit the older `Unsupported node N: ...`
 // shape. Accept both — the parens group is optional and non-capturing for the
 // outer wrapper but the tool name itself is captured when present.
-const RE_UNSUPPORTED =
-  /^Unsupported node (\d+)(?:\s*\(([^)]+)\))?:\s*No converter for tool type:\s*(.+?)\s*$/i;
+// The reason is usually `No converter for tool type: X`, but can say more,
+// e.g. why a macro call wasn't expanded.
+const RE_UNSUPPORTED = /^Unsupported node (\d+)(?:\s*\(([^)]+)\))?:\s*(.+?)\s*$/i;
+const RE_NO_CONVERTER = /^No converter for tool type:\s*(.+?)\s*$/i;
 const RE_NO_GENERATOR =
   /^No (PySpark|DLT|SQL|Lakeflow)\s+generator\s+for\s+(\w+)\s*\(node\s*(\d+)\)/i;
 const RE_EXPR_FALLBACK =
@@ -116,10 +118,13 @@ export function parseWarning(raw: string): ParsedWarning {
   let m = RE_UNSUPPORTED.exec(trimmed);
   if (m) {
     const nodeId = Number(m[1]);
-    // m[2] is the optional parenthesized tool name (PySpark style); m[3] is
-    // the tool name from `No converter for tool type: X`. Prefer the parens
-    // form when present since it's typically the friendlier name.
-    const tool = m[2] || m[3];
+    const reason = m[3];
+    const noConverter = RE_NO_CONVERTER.exec(reason);
+    // The parenthesized tool name wins; else the `tool type: X` in the reason.
+    const tool = m[2] || (noConverter ? noConverter[1] : "unknown");
+    const skipped =
+      `The generated code skips this node, so the dataflow downstream of node ${nodeId} ` +
+      `will be incomplete. You must replace this step manually.`;
     return {
       kind: "unsupported_tool",
       severity: "blocker",
@@ -127,10 +132,9 @@ export function parseWarning(raw: string): ParsedWarning {
       nodeId,
       tool,
       title: `Node ${nodeId} (${tool}) — no converter`,
-      detail:
-        `a2d does not yet support the Alteryx tool "${tool}". The generated ` +
-        `code skips this node, so the dataflow downstream of node ${nodeId} ` +
-        `will be incomplete. You must replace this step manually.`,
+      detail: noConverter
+        ? `a2d does not yet support the Alteryx tool "${tool}". ${skipped}`
+        : `${reason.replace(/\.$/, "")}. ${skipped}`,
     };
   }
 

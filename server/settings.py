@@ -74,15 +74,15 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "info"
 
-    # Database (optional — history disabled when empty)
+    # Database (optional; saved projects are off when empty)
     database_url: str = ""
 
     # Lakebase (optional — only used when db_backend == "lakebase")
     db_backend: str = ""  # "" (auto-detect), "postgres", or "lakebase"
     lakebase_endpoint: str = ""  # projects/<id>/branches/<id>/endpoints/<id>
 
-    # Foundation Model API (optional — AI suggestions are OPT-IN).
-    # Empty endpoint means no model is ever called: the chat/report endpoints
+    # Foundation Model API (optional — AI completion and suggestions are OPT-IN).
+    # Empty endpoint means no model is ever called: the /api/ai complete and notes endpoints
     # return 422 and the rest of the product is unaffected.
     fmapi_endpoint: str = Field(
         default="",
@@ -111,7 +111,7 @@ class Settings(BaseSettings):
     # the App SP's client_id. The Apps runtime injects DATABRICKS_CLIENT_ID
     # into the App container, so we use it as the final fallback after the
     # explicit env vars. Order: PGUSER > A2D_PG_USER > DATABRICKS_CLIENT_ID
-    # (Apps auto-injection) > "" (history disabled).
+    # (Apps auto-injection) > "" (no database).
     pg_user: str = Field(
         default="",
         validation_alias=AliasChoices("PGUSER", "A2D_PG_USER", "DATABRICKS_CLIENT_ID"),

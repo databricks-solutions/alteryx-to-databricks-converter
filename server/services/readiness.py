@@ -18,7 +18,7 @@ from a2d.questionnaire import (
     questions_by_dimension,
     score,
 )
-from server.utils.package import materialize_uploads
+from server.utils.package import macro_files, materialize_uploads, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.readiness")
 
@@ -69,7 +69,8 @@ def prefill_answers(files: list[tuple[str, bytes]]) -> dict:
     skipped: list[str] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         paths = materialize_uploads(files, Path(tmpdir), skipped=skipped)
-        analyses = BatchAnalyzer(expand_macros=True).analyze_files(paths)
+        library = write_macro_library(macro_files(files), Path(tmpdir))
+        analyses = BatchAnalyzer(expand_macros=True, macro_search_paths=library).analyze_files(paths)
 
     if not analyses:
         raise ValueError("no workflows could be analyzed")

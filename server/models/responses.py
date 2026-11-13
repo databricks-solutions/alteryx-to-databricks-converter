@@ -136,6 +136,8 @@ class ErrorDetail(BaseModel):
 
 class FileResultResponse(BaseModel):
     file_name: str
+    # The name as uploaded — differs from file_name for a .yxzp package.
+    source_file_name: str | None = None
     workflow_name: str
     success: bool
     coverage: float
@@ -185,6 +187,8 @@ class ToolMatrixResponse(BaseModel):
 
 class WorkflowAnalysisResponse(BaseModel):
     file_name: str
+    # The name as uploaded — differs from file_name for a .yxzp package.
+    source_file_name: str | None = None
     workflow_name: str
     node_count: int
     connection_count: int
@@ -206,18 +210,5 @@ class AnalysisResponse(BaseModel):
     workflows: list[WorkflowAnalysisResponse]
     tool_frequency: dict[str, int]
     unsupported_tools: list[str]
-
-
-class HistoryListItem(BaseModel):
-    id: str
-    workflow_name: str
-    output_format: str
-    created_at: str
-    node_count: int
-    edge_count: int
-    coverage_percentage: float | None
-
-
-class HistoryListResponse(BaseModel):
-    items: list[HistoryListItem]
-    total: int
+    # Uploaded names that couldn't be read or analyzed.
+    skipped_files: list[str] = []

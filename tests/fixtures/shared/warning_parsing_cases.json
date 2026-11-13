@@ -23,6 +23,21 @@
       "expect": { "kind": "unsupported_tool", "severity": "blocker", "node_id": 7, "tool": "Crosstab" }
     },
     {
+      "name": "unsupported_tool_with_tool_in_parens",
+      "raw": "Unsupported node 7 (Crosstab): No converter for tool type: Crosstab",
+      "expect": { "kind": "unsupported_tool", "severity": "blocker", "node_id": 7, "tool": "Crosstab" }
+    },
+    {
+      "name": "unsupported_macro_call_with_reason",
+      "raw": "Unsupported node 10 (Macro): Macro Cleanse.yxmc wasn't expanded: macro file not found: Cleanse.yxmc.",
+      "expect": { "kind": "unsupported_tool", "severity": "blocker", "node_id": 10, "tool": "Macro" }
+    },
+    {
+      "name": "unsupported_converter_error",
+      "raw": "Unsupported node 4: Converter error for tool type: Join",
+      "expect": { "kind": "unsupported_tool", "severity": "blocker", "node_id": 4, "tool": "unknown" }
+    },
+    {
       "name": "missing_generator_pyspark",
       "raw": "No PySpark generator for CrosstabNode (node 12)",
       "expect": { "kind": "missing_generator", "severity": "review", "node_id": 12 }

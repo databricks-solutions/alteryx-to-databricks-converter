@@ -14,14 +14,16 @@ from pathlib import Path
 from a2d.advisor import CostPerformanceAdvisor
 from a2d.config import ConversionConfig
 from a2d.pipeline import ConversionPipeline
-from server.utils.package import materialize_upload
+from server.utils.package import materialize_upload, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.advise")
 
 VALID_CLOUDS = ("aws", "azure", "gcp")
 
 
-def advise_workflow(filename: str, content: bytes, cloud: str = "aws") -> dict:
+def advise_workflow(
+    filename: str, content: bytes, cloud: str = "aws", macros: list[tuple[str, bytes]] | None = None
+) -> dict:
     """Return a cluster recommendation plus performance hints for one workflow.
 
     Raises :class:`ValueError` for an unknown cloud or an unparseable workflow, so
@@ -33,9 +35,14 @@ def advise_workflow(filename: str, content: bytes, cloud: str = "aws") -> dict:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # .yxzp is unzipped to its primary workflow (macros co-located); others pass through.
-        path, was_package = materialize_upload(content, filename, Path(tmpdir))
+        path, _ = materialize_upload(content, filename, Path(tmpdir))
+        library = write_macro_library(macros or [], Path(tmpdir))
 
-        config = ConversionConfig(cloud=normalized, expand_macros=was_package)  # type: ignore[arg-type]
+        config = ConversionConfig(
+            cloud=normalized,  # type: ignore[arg-type]
+            expand_macros=True,
+            macro_search_paths=tuple(library),
+        )
         pipeline = ConversionPipeline(config)
         parsed = pipeline._frontend.parse(path)
         dag = pipeline._build_dag(parsed)

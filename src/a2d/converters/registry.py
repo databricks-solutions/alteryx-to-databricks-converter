@@ -113,7 +113,11 @@ class ConverterRegistry:
             annotation=parsed_node.annotation,
             position=parsed_node.position,
             original_configuration=parsed_node.configuration,
-            unsupported_reason=f"No converter for tool type: {parsed_node.tool_type}",
+            unsupported_reason=(
+                "Macro call: its steps are converted by expanding the macro, which needs the .yxmc"
+                if parsed_node.tool_type == "Macro"
+                else f"No converter for tool type: {parsed_node.tool_type}"
+            ),
         )
 
     @classmethod

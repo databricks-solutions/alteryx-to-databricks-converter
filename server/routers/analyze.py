@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from server.models.responses import AnalysisResponse
 from server.services import project as project_service
@@ -39,7 +40,13 @@ async def analyze(
 
     # Reflect that the estate's freshly-uploaded workflows have now been assessed.
     if project_id:
-        project_service.advance_uploaded_workflows(project_id, "assessed")
+        # Keep each analyzed workflow's summary on the project (feeds the coverage
+        # rollup) and move it to "assessed", but only if it still holds the bytes
+        # that were analyzed. Skipped files stay where they are.
+        hashes = {name: project_service.content_hash(content) for name, content in file_data}
+        analyzed = [w.get("source_file_name") or w["file_name"] for w in result.get("workflows", [])]
+        await run_in_threadpool(project_service.store_analysis, project_id, result.get("workflows", []), hashes)
+        await run_in_threadpool(project_service.advance_workflows_by_name, project_id, analyzed, "assessed", hashes)
 
     logger.info("Analysis complete: %d workflows", len(file_data))
     return AnalysisResponse(**result)

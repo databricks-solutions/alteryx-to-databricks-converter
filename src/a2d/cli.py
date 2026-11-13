@@ -1281,6 +1281,125 @@ def suggest(
     console.print("[dim]Advisory only — no generated file was modified.[/dim]")
 
 
+@app.command()
+def complete(
+    input_path: Path = typer.Argument(..., help="Path to the .yxmd/.yxmc/.yxwz workflow or .yxzp package"),
+    endpoint: str | None = typer.Option(
+        None, "--endpoint", help=f"FMAPI serving endpoint URL (or set ${ENV_FMAPI_ENDPOINT})"
+    ),
+    token: str | None = typer.Option(
+        None, "--token", help=f"Bearer token for the endpoint (or set ${ENV_FMAPI_TOKEN})"
+    ),
+    output_file: Path | None = typer.Option(
+        None, "--output", "-o", help="Where to write the copy (default: <workflow>.ai-completed.py)"
+    ),
+    catalog: str = typer.Option("main", "--catalog", help="Unity Catalog catalog the generated code uses"),
+    schema: str = typer.Option("default", "--schema", help="Unity Catalog schema the generated code uses"),
+    expand_macros: bool = typer.Option(
+        False, "--expand-macros", help="Inline .yxmc macros found next to the workflow (always on for .yxzp)"
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress info messages (warnings only)"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug logging"),
+) -> None:
+    """Write an AI-completed copy of the PySpark notebook (opt-in, not deterministic).
+
+    Converts the workflow deterministically, then asks the configured model to
+    fill in only the steps the converter could not finish (unsupported tools,
+    TODO stubs). The result is a **separate file** with every AI-written step
+    marked; a step whose AI code fails the checks keeps its deterministic version.
+    The deterministic notebook is never modified.
+
+    Requires ``--endpoint`` (or ``$A2D_FMAPI_ENDPOINT``). Exits 1 if every step
+    sent to the model failed.
+    """
+    setup_logging(quiet=quiet, debug=debug)
+
+    if not input_path.exists():
+        console.print(f"[red]Error: {input_path} not found[/red]")
+        raise typer.Exit(code=1)
+
+    from a2d.advisor import build_migration_context, resolve_client
+    from a2d.advisor.completion import CompletionUnavailableError, complete_notebook, completed_filename
+    from a2d.packaging import is_package
+    from a2d.pipeline import ConversionPipeline
+
+    client = resolve_client(endpoint, token)
+    if client is None:
+        console.print(
+            f"[red]AI completion needs a model endpoint.[/red] Set --endpoint or ${ENV_FMAPI_ENDPOINT}. "
+            "[dim](a2d convert never needs one.)[/dim]"
+        )
+        raise typer.Exit(code=1)
+
+    with contextlib.ExitStack() as pkg_stack:
+        resolved, failures = _resolve_package_inputs([input_path], pkg_stack)
+        if failures or not resolved:
+            raise typer.Exit(code=1)
+        workflow_path = resolved[0]
+        workflow_name = workflow_path.stem
+
+        destination = (output_file or input_path.parent / completed_filename(workflow_name)).resolve()
+        protected = {input_path.resolve(), (input_path.parent / f"{workflow_name}.py").resolve()}
+        if destination in protected:
+            console.print(
+                f"[red]Refusing to write the AI copy over {destination.name}[/red]: that's the source workflow or "
+                "its deterministic notebook. Pick another --output."
+            )
+            raise typer.Exit(code=1)
+
+        cfg = ConversionConfig(
+            input_path=workflow_path,
+            output_format=OutputFormat.PYSPARK,
+            catalog_name=catalog,
+            schema_name=schema,
+            expand_macros=expand_macros or is_package(input_path),
+        )
+        try:
+            result = ConversionPipeline(cfg).convert(workflow_path)
+        except Exception as e:
+            console.print(f"[red]Conversion failed: {e}[/red]")
+            raise typer.Exit(code=1) from None
+
+    notebook_file = next((f for f in result.output.files if f.filename.endswith(".py")), None)
+    if notebook_file is None:
+        console.print("[red]The converter produced no PySpark notebook for this workflow.[/red]")
+        raise typer.Exit(code=1)
+
+    ctx = build_migration_context(
+        result.dag,
+        workflow_name=workflow_name,
+        output_format=OutputFormat.PYSPARK.value,
+        format_warnings=list(result.output.warnings),
+        generated_code=notebook_file.content,
+        coverage=result.output.stats.get("coverage_percentage"),
+        confidence=result.confidence.overall if result.confidence else None,
+    )
+    try:
+        completion = complete_notebook(
+            notebook_file.content, ctx, client, result.dag, result.output.cell_nodes.get(notebook_file.filename)
+        )
+    except CompletionUnavailableError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(code=1) from None
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(completion.content)
+
+    console.print()
+    console.rule(f"[bold]AI completion — {ctx.workflow_name}[/bold]")
+    if not completion.cells:
+        console.print("Every step converted deterministically — nothing for the model to complete.")
+    for cell in completion.cells:
+        colour = {"completed": "yellow", "failed": "red", "skipped": "dim"}[cell.status]
+        why = f" — {cell.reason}" if cell.reason else ""
+        console.print(f"  [{colour}]{cell.status:<9}[/{colour}] step {cell.node_id} {cell.tool_type or ''}{why}")
+    console.print(f"\n[green]AI-completed copy written to {destination}[/green]")
+    console.print("[dim]Not deterministic and not verified — review every AI-GENERATED step.[/dim]")
+    if completion.attempted and not completion.completed:
+        console.print("[red]Every step sent to the model failed; the copy matches the deterministic notebook.[/red]")
+        raise typer.Exit(code=1)
+
+
 def _print_advisor_report(report) -> None:
     """Render the cost/performance advisory to the console."""
     c = report.cluster

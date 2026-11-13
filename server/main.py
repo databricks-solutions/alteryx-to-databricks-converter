@@ -14,12 +14,11 @@ from fastapi.staticfiles import StaticFiles
 
 from a2d.__about__ import __version__
 from server.routers import (
+    ai,
     analyze,
     assess,
-    chat,
     convert,
     health,
-    history,
     insights,
     projects,
     readiness,
@@ -27,7 +26,7 @@ from server.routers import (
     tools,
     validate,
 )
-from server.services import history as history_service
+from server.services import db
 from server.services import project as project_service
 from server.services.batch import get_store
 from server.settings import settings
@@ -61,26 +60,19 @@ async def lifespan(app: FastAPI):
     # Startup: ensure converters are loaded
     import a2d.converters  # noqa: F401
 
-    # Initialize history database (optional).
-    #
-    # Ask the history service which backend is configured rather than checking
-    # `database_url` directly: the Lakebase path is driven by
-    # A2D_LAKEBASE_ENDPOINT + PGHOST and never sets `database_url`, so gating on
-    # that alone made Lakebase history unreachable by construction — the app
-    # logged "not configured" even with a correctly bound database.
-    backend = history_service.resolve_backend()
+    # The database is optional: it backs saved migration projects. Ask which
+    # backend is configured rather than checking `database_url` directly: the
+    # Lakebase path is driven by A2D_LAKEBASE_ENDPOINT + PGHOST and never sets
+    # `database_url`.
+    backend = db.resolve_backend()
     if backend:
-        if history_service.init_db():
-            logger.info("History database connected (backend=%s)", backend)
-        else:
-            logger.warning("History database configured (backend=%s) but failed to initialize", backend)
-        # Migration projects share the same pool; initialize their tables too.
         if project_service.init_db():
-            logger.info("Migration-project tables ready (backend=%s)", backend)
+            logger.info("Migration-project store ready (backend=%s)", backend)
         else:
-            logger.warning("Migration-project tables failed to initialize (backend=%s)", backend)
+            # Retried lazily on the next project request (see project.is_available).
+            logger.warning("Migration-project store configured (backend=%s) but failed to initialize", backend)
     else:
-        logger.info("History database not configured — history and projects disabled")
+        logger.info("No database configured: saved projects are off, the app keeps projects in the browser")
 
     logger.info("a2d API v%s starting up", __version__)
     cleanup_task = asyncio.create_task(_evict_expired_jobs())
@@ -88,6 +80,7 @@ async def lifespan(app: FastAPI):
     cleanup_task.cancel()
     with suppress(asyncio.CancelledError):
         await cleanup_task
+    db.close_pool()
     logger.info("a2d API shutting down")
 
 
@@ -123,6 +116,14 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(project_service.StoreUnavailableError)
+async def store_unavailable_handler(request: Request, exc: project_service.StoreUnavailableError) -> JSONResponse:
+    # A configured database that isn't responding: say so (503), so the client
+    # doesn't read an outage as "this project was deleted" or "no projects".
+    logger.warning("Project store unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
@@ -138,13 +139,12 @@ app.include_router(tools.router)
 app.include_router(convert.router)
 app.include_router(analyze.router)
 app.include_router(assess.router)
-app.include_router(history.router)
 app.include_router(validate.router)
 app.include_router(review.router)
-app.include_router(chat.router)
 app.include_router(insights.router)
 app.include_router(readiness.router)
 app.include_router(projects.router)
+app.include_router(ai.router)
 
 # WebSocket
 app.include_router(ws_batch.router)

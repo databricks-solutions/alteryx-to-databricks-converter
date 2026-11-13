@@ -1,6 +1,9 @@
 # Migration Project — Design
 
-Status: proposed. This is the keystone for app cohesion. Today each screen is an
+Status: built. Phases 1 and 2 added the project and its API; the project-centric
+flow (below, "Where it ended up") made it the organizing object of the whole app.
+
+This is the keystone for app cohesion. Today each screen is an
 independent tool: the five analysis screens share one in-session estate, and
 Convert hands its file to the Assistant and Advisor, but nothing survives a
 reload, no screen knows what another already did, and no workflow carries a
@@ -164,3 +167,63 @@ become the no-backend fallback rather than being replaced.
   regression through the project path).
 - Frontend: journey rail counts, workflow picker, dashboard rollups, and the
   no-project fallback still working with no backend.
+
+## Where it ended up
+
+After Phase 2, a walkthrough of the deployed app showed the project and the
+screens were still two parallel worlds: the project existed, but the Assess and
+Business case screens kept their own drop zones and in-browser estate, so a user
+saw upload boxes on nearly every page and couldn't tell which project (if any)
+a screen was using. The project-centric flow fixed that:
+
+- **The URL names the project.** Steps live at `/p/<project>/<step>`. Nothing is
+  silently auto-selected; the last project opened only feeds a "Resume" button
+  and the redirects from old URLs.
+- **One upload.** Files are added only when creating a project and on its
+  Workflows step. Every other step reads the project (multi-file endpoints take
+  `project_id`; single-workflow screens fetch the stored file).
+- **The sidebar is the only navigation.** It lists the open project's steps in
+  order with progress counts. Pages no longer link onward, and the journey rail
+  is gone.
+- **Assess runs itself.** The three Assess views run on first open and cache per
+  project, keyed by a signature of the project's files (a per-workflow content
+  hash), so a re-upload refreshes them and a stage change doesn't. Savings waits
+  for you to press Estimate, because its inputs are your own cost assumptions.
+- **No database:** the same flow with a project held in the browser tab, rather
+  than the old per-screen uploads.
+- **AI is one optional last step** that writes a separate, marked copy of the
+  notebook (`a2d.advisor.completion`); the chat page was removed from the app.
+
+### How the build differs from the design above
+
+The sections above are the original design. Where the build went another way:
+
+- Workflow bytes are stored in the table (`source_b64`, with `size_bytes` and
+  `content_hash` columns), not under a `storage_uri` volume path; there is no
+  `source_path`. A Unity Catalog Volume for large packages is still a follow-on.
+- File names are unique per project (a unique index). Re-uploading a name with
+  new bytes replaces that workflow and resets it to `uploaded`; identical bytes
+  change nothing.
+- Stage bookkeeping after a run (assessed, converted) only applies if the
+  workflow still holds the bytes the run used, so a re-upload mid-run isn't
+  marked with the old result.
+- `savings_inputs` and `review_decisions` columns exist but nothing writes them
+  yet; savings assumptions and review decisions live in the browser.
+- The journey rail, `convert-bridge` and `local-history` stores described above
+  were removed in the project-centric flow; the sidebar shows progress instead.
+- A configured database that isn't responding is reported as 503 "temporarily
+  unavailable", separate from 503 "not configured", and initialization retries.
+- Tests: `tests/unit/server/test_project_service.py` and
+  `tests/unit/server/test_project_batch.py` (mocked), and
+  `tests/integration/test_project_store_postgres.py` against a real Postgres.
+- Projects are shared by everyone who can open the app (one service principal,
+  no per-user scoping, by decision); per-user ownership is not built.
+- The conversion History API and its `conversion_history` writes were removed;
+  a project's workflows carry their latest conversion. The connection pool moved
+  from the history service to `server/services/db.py`.
+- A project's `.yxmc` files are a shared macro library: every step that reads a
+  project workflow (estate passes, batch on any selection, single-workflow
+  convert/review/advise/AI) expands its macro calls against them
+  (`server/utils/package.py::write_macro_library`,
+  `project.get_workflow_with_macros`). The single-workflow steps send
+  `project_id` + `workflow_id` rather than re-uploading the file.

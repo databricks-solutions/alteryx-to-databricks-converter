@@ -1,15 +1,12 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { PageHeader } from "@/components/layout/page-header";
-import { FileDropzone } from "@/components/shared/file-dropzone";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { useSavings, useSavingsDefaults } from "@/hooks/use-insights";
-import { useEstateStore, isStale } from "@/stores/estate";
-import { downloadJson } from "@/lib/portfolio-download";
-import type { CostAssumptions, SavingsReport } from "@/lib/api";
-import { Play, Loader2, RotateCcw, Download, PiggyBank, Info, Clock, TrendingUp } from "lucide-react";
+import { useSavingsDefaults } from "@/hooks/use-insights";
+import { useEstateView } from "@/hooks/use-estate-view";
+import { api, type CostAssumptions, type SavingsReport } from "@/lib/api";
+import { Play, Loader2, RotateCcw, Pencil, PiggyBank, Info, Clock, TrendingUp } from "lucide-react";
 
 /** Format a money amount with a thousands separator and a currency prefix. */
 function money(currency: string, amount: number): string {
@@ -75,47 +72,43 @@ function NumberField({
   );
 }
 
-export function SavingsPage({ embedded = false }: { embedded?: boolean }) {
-  const files = useEstateStore((s) => s.files);
-  const setFiles = useEstateStore((s) => s.setFiles);
-  const stored = useEstateStore((s) => s.results.savings);
-  const saveResult = useEstateStore((s) => s.saveResult);
-  const clearResult = useEstateStore((s) => s.clearResult);
+/** Savings, payback and ROI for the open project. The assumptions are yours to
+ * set, so this runs when you press Estimate rather than by itself. */
+export function SavingsPage() {
   const [form, setForm] = useState<CostAssumptions | null>(null);
   const [autoOverride, setAutoOverride] = useState(false);
+  const [editing, setEditing] = useState(false);
   const { data: defaults } = useSavingsDefaults();
-  const mutation = useSavings();
+  const view = useEstateView<"savings", Record<string, unknown>>({
+    kind: "savings",
+    run: (source, config) => api.savings(source, config),
+  });
 
-  // Persist the estimate so it survives navigation / reload.
+  // Seed the form once: from the assumptions the shown estimate was computed
+  // with (so the inputs match the numbers), else from the server defaults.
   useEffect(() => {
-    if (mutation.data) saveResult("savings", mutation.data);
-  }, [mutation.data, saveResult]);
+    if (!defaults || form !== null) return;
+    const last = view.args as CostAssumptions | undefined;
+    setForm({ ...defaults, ...(last ?? {}) });
+    setAutoOverride((last ?? defaults).automation_factor !== null);
+  }, [defaults, form, view.args]);
 
-  // Seed the assumptions form from server defaults once they arrive.
-  useEffect(() => {
-    if (defaults && form === null) {
-      setForm({ ...defaults });
-      setAutoOverride(defaults.automation_factor !== null);
-    }
-  }, [defaults, form]);
-
-  const report = mutation.data ?? stored?.data ?? null;
-  const staleResult = !mutation.data && isStale(stored, files);
+  const report = view.data;
+  const showForm = !report || editing;
 
   const set = (key: keyof CostAssumptions, v: number | null) =>
     setForm((f) => (f ? { ...f, [key]: v } : f));
 
   const run = () => {
-    if (files.length === 0 || !form) return;
+    if (!form) return;
     const config: Record<string, unknown> = { ...form };
     // When the override is off, let the backend derive automation from coverage.
     config.automation_factor = autoOverride ? (form.automation_factor ?? 0) : null;
-    mutation.mutate({ files, config });
+    view.rerun(config);
+    setEditing(false);
   };
 
-  const reset = () => {
-    mutation.reset();
-    clearResult("savings");
+  const resetDefaults = () => {
     if (defaults) {
       setForm({ ...defaults });
       setAutoOverride(defaults.automation_factor !== null);
@@ -126,52 +119,6 @@ export function SavingsPage({ embedded = false }: { embedded?: boolean }) {
 
   return (
     <div className="space-y-6">
-      {!embedded && (
-        <PageHeader
-          title="Savings & ROI Estimator"
-          description="Build the migration business case — license savings, developer time saved, payback and ROI"
-        >
-          {report && (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => downloadJson(report, "savings-estimate.json")}
-              >
-                <Download className="h-4 w-4" />
-                Export JSON
-              </Button>
-              <Button variant="secondary" size="sm" onClick={reset}>
-                <RotateCcw className="h-4 w-4" />
-                New Estimate
-              </Button>
-            </>
-          )}
-        </PageHeader>
-      )}
-      {embedded && report && (
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => downloadJson(report, "savings-estimate.json")}
-          >
-            <Download className="h-4 w-4" />
-            Export JSON
-          </Button>
-          <Button variant="secondary" size="sm" onClick={reset}>
-            <RotateCcw className="h-4 w-4" />
-            New Estimate
-          </Button>
-        </div>
-      )}
-
-      {staleResult && (
-        <p className="text-xs text-[var(--fg-muted)]">
-          Showing an estimate from a previously loaded estate — re-run to refresh for the current files.
-        </p>
-      )}
-
       {/* Set expectations: a planning estimate, not a quote. */}
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-xs text-[var(--fg-muted)]">
         <Info className="h-4 w-4 shrink-0 mt-0.5" />
@@ -183,9 +130,8 @@ export function SavingsPage({ embedded = false }: { embedded?: boolean }) {
         </span>
       </div>
 
-      {!report && (
+      {showForm && (
         <div className="space-y-4">
-          <FileDropzone files={files} onFilesChange={setFiles} multiple />
 
           {form && (
             <Card className="flex flex-col gap-5">
@@ -262,25 +208,40 @@ export function SavingsPage({ embedded = false }: { embedded?: boolean }) {
           )}
 
           <div className="flex items-center gap-3">
-            <Button onClick={run} disabled={files.length === 0 || !form || mutation.isPending}>
-              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Estimate savings
+            <Button onClick={run} disabled={!form || view.isPending}>
+              {view.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              {report ? "Re-estimate" : "Estimate savings"}
             </Button>
-            {files.length > 0 && (
-              <span className="text-xs text-[var(--fg-muted)]">
-                {files.length} file{files.length === 1 ? "" : "s"} selected
-              </span>
+            <Button variant="ghost" size="sm" onClick={resetDefaults}>
+              <RotateCcw className="h-4 w-4" />
+              Reset to defaults
+            </Button>
+            {report && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
             )}
+            <span className="text-xs text-[var(--fg-muted)]">
+              Uses this project's {view.ctx.workflows.length} workflow{view.ctx.workflows.length === 1 ? "" : "s"}
+            </span>
           </div>
 
-          {mutation.isError && (
+          {view.error && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {mutation.error.message}
+              {view.error.message}
             </div>
           )}
         </div>
       )}
 
+      {report && !showForm && (
+        <div className="flex justify-end">
+          <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+            <Pencil className="h-4 w-4" />
+            Edit assumptions
+          </Button>
+        </div>
+      )}
       {report && <SavingsResults report={report} cur={cur} />}
     </div>
   );

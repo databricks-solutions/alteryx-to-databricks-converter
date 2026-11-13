@@ -21,8 +21,7 @@ from server.services.advise import advise_workflow
 from server.services.portfolio import analyze_portfolio
 from server.services.savings import estimate_savings
 from server.utils.deadline import run_with_timeout
-from server.utils.project_input import resolve_input_files
-from server.utils.validation import read_upload, validate_yxmd_file
+from server.utils.project_input import resolve_input_files, resolve_one_workflow
 
 logger = logging.getLogger("a2d.server.routers.insights")
 
@@ -60,21 +59,28 @@ async def portfolio(
 
 @router.post("/advise")
 async def advise(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    project_id: str | None = Form(None),
+    workflow_id: str | None = Form(None),
+    macros: list[UploadFile] = File(default=[]),
     cloud: str = Form("aws"),
 ) -> dict:
-    """Recommend a cluster size and surface Spark optimization hints."""
-    validate_yxmd_file(file)
-    content = await read_upload(file)
+    """Recommend a cluster size and surface Spark optimization hints.
 
-    logger.info("Advisory for %s (cloud=%s)", file.filename, cloud)
+    The workflow is an upload (``file``, plus ``macros``) or a saved project's
+    (``project_id`` + ``workflow_id``), the same as ``/api/convert``.
+    """
+    wf = await resolve_one_workflow(file, project_id, workflow_id, macros)
+
+    logger.info("Advisory for %s (cloud=%s)", wf.name, cloud)
     try:
         return await run_with_timeout(
             advise_workflow,
-            file.filename or "upload.yxmd",
-            content,
+            wf.name,
+            wf.content,
             cloud,
-            label=f"Advisory for {file.filename}",
+            wf.macros,
+            label=f"Advisory for {wf.name}",
         )
     except ValueError as e:
         logger.warning("Validation error in advisory: %s", e)

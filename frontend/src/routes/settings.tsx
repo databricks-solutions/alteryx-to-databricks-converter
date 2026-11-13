@@ -30,12 +30,6 @@ const CODE_GEN_OPTIONS: CheckboxOption[] = [
     description: "Detect broadcast join, persist, and repartition optimization opportunities",
     preview: "Hint: small lookup table detected — wrap with F.broadcast(...)",
   },
-  {
-    key: "expandMacros",
-    label: "Expand macros",
-    description: "Resolve .yxmc macro references and convert them as inline functions",
-    preview: "# Inlined from CleanseEmail.yxmc (3 nodes)\ndef cleanse_email(df): ...",
-  },
 ];
 
 const EXTRAS_OPTIONS: CheckboxOption[] = [
@@ -88,8 +82,9 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        eyebrow="Reference"
         title="Settings"
-        description="Configure conversion defaults. Settings are persisted in your browser."
+        description="How the converter writes code, for every project. Saved in this browser."
       />
 
       {/* Databricks catalog */}
@@ -98,7 +93,9 @@ export function SettingsPage() {
           Unity Catalog
         </h3>
         <p className="text-xs text-[var(--fg-muted)] mb-4">
-          Specify the catalog and schema used in generated code.
+          The default for where generated code reads and writes tables: notebooks and SQL name them as{" "}
+          <code>catalog.schema.table</code>. New projects start with this; each project can set its own on its
+          Convert step.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>

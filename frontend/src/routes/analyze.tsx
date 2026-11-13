@@ -1,154 +1,73 @@
-import { useEffect } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import { PageHeader } from "@/components/layout/page-header";
-import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
 import { WorkflowTable } from "@/components/analyze/workflow-table";
 import { AnalysisSummary } from "@/components/analyze/analysis-summary";
 import { ToolFrequency } from "@/components/analyze/tool-frequency";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAnalysis } from "@/hooks/use-analysis";
-import { useEstateStore, isStale } from "@/stores/estate";
-import { useConvertBridge } from "@/stores/convert-bridge";
-import { downloadAnalysisCSV } from "@/lib/csv";
+import { Button } from "@/components/ui/button";
+import { useEstateView } from "@/hooks/use-estate-view";
+import { api, type WorkflowAnalysisSummary } from "@/lib/api";
 import { motion } from "motion/react";
-import type { AnalysisResult } from "@/lib/api";
-import {
-  ArrowRight,
-  BarChart3,
-  Loader2,
-  FileText,
-  Network,
-  Gauge,
-  Download,
-  AlertTriangle,
-  RotateCcw,
-} from "lucide-react";
+import { BarChart3, FileText, Network, Gauge, AlertTriangle } from "lucide-react";
 
-export function AnalyzePage({ embedded = false }: { embedded?: boolean }) {
-  const files = useEstateStore((s) => s.files);
-  const setFiles = useEstateStore((s) => s.setFiles);
-  const stored = useEstateStore((s) => s.results.analyze);
-  const saveResult = useEstateStore((s) => s.saveResult);
-  const clearResult = useEstateStore((s) => s.clearResult);
-  const mutation = useAnalysis();
-  const setBridgeWorkflow = useConvertBridge((s) => s.setWorkflowName);
-  const navigate = useNavigate();
-
-  // Persist successful analysis results to the shared estate store.
-  useEffect(() => {
-    if (mutation.data) saveResult("analyze", mutation.data);
-  }, [mutation.data, saveResult]);
-
-  // Fresh result wins; otherwise fall back to the persisted one so navigating
-  // away and back (or reloading) doesn't discard the report.
-  const displayData: AnalysisResult | null = mutation.data ?? stored?.data ?? null;
-  const staleResult = !mutation.data && isStale(stored, files);
-
-  const handleAnalyze = () => {
-    if (files.length === 0) return;
-    mutation.mutate(files);
-  };
-
-  const handleNewAnalysis = () => {
-    mutation.reset();
-    clearResult("analyze");
-  };
-
-  const actions = displayData ? (
-    <div className="flex items-center gap-2">
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() => downloadAnalysisCSV(displayData.workflows)}
-      >
-        <Download className="h-4 w-4" />
-        Export CSV
-      </Button>
-      <Button variant="ghost" size="sm" onClick={handleNewAnalysis}>
-        <RotateCcw className="h-4 w-4" />
-        New Analysis
-      </Button>
-    </div>
-  ) : null;
+/** The per-workflow readiness report for the open project. Runs by itself. */
+export function AnalyzePage() {
+  const view = useEstateView({
+    kind: "analyze",
+    run: (source) => api.analyze(source),
+    auto: true,
+    onResult: (data, ctx) => {
+      const byName: Record<string, WorkflowAnalysisSummary> = {};
+      for (const w of data.workflows) {
+        byName[w.source_file_name ?? w.file_name] = {
+          coverage_percentage: w.coverage_percentage,
+          complexity_score: w.complexity_score,
+          complexity_level: w.complexity_level,
+          migration_priority: w.migration_priority,
+          estimated_effort: w.estimated_effort,
+        };
+      }
+      ctx.afterEstatePass({ analyzed: Object.keys(byName), analysis: byName });
+    },
+  });
+  const displayData = view.data;
 
   return (
     <div className="space-y-6">
-      {!embedded && (
-        <PageHeader
-          title="Analyze Workflows"
-          description="Upload Alteryx files (.yxmd, .yxmc, .yxwz, or .yxzp packages) to assess migration readiness and complexity"
-        >
-          {actions}
-        </PageHeader>
-      )}
-      {embedded && actions && <div className="flex justify-end">{actions}</div>}
+      <p className="text-xs text-[var(--fg-muted)]">
+        Profiles workflow footprint and complexity (tools, coverage, structure). It doesn't measure data volumes or
+        row counts, which depend on the source systems.
+      </p>
 
-      {!embedded && (
-        <p className="text-xs text-[var(--fg-muted)] -mt-2 mb-4">
-          Note: this profiles workflow footprint and complexity (tools, coverage, structure, dependencies). It does not
-          measure data volumes or row counts, which depend on the source systems.
+      {displayData?.skipped_files && displayData.skipped_files.length > 0 && (
+        <p className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-2 text-xs text-[var(--fg-muted)]">
+          Couldn't read {displayData.skipped_files.join(", ")}, so {displayData.skipped_files.length === 1 ? "it isn't" : "they aren't"}{" "}
+          in these numbers. Check the file on the Workflows step.
         </p>
       )}
 
-      {staleResult && (
-        <p className="text-xs text-[var(--fg-muted)]">
-          Showing a report from a previously loaded estate — click Generate Report to refresh for the current files.
-        </p>
-      )}
-
-      {!displayData && (
-        <>
-          <FileDropzone files={files} onFilesChange={setFiles} multiple />
-
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={handleAnalyze}
-              disabled={files.length === 0 || mutation.isPending}
-            >
-              {mutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <BarChart3 className="h-4 w-4" />
-              )}
-              Generate Report
-            </Button>
-          </div>
-        </>
-      )}
-
-      {mutation.isPending && (
-        <div className="space-y-4">
+      {view.isPending && (
+        <div className="space-y-4" role="status" aria-live="polite">
           <div className="text-sm text-[var(--fg-muted)] animate-pulse">
-            Analyzing {files.length} workflow{files.length > 1 ? "s" : ""}...
+            Analyzing {view.ctx.workflows.length} workflow{view.ctx.workflows.length === 1 ? "" : "s"}…
           </div>
           <Skeleton className="h-24 rounded-xl" />
           <Skeleton className="h-64 rounded-xl" />
         </div>
       )}
 
-      {mutation.error && (
+      {view.error && !view.isPending && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           <p className="font-medium mb-1">Analysis failed</p>
-          <p>{mutation.error.message}</p>
-          <div className="mt-2 text-xs text-destructive/70 space-y-1">
-            {mutation.error.message.includes("Failed to fetch") && (
-              <p>Check that the API server is running and accessible.</p>
-            )}
-            {mutation.error.message.includes("422") && (
-              <p>The uploaded file may not be a valid Alteryx file (.yxmd, .yxmc, .yxwz, or .yxzp package).</p>
-            )}
-          </div>
-          <Button variant="ghost" size="sm" className="mt-2" onClick={handleAnalyze}>
-            Retry
+          <p>{view.error.message}</p>
+          <Button variant="ghost" size="sm" className="mt-2" onClick={() => view.rerun()}>
+            Try again
           </Button>
         </div>
       )}
 
-      {displayData && (
+      {displayData && !view.isPending && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -212,27 +131,6 @@ export function AnalyzePage({ embedded = false }: { embedded?: boolean }) {
           {/* Charts */}
           <ToolFrequency data={displayData.tool_frequency} />
 
-          {/* Next steps */}
-          <Card>
-            <h3 className="text-sm font-semibold text-[var(--fg)] mb-2">Next Steps</h3>
-            <ul className="text-sm text-[var(--fg-muted)] space-y-1 list-disc list-inside">
-              <li>Start with High priority / Low effort workflows for quick wins</li>
-              <li>Review unsupported tools and plan manual migration approach</li>
-              <li>Use the Convert page to generate Databricks code for each workflow</li>
-            </ul>
-            <Button
-              size="sm"
-              className="mt-3"
-              onClick={() => {
-                if (displayData?.workflows?.[0]) {
-                  setBridgeWorkflow(displayData.workflows[0].workflow_name);
-                }
-                navigate({ to: "/convert" });
-              }}
-            >
-              Go to Convert <ArrowRight className="h-4 w-4 ml-1" />
-            </Button>
-          </Card>
         </motion.div>
       )}
     </div>

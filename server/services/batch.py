@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -24,13 +25,14 @@ from fastapi import HTTPException
 
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.pipeline import ConversionPipeline, MultiFormatConversionResult
+from server.services import project as project_service
 from server.services.conversion import (
     _serialize_dag,
     _serialize_format_result,
     generate_ddl_dab_files,
 )
 from server.settings import settings
-from server.utils.package import materialize_upload
+from server.utils.package import materialize_upload, write_macro_library
 from server.utils.validation import sanitize_filename
 
 logger = logging.getLogger("a2d.server.services.batch")
@@ -59,6 +61,9 @@ class BatchJob:
     error_message: str | None = None
     subscribers: list[asyncio.Queue] = field(default_factory=list)
     created_at: float = field(default_factory=time.monotonic)
+    # Last time the job made progress (or finished). Eviction counts from here,
+    # so a long batch that is still converting is never cut off mid-run.
+    last_activity: float = field(default_factory=time.monotonic)
     task: asyncio.Task | None = None
 
 
@@ -77,8 +82,8 @@ class JobStore:
         # Full UUID, not a 12-hex-char truncation. Job ids are the only thing
         # guarding a job's status/download/WebSocket endpoints, so a 48-bit value
         # was needlessly guessable for a URL that returns another user's generated
-        # code. (Ownership binding is the real fix — see the tenancy note in
-        # server/routers/history.py — but there is no reason to shorten the id.)
+        # code. (Ownership binding would be the real fix — see the tenancy note in
+        # server/routers/projects.py — but there is no reason to shorten the id.)
         job_id = uuid.uuid4().hex
         job = BatchJob(job_id=job_id, total=total)
         with self._lock:
@@ -100,11 +105,13 @@ class JobStore:
                 job.subscribers.remove(queue)
 
     def evict_expired(self) -> int:
-        """Remove jobs older than the configured TTL. Returns count of evicted jobs."""
+        """Remove jobs idle for longer than the configured TTL: finished jobs a TTL
+        after they finished, running jobs only if they've stopped making progress
+        for a TTL (a stuck job). Returns the number evicted."""
         now = time.monotonic()
         expired_jobs: list[BatchJob] = []
         with self._lock:
-            expired_ids = [jid for jid, job in self._jobs.items() if now - job.created_at > settings.job_ttl_seconds]
+            expired_ids = [jid for jid, job in self._jobs.items() if now - job.last_activity > settings.job_ttl_seconds]
             for jid in expired_ids:
                 expired_jobs.append(self._jobs.pop(jid))
         # Cancel running tasks and notify lingering subscribers outside the lock
@@ -161,9 +168,17 @@ async def create_batch_job(
     include_performance_hints: bool = False,
     generate_ddl: bool = False,
     generate_dab: bool = False,
-    expand_macros: bool = False,
+    expand_macros: bool = True,
+    project_id: str | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
 ) -> str:
-    """Create a multi-format batch job and return job_id. Starts conversion in background."""
+    """Create a multi-format batch job and return job_id. Starts conversion in background.
+
+    With ``project_id`` the files came from a saved project: each workflow that
+    converts is recorded on the project (stage + a small summary) as it finishes.
+    ``macros`` are ``.yxmc`` files every workflow in the run may call (a project's
+    macros, including ones not selected for this run).
+    """
     job = _store.create(total=len(files))
     logger.info("Created batch job %s: %d files (multi-format)", job.job_id, len(files))
     job.task = asyncio.create_task(
@@ -178,6 +193,8 @@ async def create_batch_job(
             generate_ddl=generate_ddl,
             generate_dab=generate_dab,
             expand_macros=expand_macros,
+            project_id=project_id,
+            macros=macros or [],
         )
     )
     return job.job_id
@@ -300,11 +317,14 @@ async def _run_batch(
     include_performance_hints: bool = False,
     generate_ddl: bool = False,
     generate_dab: bool = False,
-    expand_macros: bool = False,
+    expand_macros: bool = True,
+    project_id: str | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
 ) -> None:
     """Run multi-format batch conversion in the background."""
     job.status = JobStatus.RUNNING
     logger.info("Batch job %s started", job.job_id)
+    content_hashes = {name: project_service.content_hash(content) for name, content in files} if project_id else {}
 
     started_at = time.monotonic()
 
@@ -321,7 +341,6 @@ async def _run_batch(
             include_performance_hints=include_performance_hints,
             expand_macros=expand_macros,
         )
-        pipeline = ConversionPipeline(config)
         # A .yxzp bundles its macros; extraction co-locates them, so package-derived
         # files convert with macro expansion. This is scoped to the package's own
         # files — plain .yxmd uploads keep the caller's expand_macros setting rather
@@ -330,6 +349,10 @@ async def _run_batch(
         pkg_pipeline: ConversionPipeline | None = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # The run's shared macros, searched after each workflow's own folder.
+            library = write_macro_library(macros or [], Path(tmpdir))
+            config = dataclasses.replace(config, macro_search_paths=tuple(library))
+            pipeline = ConversionPipeline(config)
             # (filename, workflow_path, was_package)
             file_paths: list[tuple[str, Path, bool]] = []
             # Each upload gets its own subdirectory. sanitize_filename is lossy —
@@ -417,8 +440,32 @@ async def _run_batch(
                     total_warnings += sum(len(fr.warnings) for fr in outcome.formats.values())
                     total_warnings += len(outcome.warnings)
 
+                # The uploaded name, which can differ from file_name for a .yxzp
+                # (file_name is the package's primary workflow). Lets a client map a
+                # result back to the file it sent, or to its project workflow.
+                file_result["source_file_name"] = original_filename
+                if project_id and file_result.get("success"):
+                    # Only if the workflow still holds these bytes: a re-upload
+                    # during the run must not be marked converted by the old one.
+                    try:
+                        await asyncio.to_thread(
+                            project_service.record_conversion,
+                            project_id,
+                            original_filename,
+                            {
+                                "coverage": file_result.get("coverage"),
+                                "best_format": file_result.get("best_format"),
+                                "warnings": len(file_result.get("warnings") or []),
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            },
+                            content_hashes.get(original_filename),
+                        )
+                    except Exception:
+                        logger.exception("Could not record %s on project %s", original_filename, project_id)
+
                 # Progress callback (per-file)
                 job.progress = idx
+                job.last_activity = time.monotonic()
                 job.file_results.append(file_result)
 
                 # Send lightweight WS message (drop heavy 'formats' payload)
@@ -458,6 +505,7 @@ async def _run_batch(
         }
         job.errors_by_kind = errors_by_kind
         job.status = JobStatus.COMPLETED
+        job.last_activity = time.monotonic()
 
         logger.info(
             "Batch job %s completed: %d files (%d ok, %d partial, %d failed)",
@@ -484,6 +532,7 @@ async def _run_batch(
     except Exception:
         logger.exception("Batch job %s failed", job.job_id)
         job.status = JobStatus.FAILED
+        job.last_activity = time.monotonic()
         job.error_message = "Internal batch conversion error"
         error_msg = {"type": "error", "message": job.error_message}
         for q in list(job.subscribers):

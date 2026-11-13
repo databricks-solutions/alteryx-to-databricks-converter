@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { PageHeader } from "@/components/layout/page-header";
-import { FileDropzone } from "@/components/shared/file-dropzone";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -12,9 +10,9 @@ import {
   useReadinessScore,
 } from "@/hooks/use-readiness";
 import { useEstateStore } from "@/stores/estate";
-import { downloadJson } from "@/lib/portfolio-download";
+import { useProjectContext } from "@/hooks/use-project-context";
 import type { ReadinessResult } from "@/lib/api";
-import { ClipboardList, Loader2, RotateCcw, Download, Info, Wand2, Lightbulb } from "lucide-react";
+import { ClipboardList, Loader2, Pencil, Info, Lightbulb } from "lucide-react";
 
 function tierTone(tier: string): "good" | "mid" | "bad" {
   if (tier === "Advanced" || tier === "Ready") return "good";
@@ -26,133 +24,131 @@ function scoreColor(score: number): string {
   return score >= 70 ? "#22c55e" : score >= 45 ? "#eab308" : "#ef4444";
 }
 
-// In-progress answers persist to localStorage so a half-filled questionnaire
-// survives navigation (the score itself persists via the shared estate store).
-const ANSWERS_KEY = "a2d-readiness-answers";
-function loadAnswers(): Record<string, string> {
+// In-progress answers persist per project, so a half-filled questionnaire
+// survives navigation and reloads. The values that came from the estate prefill
+// are kept separately, so a later prefill (after files change) can refresh them
+// without overwriting anything you changed yourself.
+interface SavedAnswers {
+  answers: Record<string, string>;
+  prefilled: Record<string, string>;
+}
+const answersKey = (projectId: string) => `a2d-readiness-answers:${projectId}`;
+function loadAnswers(projectId: string | null): SavedAnswers {
+  const empty = { answers: {}, prefilled: {} };
+  if (!projectId) return empty;
   try {
-    const raw = localStorage.getItem(ANSWERS_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const raw = localStorage.getItem(answersKey(projectId));
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw);
+    // Older saves were just the answers map.
+    return "answers" in parsed ? parsed : { answers: parsed, prefilled: {} };
   } catch {
-    return {};
+    return empty;
   }
 }
-function saveAnswers(a: Record<string, string>) {
+function saveAnswers(projectId: string | null, saved: SavedAnswers) {
+  if (!projectId) return;
   try {
-    localStorage.setItem(ANSWERS_KEY, JSON.stringify(a));
+    localStorage.setItem(answersKey(projectId), JSON.stringify(saved));
   } catch {
     /* localStorage unavailable — non-fatal */
   }
 }
 
-export function ReadinessPage({ embedded = false }: { embedded?: boolean }) {
+/** The organizational readiness self-assessment for the open project. The
+ * estate questions are pre-answered from the project's workflows. */
+export function ReadinessPage() {
+  const ctx = useProjectContext();
+  const projectId = ctx.projectId;
   const { data: bank, isLoading } = useReadinessQuestions();
   const prefill = useReadinessPrefill();
   const scoreMut = useReadinessScore();
-  const files = useEstateStore((s) => s.files);
-  const setFiles = useEstateStore((s) => s.setFiles);
-  const stored = useEstateStore((s) => s.results.readiness);
+  const stored = useEstateStore((s) => (projectId ? s.byProject[projectId]?.readiness : undefined));
   const saveResult = useEstateStore((s) => s.saveResult);
   const clearResult = useEstateStore((s) => s.clearResult);
-  const [answers, setAnswers] = useState<Record<string, string>>(() => loadAnswers());
-  const result = scoreMut.data ?? stored?.data ?? null;
+  const [{ answers, prefilled }, setSaved] = useState<SavedAnswers>(() => loadAnswers(projectId));
+  const prefilledFor = useRef<string | null>(null);
+  const result = stored?.data ?? null;
+  // The score is kept when files change (it's your answers), but say so.
+  const filesChanged = stored != null && stored.signature !== ctx.signature;
 
-  // Persist the score so it survives navigation / reload.
   useEffect(() => {
-    if (scoreMut.data) saveResult("readiness", scoreMut.data);
-  }, [scoreMut.data, saveResult]);
+    saveAnswers(projectId, { answers, prefilled });
+  }, [projectId, answers, prefilled]);
 
-  // Persist in-progress answers as they change.
+  // Pre-answer the estate questions from the project's files, once per file set.
+  // A question you answered yourself keeps your answer.
+  const { mutate: runPrefill } = prefill;
   useEffect(() => {
-    saveAnswers(answers);
-  }, [answers]);
+    if (!ctx.source || ctx.workflows.length === 0 || prefilledFor.current === ctx.signature) return;
+    prefilledFor.current = ctx.signature;
+    runPrefill(
+      { source: ctx.source },
+      {
+        onSuccess: (res) =>
+          setSaved((cur) => {
+            const next = { ...cur.answers };
+            for (const [q, v] of Object.entries(res.answers)) {
+              const untouched = next[q] === undefined || next[q] === cur.prefilled[q];
+              if (untouched) next[q] = v;
+            }
+            return { answers: next, prefilled: { ...cur.prefilled, ...res.answers } };
+          }),
+      },
+    );
+  }, [ctx.source, ctx.workflows.length, ctx.signature, runPrefill]);
 
   const totalQuestions = bank?.dimensions.reduce((n, d) => n + d.questions.length, 0) ?? 0;
   const answeredCount = Object.values(answers).filter((v) => v).length;
 
-  const pick = (qid: string, value: string) => setAnswers((a) => ({ ...a, [qid]: value }));
+  const pick = (qid: string, value: string) => setSaved((cur) => ({ ...cur, answers: { ...cur.answers, [qid]: value } }));
 
-  const runPrefill = () => {
-    if (files.length === 0) return;
-    prefill.mutate(
-      { files },
-      { onSuccess: (res) => setAnswers((a) => ({ ...a, ...res.answers })) },
+  const submit = () => {
+    if (answeredCount === 0 || !projectId) return;
+    scoreMut.mutate(
+      { answers },
+      { onSuccess: (data) => saveResult(projectId, "readiness", data, ctx.signature) },
     );
   };
 
-  const submit = () => {
-    if (answeredCount === 0) return;
-    scoreMut.mutate({ answers });
-  };
-
-  const reset = () => {
+  const editAnswers = () => {
+    if (projectId) clearResult(projectId, "readiness");
     scoreMut.reset();
-    clearResult("readiness");
-    setAnswers({});
-    prefill.reset();
   };
-
-  const actions = result ? (
-    <>
-      <Button variant="secondary" size="sm" onClick={() => downloadJson(result, "readiness-assessment.json")}>
-        <Download className="h-4 w-4" />
-        Export JSON
-      </Button>
-      <Button variant="secondary" size="sm" onClick={reset}>
-        <RotateCcw className="h-4 w-4" />
-        Start Over
-      </Button>
-    </>
-  ) : null;
 
   return (
     <div className="space-y-6">
-      {!embedded && (
-        <PageHeader
-          title="Migration Readiness"
-          description="An Alteryx→Databricks self-assessment — score your readiness and get tailored tips"
-        >
-          {actions}
-        </PageHeader>
-      )}
-      {embedded && actions && <div className="flex justify-end gap-2">{actions}</div>}
-
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-xs text-[var(--fg-muted)]">
         <Info className="h-4 w-4 shrink-0 mt-0.5" />
         <span>
-          A deterministic self-assessment (no AI). Answer what you can — partial answers still score. Distinct from the{" "}
-          <strong className="text-[var(--fg)]">Profiler</strong>, which analyzes your workflow files; this scores your{" "}
-          organizational readiness.
+          A deterministic self-assessment (no AI) of your organization's readiness. Answer what you can — partial
+          answers still score.{" "}
+          {prefill.isPending
+            ? "Pre-answering the estate questions from this project's workflows…"
+            : prefill.data
+              ? `The estate questions were pre-answered from this project's ${prefill.data.workflow_count} workflow(s); you can change any of them.`
+              : null}
         </span>
       </div>
 
+      {result && filesChanged && (
+        <p className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-2 text-xs text-[var(--fg-muted)]">
+          The project's workflows changed since this score. The estate answers may be different now: choose Edit
+          answers and score again to include them.
+        </p>
+      )}
+
+      {result && (
+        <div className="flex justify-end">
+          <Button variant="secondary" size="sm" onClick={editAnswers}>
+            <Pencil className="h-4 w-4" />
+            Edit answers
+          </Button>
+        </div>
+      )}
+
       {!result && (
         <>
-          {/* Optional smart prefill from the actual estate. */}
-          <Card className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Wand2 className="h-4 w-4 text-[var(--ring)]" />
-              <h2 className="text-sm font-semibold text-[var(--fg)]">Prefill from your estate (optional)</h2>
-            </div>
-            <p className="text-xs text-[var(--fg-muted)]">
-              Upload your Alteryx workflows and we'll pre-answer the estate questions from the actual files
-              (count, macros, advanced tools). You can still edit every answer.
-            </p>
-            <FileDropzone files={files} onFilesChange={setFiles} multiple />
-            <div className="flex items-center gap-3">
-              <Button variant="secondary" size="sm" onClick={runPrefill} disabled={files.length === 0 || prefill.isPending}>
-                {prefill.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                Prefill estate answers
-              </Button>
-              {prefill.data && (
-                <span className="text-xs text-[var(--fg-muted)]">
-                  Pre-filled {Object.keys(prefill.data.answers).length} answer(s) from {prefill.data.workflow_count} workflow(s)
-                </span>
-              )}
-              {prefill.isError && <span className="text-xs text-destructive">{prefill.error.message}</span>}
-            </div>
-          </Card>
-
           {/* Questionnaire */}
           {isLoading && <Skeleton className="h-96" />}
           {bank && (

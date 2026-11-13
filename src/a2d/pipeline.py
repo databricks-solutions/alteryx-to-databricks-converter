@@ -101,10 +101,10 @@ class ConversionPipeline:
         parsed = self._frontend.parse(path)
 
         # 2. Build IR DAG
-        dag = self._build_dag(parsed)
+        dag, macro_notes = self._build_dag_with_notes(parsed)
 
         # 3. Validate DAG
-        validation_issues = dag.validate()
+        validation_issues = macro_notes + dag.validate()
 
         # 4. Generate code
         generator = self._get_generator()
@@ -180,6 +180,10 @@ class ConversionPipeline:
 
     def _build_dag(self, parsed: ParsedWorkflow) -> WorkflowDAG:
         """Build an IR DAG from a parsed workflow."""
+        return self._build_dag_with_notes(parsed)[0]
+
+    def _build_dag_with_notes(self, parsed: ParsedWorkflow) -> tuple[WorkflowDAG, list[str]]:
+        """Build the IR DAG, plus a warning for each macro that couldn't be expanded."""
         dag = WorkflowDAG()
         # Node types to exclude from the DAG (visual-only, no data transformation)
 
@@ -216,19 +220,21 @@ class ConversionPipeline:
             )
 
         if self.config.expand_macros:
-            dag = self._expand_macros(parsed, dag)
+            return self._expand_macros(parsed, dag)
 
-        return dag
+        return dag, []
 
-    def _expand_macros(self, parsed: ParsedWorkflow, dag: WorkflowDAG) -> WorkflowDAG:
+    def _expand_macros(self, parsed: ParsedWorkflow, dag: WorkflowDAG) -> tuple[WorkflowDAG, list[str]]:
         """Inline referenced .yxmc macros into the DAG (best-effort).
 
-        Unresolvable macros are left in place so the workflow still converts;
-        their references are logged. Only enabled when ``config.expand_macros``.
+        Unresolvable macros are left in place so the workflow still converts, and
+        each one comes back as a warning, so a missing macro is visible in the
+        result rather than only in the server log. Only enabled when
+        ``config.expand_macros``.
         """
-        from a2d.macro.engine import MacroExpansionEngine
+        from a2d.macro.engine import MacroExpansionEngine, unresolved_macro_warning
 
-        engine = MacroExpansionEngine(self.config)
+        engine = MacroExpansionEngine(self.config, search_paths=list(self.config.macro_search_paths))
         result = engine.expand(parsed, dag)
         if result.expanded_calls:
             logger.info(
@@ -239,7 +245,7 @@ class ConversionPipeline:
             )
         for unresolved in result.unresolved:
             logger.warning("Left macro unresolved (%s): %s", unresolved.reason, unresolved.macro_path)
-        return result.dag
+        return result.dag, [unresolved_macro_warning(u) for u in result.unresolved] + result.notes
 
     def _get_generator(self) -> CodeGenerator:
         """Return the appropriate code generator for the configured output format."""
@@ -261,10 +267,10 @@ class ConversionPipeline:
         parsed = self._frontend.parse(path)
 
         # 2. Build IR DAG (once)
-        dag = self._build_dag(parsed)
+        dag, macro_notes = self._build_dag_with_notes(parsed)
 
         # 3. Validate DAG (once) — these warnings are format-agnostic
-        validation_issues = list(dag.validate())
+        validation_issues = macro_notes + list(dag.validate())
 
         workflow_name = path.stem
 

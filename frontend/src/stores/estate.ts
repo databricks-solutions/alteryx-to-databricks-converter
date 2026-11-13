@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { safeStorage } from "@/stores/safe-storage";
 import type {
   AnalysisResult,
   AssessResult,
@@ -9,27 +10,15 @@ import type {
 } from "@/lib/api";
 
 /**
- * The "current estate" — one set of uploaded Alteryx files shared across every
- * analysis surface (Assess report, difficulty tiers, portfolio, savings,
- * readiness). Uploading on any surface populates this, so a user analyzes the
- * same estate five different ways without re-uploading it each time.
+ * Cached analysis results, per project.
  *
- * Two tiers of state with different lifetimes:
- *   - `files` lives IN MEMORY only. A `File` can't be serialized to
- *     localStorage, so it survives navigation within a session but not a full
- *     reload. That still kills the "re-drop the same files on every tab" churn.
- *   - `results` are the derived, JSON-serializable API responses. They ARE
- *     persisted, so navigating away (or reloading) shows prior work instead of a
- *     blank upload form. Each result is stamped with the file signature that
- *     produced it so a stale result can be labeled.
+ * The files themselves live in the project (on the server, or in the browser
+ * for a session-only project); this only keeps what each view computed from
+ * them, so switching tabs or steps doesn't recompute. Each result is stamped
+ * with the project's file signature: when workflows are added, removed or
+ * replaced the signature changes, the cached result no longer matches, and the
+ * view recomputes by itself.
  */
-
-export function filesSignature(files: File[]): string {
-  return files
-    .map((f) => `${f.name}:${f.size}`)
-    .sort()
-    .join("|");
-}
 
 /** The payload type stored under each result kind. */
 export interface EstateResultData {
@@ -45,68 +34,65 @@ export type EstateResultKind = keyof EstateResultData;
 export interface StoredResult<T> {
   data: T;
   at: string; // ISO timestamp
-  signature: string; // files signature that produced it
+  signature: string; // project file signature that produced it
+  /** The inputs it was computed with (savings assumptions, tier overrides), so a
+   * view shows the same inputs next to the result instead of fresh defaults. */
+  args?: unknown;
 }
+
+// Keep cached results for this many projects (most recently used); older ones
+// are dropped so localStorage can't fill up over months of use.
+const MAX_PROJECTS = 12;
 
 type ResultMap = {
   [K in EstateResultKind]?: StoredResult<EstateResultData[K]>;
 };
 
 interface EstateState {
-  files: File[];
-  results: ResultMap;
-  setFiles: (files: File[]) => void;
-  clearFiles: () => void;
-  saveResult: <K extends EstateResultKind>(kind: K, data: EstateResultData[K]) => void;
-  clearResult: (kind: EstateResultKind) => void;
-  clearAll: () => void;
+  byProject: Record<string, ResultMap>;
+  saveResult: <K extends EstateResultKind>(
+    projectId: string,
+    kind: K,
+    data: EstateResultData[K],
+    signature: string,
+    args?: unknown,
+  ) => void;
+  clearResult: (projectId: string, kind: EstateResultKind) => void;
+  forgetProject: (projectId: string) => void;
 }
 
 export const useEstateStore = create<EstateState>()(
   persist(
-    (set, get) => ({
-      files: [],
-      results: {},
+    (set) => ({
+      byProject: {},
 
-      setFiles: (files) => set({ files }),
-      clearFiles: () => set({ files: [] }),
-
-      saveResult: (kind, data) =>
-        set((s) => ({
-          results: {
-            ...s.results,
-            [kind]: {
-              data,
-              at: new Date().toISOString(),
-              signature: filesSignature(get().files),
-            },
-          },
-        })),
-
-      clearResult: (kind) =>
+      saveResult: (projectId, kind, data, signature, args) =>
         set((s) => {
-          const results = { ...s.results };
-          delete results[kind];
-          return { results };
+          const { [projectId]: current, ...others } = s.byProject;
+          // Most recently used last; drop the oldest beyond the cap.
+          const kept = Object.entries(others).slice(-(MAX_PROJECTS - 1));
+          return {
+            byProject: {
+              ...Object.fromEntries(kept),
+              [projectId]: { ...current, [kind]: { data, at: new Date().toISOString(), signature, args } },
+            },
+          };
         }),
 
-      clearAll: () => set({ files: [], results: {} }),
+      clearResult: (projectId, kind) =>
+        set((s) => {
+          const current = { ...s.byProject[projectId] };
+          delete current[kind];
+          return { byProject: { ...s.byProject, [projectId]: current } };
+        }),
+
+      forgetProject: (projectId) =>
+        set((s) => {
+          const next = { ...s.byProject };
+          delete next[projectId];
+          return { byProject: next };
+        }),
     }),
-    {
-      name: "a2d-estate",
-      // Only the derived results are persistable; File objects are not.
-      partialize: (s) => ({ results: s.results }),
-    },
+    { name: "a2d-estate-v2", storage: safeStorage },
   ),
 );
-
-/**
- * True when a stored result was computed from a different file set than the one
- * currently loaded — so a view can label it "from a previously loaded estate."
- * A result with no files currently loaded is not considered stale (nothing to
- * compare against), so persisted work still shows after a reload.
- */
-export function isStale(stored: StoredResult<unknown> | undefined, files: File[]): boolean {
-  if (!stored || files.length === 0) return false;
-  return stored.signature !== filesSignature(files);
-}

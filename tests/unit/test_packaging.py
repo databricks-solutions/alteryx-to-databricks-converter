@@ -94,7 +94,7 @@ class TestFindPrimaryWorkflow:
         assert find_primary_workflow([p, tmp_path / "m.yxmc"], tmp_path) == p
 
     def test_no_workflow(self, tmp_path):
-        with pytest.raises(PackageError, match="no .yxmd or .yxwz"):
+        with pytest.raises(PackageError, match=r"no \.yxmd or \.yxwz"):
             find_primary_workflow([tmp_path / "only.yxmc"], tmp_path)
 
     def test_prefers_root_level_when_multiple(self, tmp_path):

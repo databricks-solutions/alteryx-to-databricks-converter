@@ -27,14 +27,17 @@ class BatchAnalyzer:
     a ``.yxzp`` (which extracts its macros co-located) analyzes the macro's real
     interior instead of classifying the macro-call node as an unsupported Unknown.
     Unresolvable macros are left in place, so this never fails a workflow.
+    ``macro_search_paths`` are extra directories to find macros in, besides each
+    workflow's own (e.g. a migration project's shared ``.yxmc`` files).
     """
 
-    def __init__(self, *, expand_macros: bool = False) -> None:
+    def __init__(self, *, expand_macros: bool = False, macro_search_paths: list[Path] | None = None) -> None:
         self._parser = WorkflowParser()
         self._complexity_analyzer = ComplexityAnalyzer()
         self._coverage_analyzer = CoverageAnalyzer()
         self._readiness_assessor = ReadinessAssessor()
         self._expand_macros = expand_macros
+        self._macro_search_paths = list(macro_search_paths or [])
 
     def analyze_files(self, paths: list[Path]) -> list[WorkflowAnalysis]:
         """Analyze multiple workflow files and return analysis results."""
@@ -81,13 +84,14 @@ class BatchAnalyzer:
 
         # Inline referenced macros (best-effort) when enabled, so a macro-call
         # node analyzes as its real interior rather than an unsupported Unknown.
-        # Resolution is confined to the workflow's own directory, where a .yxzp's
-        # macros are extracted co-located. Unresolvable macros are left in place.
+        # Resolution is confined to the workflow's own directory (where a .yxzp's
+        # macros are extracted co-located) and the configured search paths.
+        # Unresolvable macros are left in place.
         if self._expand_macros:
             from a2d.macro.engine import MacroExpansionEngine
 
             try:
-                result = MacroExpansionEngine(config).expand(parsed, dag)
+                result = MacroExpansionEngine(config, search_paths=self._macro_search_paths).expand(parsed, dag)
                 return result.dag
             except Exception as exc:  # never let macro expansion break analysis
                 logger.warning("Macro expansion skipped for %s: %s", parsed.file_path, exc)

@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { PageHeader } from "@/components/layout/page-header";
-import { FileDropzone } from "@/components/shared/file-dropzone";
 import { MetricCard } from "@/components/shared/metric-card";
 import { ToolDifficulty, DifficultyDistribution } from "@/components/assess/tool-difficulty";
 import { ProfilerSettings } from "@/components/assess/profiler-settings";
@@ -9,9 +7,9 @@ import { tierColor } from "@/components/assess/tier-meta";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAssess, useAssessDefaults } from "@/hooks/use-assess";
-import { useEstateStore, isStale } from "@/stores/estate";
-import type { AssessResult } from "@/lib/api";
+import { useAssessDefaults } from "@/hooks/use-assess";
+import { useEstateView } from "@/hooks/use-estate-view";
+import { api } from "@/lib/api";
 import {
   Workflow,
   Boxes,
@@ -19,65 +17,9 @@ import {
   Database,
   Braces,
   Ruler,
-  Download,
-  RotateCcw,
   Loader2,
   Clock,
 } from "lucide-react";
-
-function downloadBlob(filename: string, content: string, mime: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function toCsv(result: AssessResult): string {
-  const header = [
-    "workflow_name",
-    "file_name",
-    "node_count",
-    "connection_count",
-    "unique_tool_types",
-    "coverage_percentage",
-    "complexity_level",
-    "complexity_score",
-    "unsupported_count",
-    "expression_count",
-    "max_dag_depth",
-    "has_macros",
-    "migration_priority",
-    "estimated_effort",
-    "estimated_hours",
-  ];
-  // RFC-4180 quoting: workflow names can contain commas, quotes, or newlines,
-  // which would otherwise shift columns or corrupt the export.
-  const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
-  const rows = result.workflows.map((w) =>
-    [
-      w.workflow_name,
-      w.file_name,
-      w.node_count,
-      w.connection_count,
-      w.unique_tool_types,
-      w.coverage_percentage.toFixed(1),
-      w.complexity_level,
-      w.complexity_score.toFixed(1),
-      w.unsupported_count,
-      w.expression_count,
-      w.max_dag_depth,
-      w.has_macros ? "yes" : "no",
-      w.migration_priority,
-      w.estimated_effort,
-      w.estimated_hours ?? "",
-    ]
-      .map(esc)
-      .join(","),
-  );
-  return [header.map(esc).join(","), ...rows].join("\n");
-}
 
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
@@ -88,35 +30,38 @@ function StatRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function AssessPage({ embedded = false }: { embedded?: boolean }) {
-  const files = useEstateStore((s) => s.files);
-  const setFiles = useEstateStore((s) => s.setFiles);
-  const stored = useEstateStore((s) => s.results.profile);
-  const saveResult = useEstateStore((s) => s.saveResult);
-  const clearResult = useEstateStore((s) => s.clearResult);
+/** Tool-by-difficulty profile of the open project. Runs by itself with the
+ * default tiers; adjust the tiers (or turn on hour estimates) and re-run. */
+export function AssessPage() {
   const [hours, setHours] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [categoryTiers, setCategoryTiers] = useState<Record<string, string>>({});
   const [toolOverrides, setToolOverrides] = useState<Record<string, string>>({});
-  const mutation = useAssess();
   const { data: defaults } = useAssessDefaults();
+  const view = useEstateView<"profile", { hours?: boolean; config?: Record<string, unknown> }>({
+    kind: "profile",
+    run: (source, args) => api.assess(source, args),
+    auto: true,
+    onResult: (data, ctx) => ctx.afterEstatePass({ analyzed: data.analyzed_files ?? [] }),
+  });
 
-  // Persist the profile so switching views / reloading keeps it.
+  // Seed the tier editor once: from the settings the shown profile was run with
+  // (so the inputs match the numbers), else from the server defaults.
+  const seeded = useRef(false);
   useEffect(() => {
-    if (mutation.data) saveResult("profile", mutation.data);
-  }, [mutation.data, saveResult]);
+    if (seeded.current || !defaults) return;
+    seeded.current = true;
+    const last = view.args?.config as
+      | { category_tiers?: Record<string, string>; tool_overrides?: Record<string, string> }
+      | undefined;
+    setCategoryTiers({ ...defaults.category_tiers, ...(last?.category_tiers ?? {}) });
+    setToolOverrides({ ...(last?.tool_overrides ?? {}) });
+    setHours(Boolean(view.args?.hours));
+  }, [defaults, view.args]);
 
-  // Seed the tier editor from the server defaults once they arrive.
-  useEffect(() => {
-    if (defaults && Object.keys(categoryTiers).length === 0) {
-      setCategoryTiers({ ...defaults.category_tiers });
-    }
-  }, [defaults, categoryTiers]);
-
-  const result = mutation.data ?? stored?.data ?? null;
-  const staleResult = !mutation.data && isStale(stored, files);
+  const result = view.data;
 
   const runProfile = () => {
-    if (files.length === 0) return;
     // Only send overrides that differ from the server defaults.
     const categoryChanged =
       defaults &&
@@ -124,125 +69,76 @@ export function AssessPage({ embedded = false }: { embedded?: boolean }) {
     const config: Record<string, unknown> = {};
     if (categoryChanged) config.category_tiers = categoryTiers;
     if (Object.keys(toolOverrides).length > 0) config.tool_overrides = toolOverrides;
-    mutation.mutate({ files, hours, config: Object.keys(config).length ? config : undefined });
+    view.rerun({ hours, config: Object.keys(config).length ? config : undefined });
+    setShowSettings(false);
   };
-
-  const reset = () => {
-    mutation.reset();
-    clearResult("profile");
-    // Keep the shared estate files and the tier customizations so a re-run
-    // reuses them rather than forcing the user to redo both.
-  };
-
-  const actions = result ? (
-    <>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() => downloadBlob("migration_profile.csv", toCsv(result), "text/csv")}
-      >
-        <Download className="h-4 w-4" />
-        CSV
-      </Button>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() =>
-          downloadBlob("migration_profile.json", JSON.stringify(result, null, 2), "application/json")
-        }
-      >
-        <Download className="h-4 w-4" />
-        JSON
-      </Button>
-      <Button variant="ghost" size="sm" onClick={reset}>
-        <RotateCcw className="h-4 w-4" />
-        New
-      </Button>
-    </>
-  ) : null;
 
   return (
-    <div>
-      {!embedded && (
-        <PageHeader
-          title="Migration Profiler"
-          description="Profile an Alteryx estate: footprint, complexity, and tool-by-difficulty breakdown"
+    <div className="flex flex-col gap-6">
+      {/* Optional tuning — inputs, not uploads. */}
+      <Card className="flex flex-col gap-4">
+        <button
+          className="flex items-center gap-2 text-left text-sm font-semibold text-[var(--fg)]"
+          onClick={() => setShowSettings((v) => !v)}
+          aria-expanded={showSettings}
         >
-          {actions}
-        </PageHeader>
-      )}
-      {embedded && actions && <div className="flex justify-end gap-2 mb-4">{actions}</div>}
-
-      {staleResult && (
-        <p className="text-xs text-[var(--fg-muted)] mb-4">
-          Showing a profile from a previously loaded estate — re-run to refresh for the current files.
-        </p>
-      )}
-
-      {!embedded && (
-        <p className="text-xs text-[var(--fg-muted)] -mt-4 mb-6">
-          Note: this profiles workflow footprint and complexity (tools, coverage, structure, dependencies). It does not
-          measure data volumes or row counts, which depend on the source systems.
-        </p>
-      )}
-
-      {/* Upload */}
-      {!result && !mutation.isPending && (
-        <Card className="flex flex-col gap-5">
-          <FileDropzone files={files} onFilesChange={setFiles} multiple />
-
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] p-3">
-            <input
-              type="checkbox"
-              checked={hours}
-              onChange={(e) => setHours(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[var(--ring)]"
-            />
-            <span className="text-sm text-[var(--fg)]">
-              Include effort estimate (hours)
-              <span className="mt-0.5 block text-xs text-[var(--fg-muted)]">
-                Model-based estimate from per-tier anchors. Off by default — treat any hours as indicative, not a quote.
+          <Ruler className="h-4 w-4 text-[var(--ring)]" />
+          Adjust difficulty tiers and effort estimate
+          <span className="ml-auto text-xs font-normal text-[var(--fg-muted)]">
+            {showSettings ? "Hide" : "Optional"}
+          </span>
+        </button>
+        {showSettings && (
+          <>
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] p-3">
+              <input
+                type="checkbox"
+                checked={hours}
+                onChange={(e) => setHours(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-[var(--ring)]"
+              />
+              <span className="text-sm text-[var(--fg)]">
+                Include effort estimate (hours)
+                <span className="mt-0.5 block text-xs text-[var(--fg-muted)]">
+                  Rule-based estimate from per-tier hour anchors. Treat any hours as indicative, not a quote.
+                </span>
               </span>
-            </span>
-          </label>
-
-          {defaults && (
-            <ProfilerSettings
-              defaults={defaults}
-              value={categoryTiers}
-              onChange={setCategoryTiers}
-              toolOverrides={toolOverrides}
-              onToolOverridesChange={setToolOverrides}
-            />
-          )}
-
-          <div className="flex items-center gap-3">
-            <Button onClick={runProfile} disabled={files.length === 0}>
-              <Ruler className="h-4 w-4" />
-              Profile estate
-            </Button>
-            {files.length > 0 && (
-              <span className="text-xs text-[var(--fg-muted)]">
-                {files.length} file{files.length === 1 ? "" : "s"} selected
-              </span>
+            </label>
+            {defaults && (
+              <ProfilerSettings
+                defaults={defaults}
+                value={categoryTiers}
+                onChange={setCategoryTiers}
+                toolOverrides={toolOverrides}
+                onToolOverridesChange={setToolOverrides}
+              />
             )}
-          </div>
-
-          {mutation.isError && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-500">
-              <p className="font-medium">Profiling failed</p>
-              <p className="mt-1 text-[var(--fg-muted)]">{mutation.error.message}</p>
+            <div>
+              <Button size="sm" onClick={runProfile} disabled={view.isPending}>
+                <Ruler className="h-4 w-4" />
+                Re-run with these settings
+              </Button>
             </div>
-          )}
-        </Card>
+          </>
+        )}
+      </Card>
+
+      {view.error && !view.isPending && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+          <p className="font-medium">Profiling failed</p>
+          <p className="mt-1 text-[var(--fg-muted)]">{view.error.message}</p>
+          <Button variant="ghost" size="sm" className="mt-2" onClick={() => view.rerun()}>
+            Try again
+          </Button>
+        </div>
       )}
 
       {/* Loading */}
-      {mutation.isPending && (
+      {view.isPending && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Profiling {files.length} workflow{files.length === 1 ? "" : "s"}…
+            Profiling {view.ctx.workflows.length} workflow{view.ctx.workflows.length === 1 ? "" : "s"}…
           </div>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -254,7 +150,7 @@ export function AssessPage({ embedded = false }: { embedded?: boolean }) {
       )}
 
       {/* Results */}
-      {result && (
+      {result && !view.isPending && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -317,7 +213,7 @@ export function AssessPage({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </div>
               <p className="text-[11px] text-[var(--fg-muted)]">
-                Model-based estimate from configurable per-tier anchors, not a quote. Conversion effort varies with team
+                Rule-based estimate from configurable per-tier hour anchors, not a quote. Conversion effort varies with team
                 skills and data specifics.
               </p>
             </Card>

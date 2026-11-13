@@ -65,9 +65,10 @@ class TestExpansion:
         engine = MacroExpansionEngine()
         engine.expand(parsed, base)
         # Second expand reuses the cached definition (same object).
-        first = engine._defn_cache["macros/standardcleanse.yxmc"]
+        (key,) = engine._defn_cache
+        first = engine._defn_cache[key]
         engine.expand(parsed, base)
-        assert engine._defn_cache["macros/standardcleanse.yxmc"] is first
+        assert engine._defn_cache[key] is first
 
 
 class TestUnresolved:

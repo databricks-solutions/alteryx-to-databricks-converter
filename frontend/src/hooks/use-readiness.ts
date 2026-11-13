@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   api,
+  type EstateSource,
   type ReadinessPrefill,
   type ReadinessQuestions,
   type ReadinessResult,
@@ -25,7 +26,7 @@ export function useReadinessScore() {
 }
 
 export function useReadinessPrefill() {
-  return useMutation<ReadinessPrefill, Error, { files: File[] }>({
-    mutationFn: ({ files }) => api.readinessPrefill(files),
+  return useMutation<ReadinessPrefill, Error, { source: EstateSource }>({
+    mutationFn: ({ source }) => api.readinessPrefill(source),
   });
 }

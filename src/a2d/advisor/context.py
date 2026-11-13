@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import IRNode, UnsupportedNode
+from a2d.macro.detect import macro_file_name, macro_path_for_ir_node
 from a2d.observability.deploy_status import derive_deploy_status
 from a2d.observability.warning_categorization import (
     CategorizedWarnings,
@@ -196,6 +197,42 @@ def build_migration_context(
         n.node_id: n for n in dag.all_nodes() if isinstance(n, UnsupportedNode)
     }
     for node_id, node in sorted(unsupported_by_id.items()):
+        macro = macro_path_for_ir_node(node)
+        if (
+            macro
+            and node.unsupported_reason.startswith(f"Macro {macro_file_name(macro)} wasn't expanded:")
+            and ("not found" not in node.unsupported_reason)
+        ):
+            # Found but deliberately not inlined (a batch or iterative macro, a
+            # macro that calls itself): the reason says why.
+            gaps.append(
+                Gap(
+                    kind="unsupported_tool",
+                    summary=node.unsupported_reason.rstrip("."),
+                    node_id=node_id,
+                    tool_type="Macro",
+                    detail="Rewrite this step by hand from the macro.",
+                    original_configuration=dict(node.original_configuration),
+                    unsupported_reason=node.unsupported_reason,
+                )
+            )
+            continue
+        if macro:
+            # A macro call whose .yxmc wasn't available. Its steps are known only
+            # to the macro file, so the fix is to supply it, not to guess them.
+            name = macro_file_name(macro)
+            gaps.append(
+                Gap(
+                    kind="unsupported_tool",
+                    summary=f"Macro {name} wasn't available, so its steps weren't converted",
+                    node_id=node_id,
+                    tool_type="Macro",
+                    detail=f"Supply {name} with the workflow (in the app, add it to the project) and convert again.",
+                    original_configuration=dict(node.original_configuration),
+                    unsupported_reason=node.unsupported_reason,
+                )
+            )
+            continue
         gaps.append(
             Gap(
                 kind="unsupported_tool",

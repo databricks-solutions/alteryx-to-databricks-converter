@@ -1,20 +1,26 @@
 import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import type { WorkflowAnalysis } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { useConvertBridge } from "@/stores/convert-bridge";
 import { motion } from "motion/react";
-import { ArrowUpDown, ArrowRightLeft } from "lucide-react";
+import { ArrowUpDown } from "lucide-react";
 
 interface WorkflowTableProps {
   workflows: WorkflowAnalysis[];
 }
 
-const priorityVariant: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
-  High: "success",
+// Priority is "do this first", not good/bad, so it uses the accent and grey.
+const priorityVariant: Record<string, "default" | "secondary"> = {
+  High: "default",
+  Medium: "secondary",
+  Low: "secondary",
+};
+
+// Effort is a cost: low is good, high is the warning.
+const effortVariant: Record<string, "success" | "warning" | "destructive" | "secondary"> = {
+  Low: "success",
   Medium: "warning",
-  Low: "destructive",
+  High: "destructive",
+  "Very High": "destructive",
 };
 
 type SortKey = "workflow_name" | "node_count" | "coverage_percentage" | "complexity_score" | "migration_priority";
@@ -25,7 +31,6 @@ export function WorkflowTable({ workflows }: WorkflowTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("coverage_percentage");
   const [sortAsc, setSortAsc] = useState(false);
   const [filter, setFilter] = useState("");
-  const setConvertHint = useConvertBridge((s) => s.setWorkflowName);
 
   const sorted = useMemo(() => {
     let filtered = workflows;
@@ -81,7 +86,6 @@ export function WorkflowTable({ workflows }: WorkflowTableProps) {
               <SortHeader label="Complexity" sortKey="complexity_score" current={sortKey} asc={sortAsc} onSort={toggleSort} align="right" />
               <SortHeader label="Priority" sortKey="migration_priority" current={sortKey} asc={sortAsc} onSort={toggleSort} align="center" />
               <th className="text-center px-4 py-3 font-medium text-[var(--fg-muted)]">Effort</th>
-              <th className="text-center px-4 py-3 font-medium text-[var(--fg-muted)]">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -105,17 +109,9 @@ export function WorkflowTable({ workflows }: WorkflowTableProps) {
                   </Badge>
                 </td>
                 <td className="px-4 py-3 text-center">
-                  <Badge variant={priorityVariant[w.estimated_effort] ?? "secondary"}>
+                  <Badge variant={effortVariant[w.estimated_effort] ?? "secondary"}>
                     {w.estimated_effort}
                   </Badge>
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <Link to="/convert" onClick={() => setConvertHint(w.workflow_name)}>
-                    <Button variant="ghost" size="sm">
-                      <ArrowRightLeft className="h-3.5 w-3.5" />
-                      Convert
-                    </Button>
-                  </Link>
                 </td>
               </motion.tr>
             ))}

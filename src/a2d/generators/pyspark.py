@@ -84,6 +84,7 @@ from a2d.ir.nodes import (
     WriteNode,
     XMLParseNode,
 )
+from a2d.macro.detect import macro_path_for_ir_node
 from a2d.utils.types import alteryx_fmt_to_spark, normalize_sql_for_spark
 
 logger = logging.getLogger("a2d.generators.pyspark")
@@ -140,6 +141,7 @@ class PySparkGenerator(CodeGenerator):
         }
         var_map: dict[int, dict[str, str]] = {}  # node_id -> {anchor: var_name}
         cells: list[str] = []
+        cell_ids: list[int | None] = []  # the node each cell came from (parallel to cells)
         node_count = 0
         unsupported_count = 0
 
@@ -154,6 +156,7 @@ class PySparkGenerator(CodeGenerator):
                 if node.comment_text:
                     comment_lines = node.comment_text.splitlines()
                     cells.append("\n".join(f"# {line}" for line in comment_lines))
+                    cell_ids.append(None)
                 continue
 
             # Inline single-use DB ReadNodes: if this node is a plain DB query
@@ -231,6 +234,7 @@ class PySparkGenerator(CodeGenerator):
             comment = step_comment + "\n"
             cell = annotation + comment + "\n".join(result.code_lines)
             cells.append(cell)
+            cell_ids.append(node.node_id)
             node_count += 1
 
         # Build notebook content
@@ -274,7 +278,10 @@ class PySparkGenerator(CodeGenerator):
             "warnings": len(warnings),
         }
 
-        return GeneratedOutput(files=files, warnings=warnings, stats=stats)
+        # Cells in file order: "notebook source" line, header, imports, the node
+        # cells, footer.
+        cell_nodes = {f"{workflow_name}.py": [None, None, None, *cell_ids, None]}
+        return GeneratedOutput(files=files, warnings=warnings, stats=stats, cell_nodes=cell_nodes)
 
     # -- Input resolution ---------------------------------------------------
 
@@ -2237,6 +2244,9 @@ class PySparkGenerator(CodeGenerator):
             ]
         else:
             lines = [f"# {tool}: manual conversion required"]
+            if macro_path_for_ir_node(node):
+                # Name the macro and why it wasn't expanded (missing file, batch macro, ...).
+                lines.append(f"# {reason}")
 
         return NodeCodeResult(
             code_lines=lines,

@@ -6,6 +6,7 @@ import json
 import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from a2d.analyzer.profiler import (
     DEFAULT_CATEGORY_TIERS,
@@ -77,6 +78,9 @@ async def assess(
         raise HTTPException(status_code=500, detail="Internal profiler error")
 
     if project_id:
-        project_service.advance_uploaded_workflows(project_id, "assessed")
+        hashes = {name: project_service.content_hash(content) for name, content in file_data}
+        await run_in_threadpool(
+            project_service.advance_workflows_by_name, project_id, result.get("analyzed_files", []), "assessed", hashes
+        )
 
     return result

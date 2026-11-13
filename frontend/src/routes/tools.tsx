@@ -9,8 +9,9 @@ export function ToolsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Tool Support Matrix"
-        description="All Alteryx tools and their Databricks conversion status"
+        eyebrow="Reference"
+        title="Tool coverage"
+        description="Every Alteryx tool the converter recognizes and how it converts to Databricks. This is about the converter, not your project; your project's own coverage is on its Assess step."
       />
 
       {isLoading && (

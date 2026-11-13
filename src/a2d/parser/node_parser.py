@@ -24,9 +24,14 @@ _PLUGIN_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"^DataverseInput(_\d+)*$", re.IGNORECASE), "DataverseInput", "connectors"),
 ]
 
+# Tool type of a node that calls a custom macro (EngineSettings Macro="...").
+MACRO_CALL_TOOL_TYPE = "Macro"
+
 # Known Alteryx built-in macros (EngineSettings Macro="...") mapped to tool types.
 _MACRO_TOOL_MAP: dict[str, tuple[str, str]] = {
     "randomrecords.yxmc": ("Sample", "preparation"),
+    # Count Records: no configuration, one "Count" field out (the converter's default).
+    "countrecords.yxmc": ("CountRecords", "transform"),
 }
 
 
@@ -60,8 +65,11 @@ class NodeParser:
             if tool_type == "Unknown":
                 logger.warning("Unknown plugin: %s (ToolID=%d)", plugin_name, tool_id)
 
-        # If still unknown and no plugin name, check EngineSettings Macro attribute.
-        # Some Alteryx built-in tools ship as .yxmc macros without a plugin entry.
+        # If still unknown and no plugin name, check the EngineSettings Macro
+        # attribute: that's how Alteryx saves a tool that runs a macro. A few
+        # built-in tools ship as macros and map to their own tool type; any other
+        # is a call to a custom macro (tool type "Macro"), and its path is kept
+        # so macro expansion can find the .yxmc.
         if tool_type == "Unknown" and not plugin_name:
             engine_settings = node_element.find("EngineSettings")
             if engine_settings is not None:
@@ -71,6 +79,9 @@ class NodeParser:
                     if macro_file in _MACRO_TOOL_MAP:
                         tool_type, category = _MACRO_TOOL_MAP[macro_file]
                         plugin_name = f"macro:{macro_file}"
+                    else:
+                        tool_type, category = MACRO_CALL_TOOL_TYPE, "macro"
+                        plugin_name = f"macro:{macro_path.strip()}"
 
         # Extract configuration
         configuration: dict = {}

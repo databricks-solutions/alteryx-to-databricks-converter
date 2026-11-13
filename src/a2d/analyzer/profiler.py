@@ -193,7 +193,9 @@ class ProfilerConfig:
         ):
             bad = {k: v for k, v in mapping.items() if v not in valid}
             if bad:
-                raise ValueError(f"invalid tier(s) in {label}: {sorted(set(bad.values()))}; must be one of {sorted(valid)}")
+                raise ValueError(
+                    f"invalid tier(s) in {label}: {sorted(set(bad.values()))}; must be one of {sorted(valid)}"
+                )
         return cfg
 
     @classmethod
@@ -342,9 +344,7 @@ class EstateProfile:
         }
 
 
-def build_estate_profile(
-    analyses: list[WorkflowAnalysis], config: ProfilerConfig | None = None
-) -> EstateProfile:
+def build_estate_profile(analyses: list[WorkflowAnalysis], config: ProfilerConfig | None = None) -> EstateProfile:
     """Aggregate a list of :class:`WorkflowAnalysis` into an :class:`EstateProfile`."""
     cfg = config or ProfilerConfig.default()
 

@@ -944,7 +944,7 @@ class DLTGenerator(CodeGenerator):
         if isinstance(node, UnsupportedNode):
             inp = self._get_single_input_read(input_tables)
             reason = node.unsupported_reason or "No auto-conversion"
-            warnings.append(f"Unsupported node {node.node_id}: {reason}")
+            warnings.append(f"Unsupported node {node.node_id} ({node.original_tool_type}): {reason}")
             return [
                 f"# UNSUPPORTED: {node.original_tool_type} - {reason}",
                 f"return {inp}  # passthrough placeholder",
