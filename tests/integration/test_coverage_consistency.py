@@ -63,7 +63,18 @@ def test_unresolved_macros_are_named_not_a_tool_type() -> None:
     assert "Macro" not in result["unsupported_tools"]
     names = [m["name"] for m in result["unresolved_macros"]]
     assert names == ["Cleanse.yxmc"]
-    assert "Cleanse.yxmc" in result["unresolved_macros"][0]["reason"]
+    reason = result["unresolved_macros"][0]["reason"]
+    assert "Cleanse.yxmc" in reason
+    # Shown next to the name, so it doesn't start by repeating it.
+    assert not reason.startswith("Macro Cleanse.yxmc wasn't expanded")
+    assert reason[0].isupper()
+
+
+def test_node_total_counts_tools_like_coverage() -> None:
+    """The estate's node total is the sum of tools per workflow (canvas comments excluded)."""
+    path = next(p for p in PACKT if p.stem == "Server_Usage_Testing")
+    result = analyze_files([(path.name, path.read_bytes())])
+    assert result["total_nodes"] == result["workflows"][0]["tool_count"]
 
 
 def _dag(*nodes) -> WorkflowDAG:

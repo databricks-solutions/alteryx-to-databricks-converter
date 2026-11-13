@@ -68,7 +68,10 @@ class CoverageAnalyzer:
             per_tool_counts[tool_type] = per_tool_counts.get(tool_type, 0) + 1
             macro_path = macro_path_for_ir_node(node) if isinstance(node, UnsupportedNode) else None
             if macro_path:
-                unresolved_macros.setdefault(macro_file_name(macro_path), node.unsupported_reason or "")
+                name = macro_file_name(macro_path)
+                # The reason is shown next to the name, so drop the engine's "Macro <name> wasn't expanded:" lead-in.
+                reason = (node.unsupported_reason or "").removeprefix(f"Macro {name} wasn't expanded: ").strip()
+                unresolved_macros.setdefault(name, reason[:1].upper() + reason[1:])
                 continue
             unique_tool_types.add(tool_type)
             if isinstance(node, UnsupportedNode):

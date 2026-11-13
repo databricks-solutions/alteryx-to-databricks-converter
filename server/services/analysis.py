@@ -48,7 +48,7 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
     # over all tools, across the estate.
     avg_coverage = estate_coverage_percentage([a.coverage for a in analyses])
     avg_complexity = sum(a.complexity.total_score for a in analyses) / total
-    total_nodes = sum(a.node_count for a in analyses)
+    total_nodes = sum(a.coverage.total_nodes for a in analyses)  # tools, not canvas comments
 
     tool_counter: Counter = Counter()
     unsupported: set[str] = set()

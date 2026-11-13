@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { categorizeAcrossAllFormats } from "@/lib/warning-parsing";
-import { usesPlaceholderCosts } from "@/routes/savings";
+import { placeholderCostLabels, usesPlaceholderCosts } from "@/routes/savings";
 import type { CostAssumptions } from "@/lib/api";
 
 describe("converted-but-worth-checking count", () => {
@@ -38,13 +38,25 @@ describe("usesPlaceholderCosts", () => {
     hour_anchors: {},
   } satisfies CostAssumptions;
 
-  it("is true while every money input is still the placeholder", () => {
+  it("is true while the money inputs are the placeholders", () => {
     // Changing a non-money input (the horizon) doesn't make the costs real.
     expect(usesPlaceholderCosts({ ...defaults, analysis_horizon_years: 5 }, defaults)).toBe(true);
   });
 
-  it("is false once any money input is the user's", () => {
-    expect(usesPlaceholderCosts({ ...defaults, designer_seats: 42 }, defaults)).toBe(false);
-    expect(usesPlaceholderCosts({ ...defaults, developer_hourly_rate: 140 }, defaults)).toBe(false);
+  it("is false only once every money input is the user's", () => {
+    // One entered figure next to placeholder costs still gives a made-up ROI.
+    expect(usesPlaceholderCosts({ ...defaults, designer_seats: 42 }, defaults)).toBe(true);
+    expect(placeholderCostLabels({ ...defaults, designer_seats: 42 }, defaults)).not.toContain("Designer seats");
+    const allMine = {
+      ...defaults,
+      designer_seats: 42,
+      designer_cost_per_seat_year: 4000,
+      server_licenses: 3,
+      server_cost_per_license_year: 70000,
+      developer_hourly_rate: 140,
+      annual_maintenance_savings: 20000,
+      dbu_price: 0.6,
+    };
+    expect(usesPlaceholderCosts(allMine, defaults)).toBe(false);
   });
 });
