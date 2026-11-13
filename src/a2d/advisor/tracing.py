@@ -7,7 +7,8 @@ not, the time it took and the tokens used. A reviewer's use / edit / discard of
 a suggestion is logged on its trace as feedback (``reviewer_outcome``), which is
 what tells you how often the AI helps, per tool.
 
-Needs the ``mlflow-tracing`` package. Without it, or without the variable, or
+Needs ``mlflow-skinny`` 3.18 or later (the MLflow client Databricks Apps
+already ship; ``mlflow-tracing`` clashes with it there). Without it, or without the variable, or
 when the experiment can't be found, every call here does nothing. A tracing
 error is logged and swallowed; it never fails the AI request.
 
@@ -45,6 +46,7 @@ def _resolve() -> tuple[Any, str | None]:
         target = os.environ.get(ENV_EXPERIMENT, "").strip()
         if not target:
             return None, None
+        os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")  # no promotional log line on import
         try:
             import mlflow
         except ImportError as exc:
