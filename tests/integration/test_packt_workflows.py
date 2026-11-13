@@ -203,3 +203,58 @@ def _assert_basic_result(result: ConversionResult, yxmd: Path) -> None:
     assert isinstance(result, ConversionResult)
     assert result.dag.node_count > 0, f"{yxmd.name}: empty DAG"
     assert len(result.output.files) > 0, f"{yxmd.name}: no output files"
+
+
+class TestJoinKeysFromRealWorkflows:
+    """Every Join keyed in the Alteryx file keeps all its keys, single or composite."""
+
+    @staticmethod
+    def _keys_in_xml(path: Path) -> dict[int, int]:
+        """ToolID -> number of key fields on the Left side, for keyed Join tools."""
+        from lxml import etree
+
+        root = etree.parse(str(path)).getroot()
+        out: dict[int, int] = {}
+        for node in root.iter("Node"):
+            gui = node.find("GuiSettings")
+            if gui is None or gui.get("Plugin") != "AlteryxBasePluginsGui.Join.Join":
+                continue
+            cfg = node.find("Properties/Configuration")
+            if cfg is None or cfg.get("joinByRecordPos") == "True":
+                continue
+            # Tools inside a disabled container never run, so the converter drops them.
+            if any(
+                a.tag == "Node" and a.find("Properties/Configuration/Disabled[@value='True']") is not None
+                for a in node.iterancestors()
+            ):
+                continue
+            left = cfg.find("JoinInfo[@connection='Left']")
+            if left is not None and len(left.findall("Field")):
+                out[int(node.get("ToolID"))] = len(left.findall("Field"))
+        return out
+
+    def test_every_keyed_join_keeps_all_keys(self, pyspark_config: ConversionConfig) -> None:
+        from a2d.ir.nodes import JoinNode
+
+        checked = composite = 0
+        for path in PACKT_FILES:
+            expected = self._keys_in_xml(path)
+            if not expected:
+                continue
+            dag = ConversionPipeline(pyspark_config).convert(path).dag
+            for tool_id, n_keys in expected.items():
+                node = dag.get_node(tool_id)
+                assert isinstance(node, JoinNode), f"{path.name} node {tool_id}"
+                assert len(node.join_keys) == n_keys, f"{path.name} node {tool_id}: {node.join_keys}"
+                checked += 1
+                composite += n_keys > 1
+        assert checked >= 35 and composite >= 4, (checked, composite)
+
+    def test_composite_join_generates_both_keys(self, pyspark_config: ConversionConfig) -> None:
+        path = PACKT_DIR / "CH07-R01_-_Join_vs._FindReplace.yxmd"
+        result = ConversionPipeline(pyspark_config).convert(path)
+        assert not any("Join node 25" in w for w in result.output.warnings)
+        code = next(f.content for f in result.output.files if f.filename.endswith(".py"))
+        cell = code.split("# Step 25:")[1].split("# COMMAND ----------")[0]
+        assert "F.lit(True)" not in cell
+        assert "COMPANY_ID" in cell and "ARTICLE_ID" in cell

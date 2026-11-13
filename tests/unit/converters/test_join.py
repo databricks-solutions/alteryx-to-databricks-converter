@@ -87,6 +87,46 @@ class TestJoinConverter:
         assert result.join_keys[1].left_field == "Month"
         assert result.join_keys[1].right_field == "Mo"
 
+    @staticmethod
+    def _side(conn: str, *fields: str) -> dict:
+        """One <JoinInfo> as the parser reads Alteryx's own XML."""
+        elems = [{"@field": f} for f in fields]
+        return {"@connection": conn, "Field": elems[0] if len(elems) == 1 else elems}
+
+    def test_join_alteryx_format_single_key(self):
+        node = make_node(
+            tool_type="Join",
+            configuration={"JoinInfo": [self._side("Left", "CustomerID"), self._side("Right", "CustID")]},
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert [(k.left_field, k.right_field) for k in result.join_keys] == [("CustomerID", "CustID")]
+
+    def test_join_alteryx_format_composite_key(self):
+        """<JoinInfo connection="Left"><Field field="A"/><Field field="B"/></JoinInfo>, per side."""
+        node = make_node(
+            tool_type="Join",
+            configuration={
+                "JoinInfo": [
+                    self._side("Left", "COMPANY_ID", "ARTICLE_ID"),
+                    self._side("Right", "COMPANY_ID", "ART_ID"),
+                ]
+            },
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert [(k.left_field, k.right_field) for k in result.join_keys] == [
+            ("COMPANY_ID", "COMPANY_ID"),
+            ("ARTICLE_ID", "ART_ID"),
+        ]
+
+    def test_join_keys_that_dont_pair_up_give_no_keys(self):
+        """A partial condition would join wrongly without saying so; no keys gets flagged."""
+        node = make_node(
+            tool_type="Join",
+            configuration={"JoinInfo": [self._side("Left", "A", "B"), self._side("Right", "A")]},
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert result.join_keys == []
+
 
 class TestUnionConverter:
     def test_union_by_name(self):
