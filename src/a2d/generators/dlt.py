@@ -13,6 +13,9 @@ from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.translator import PySparkTranslator
 from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput
+from a2d.generators.find_replace_code import find_replace_lines
+from a2d.generators.find_replace_code import problem as find_replace_problem
+from a2d.generators.join_code import join_output_lines
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
     AggAction,
@@ -415,28 +418,14 @@ class DLTGenerator(CodeGenerator):
                     f"# CANNOT CONVERT: Join node {node.node_id} has no {missing} input connected.",
                     "raise NotImplementedError('Join input missing — see conversion warnings.')",
                 ], warnings
-            left_read = f'dlt.read("{left_tbl}")'
-            right_read = f'dlt.read("{right_tbl}")'
-            if node.join_keys:
-                cond_parts = [
-                    f'{left_read.replace("dlt.read", "left")}["{jk.left_field}"] == right["{jk.right_field}"]'
-                    for jk in node.join_keys
-                ]
-                # Simplify: use column name join
-                key_names = [jk.left_field for jk in node.join_keys]
-                if all(jk.left_field == jk.right_field for jk in node.join_keys):
-                    cond = "[" + ", ".join(f'"{k}"' for k in key_names) + "]"
-                else:
-                    cond_parts = [f'left["{jk.left_field}"] == right["{jk.right_field}"]' for jk in node.join_keys]
-                    cond = " & ".join(f"({cp})" for cp in cond_parts)
-            else:
-                cond = "F.lit(True)"
-            jtype = node.join_type or "inner"
-            lines = [
-                f"left = {left_read}",
-                f"right = {right_read}",
-                f'return left.join(right, {cond}, "{jtype}")',
-            ]
+            lines = [f'left = dlt.read("{left_tbl}")', f'right = dlt.read("{right_tbl}")']
+            if not node.join_keys:
+                lines.append(
+                    f"# TODO: Join node {node.node_id} has no join keys — replace F.lit(True) with the correct condition"
+                )
+                warnings.append(f"Join node {node.node_id}: no join keys found — manual condition required")
+            lines += [ln for chunk in join_output_lines(node, "left", "right", "df") for ln in chunk.split("\n")]
+            lines.append("return df")
             return lines, warnings
 
         if isinstance(node, UnionNode):
@@ -578,17 +567,31 @@ class DLTGenerator(CodeGenerator):
             ], warnings
 
         if isinstance(node, FindReplaceNode):
-            target_tbl = input_tables.get("Input", input_tables.get("Target", "MISSING"))
-            lookup_tbl = input_tables.get("Source", input_tables.get("Right", target_tbl))
-            find_field = node.find_field or "find_field"
-            replace_field = node.replace_field or "replace_field"
-            lines = [
-                f'main = dlt.read("{target_tbl}")',
-                f'lookup = dlt.read("{lookup_tbl}").select(F.col("{find_field}").alias("_find_val"), F.col("{replace_field}").alias("_replace_val"))',
-                f'df = main.join(lookup, main["{find_field}"] == lookup["_find_val"], "left")',
-                f'df = df.withColumn("{find_field}", F.coalesce(F.col("_replace_val"), F.col("{find_field}")))',
-                'return df.drop("_find_val", "_replace_val")',
-            ]
+            # Alteryx's anchors are Targets (F, the rows to update) and Source (R, the lookup).
+            target_tbl = input_tables.get("Targets", input_tables.get("Target", input_tables.get("Input")))
+            lookup_tbl = input_tables.get("Source")
+            if not target_tbl or not lookup_tbl:
+                missing = "F (find)" if not target_tbl else "R (replace)"
+                warnings.append(
+                    f"FindReplace node {node.node_id}: {missing} input is not connected — "
+                    "not generated. Connect both inputs and re-convert, or write it by hand."
+                )
+                return [
+                    f"# CANNOT CONVERT: Find Replace node {node.node_id} has no {missing} input connected.",
+                    "raise NotImplementedError('Find Replace input missing — see conversion warnings.')",
+                ], warnings
+            why = find_replace_problem(node)
+            if why:
+                warnings.append(
+                    f"FindReplace node {node.node_id}: {why} — the step passes its input through unchanged."
+                )
+                return [
+                    f"# TODO: Find Replace node {node.node_id}: {why}.",
+                    f'return dlt.read("{target_tbl}")',
+                ], warnings
+            lines = [f'main = dlt.read("{target_tbl}")', f'lookup = dlt.read("{lookup_tbl}")']
+            lines += [ln for chunk in find_replace_lines(node, "main", "lookup", "df") for ln in chunk.split("\n")]
+            lines.append("return df")
             return lines, warnings
 
         if isinstance(node, JoinMultipleNode):

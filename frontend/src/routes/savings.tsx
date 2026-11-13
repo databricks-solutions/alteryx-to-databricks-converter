@@ -72,12 +72,50 @@ function NumberField({
   );
 }
 
+/** The money inputs that ship as illustrative placeholders. Until the user has
+ * changed them (or said they're theirs), money results would be computed from
+ * numbers nobody gave us, so they aren't shown. */
+const PLACEHOLDER_MONEY_KEYS = [
+  "designer_seats",
+  "designer_cost_per_seat_year",
+  "server_licenses",
+  "server_cost_per_license_year",
+  "developer_hourly_rate",
+  "annual_maintenance_savings",
+  "dbu_price",
+] as const satisfies readonly (keyof CostAssumptions)[];
+
+const MONEY_LABELS: Record<(typeof PLACEHOLDER_MONEY_KEYS)[number], string> = {
+  designer_seats: "Designer seats",
+  designer_cost_per_seat_year: "cost per Designer seat",
+  server_licenses: "Server licenses",
+  server_cost_per_license_year: "cost per Server license",
+  developer_hourly_rate: "developer hourly rate",
+  annual_maintenance_savings: "maintenance savings",
+  dbu_price: "DBU price",
+};
+
+/** The money inputs that still equal the server's placeholder default, as labels. */
+export function placeholderCostLabels(a: CostAssumptions | Record<string, unknown>, defaults: CostAssumptions): string[] {
+  return PLACEHOLDER_MONEY_KEYS.filter((k) => (a as Record<string, unknown>)[k] === defaults[k]).map(
+    (k) => MONEY_LABELS[k],
+  );
+}
+
+/** True while any money input is still a placeholder: one entered figure next to
+ * placeholder costs still gives a made-up ROI. */
+export function usesPlaceholderCosts(a: CostAssumptions | Record<string, unknown>, defaults: CostAssumptions): boolean {
+  return placeholderCostLabels(a, defaults).length > 0;
+}
+
 /** Savings, payback and ROI for the open project. The assumptions are yours to
  * set, so this runs when you press Estimate rather than by itself. */
 export function SavingsPage() {
   const [form, setForm] = useState<CostAssumptions | null>(null);
   const [autoOverride, setAutoOverride] = useState(false);
   const [editing, setEditing] = useState(false);
+  // "These placeholder-equal numbers really are ours" (rare, but allowed).
+  const [ownFigures, setOwnFigures] = useState(false);
   const { data: defaults } = useSavingsDefaults();
   const view = useEstateView<"savings", Record<string, unknown>>({
     kind: "savings",
@@ -95,6 +133,8 @@ export function SavingsPage() {
 
   const report = view.data;
   const showForm = !report || editing;
+  const formIsPlaceholder = !!(form && defaults && usesPlaceholderCosts(form, defaults));
+  const reportIsPlaceholder = !!(report && defaults && usesPlaceholderCosts(report.assumptions, defaults)) && !ownFigures;
 
   const set = (key: keyof CostAssumptions, v: number | null) =>
     setForm((f) => (f ? { ...f, [key]: v } : f));
@@ -123,10 +163,10 @@ export function SavingsPage() {
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-card)] px-4 py-3 text-xs text-[var(--fg-muted)]">
         <Info className="h-4 w-4 shrink-0 mt-0.5" />
         <span>
-          Figures combine facts derived from your workflows (count, effort tier, coverage) with the{" "}
-          <strong className="text-[var(--fg)]">editable cost assumptions</strong> below. Money defaults are
-          illustrative placeholders — replace them with your real contract and rate numbers. This is a{" "}
-          <strong className="text-[var(--fg)]">planning estimate, not a quote</strong>.
+          Figures combine facts derived from your workflows (count, effort tier, coverage) with your{" "}
+          <strong className="text-[var(--fg)]">cost assumptions</strong> below. The money fields start as
+          placeholders, so savings, payback and ROI only appear once you've entered your own license counts, costs
+          and rates. This is a <strong className="text-[var(--fg)]">planning estimate, not a quote</strong>.
         </span>
       </div>
 
@@ -138,8 +178,24 @@ export function SavingsPage() {
               <div>
                 <h2 className="text-sm font-semibold text-[var(--fg)]">Cost assumptions</h2>
                 <p className="mt-0.5 text-xs text-[var(--fg-muted)]">
-                  Tune these to your organization. Everything recomputes when you run the estimate.
+                  Enter your organization's numbers: Alteryx seats and licenses, what they cost, your loaded developer
+                  rate and DBU price. Everything recomputes when you run the estimate.
                 </p>
+                {formIsPlaceholder && (
+                  <p className="mt-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-[var(--fg)]">
+                    Still placeholders: {defaults ? placeholderCostLabels(form, defaults).join(", ") : ""}. You can
+                    estimate now to see the hours, but savings, payback and ROI stay hidden until every cost is yours.
+                    <label className="mt-1.5 flex items-center gap-2 text-[var(--fg-muted)]">
+                      <input
+                        type="checkbox"
+                        checked={ownFigures}
+                        onChange={(e) => setOwnFigures(e.target.checked)}
+                        className="h-4 w-4 accent-[var(--ring)]"
+                      />
+                      I've checked them: these are our numbers
+                    </label>
+                  </p>
+                )}
               </div>
 
               <div>
@@ -242,12 +298,34 @@ export function SavingsPage() {
           </Button>
         </div>
       )}
-      {report && <SavingsResults report={report} cur={cur} />}
+      {report && (
+        <SavingsResults
+          report={report}
+          cur={cur}
+          placeholder={reportIsPlaceholder}
+          placeholderLabels={defaults ? placeholderCostLabels(report.assumptions, defaults) : []}
+          onEnterCosts={() => setEditing(true)}
+        />
+      )}
     </div>
   );
 }
 
-function SavingsResults({ report, cur }: { report: SavingsReport; cur: string }) {
+function SavingsResults({
+  report,
+  cur,
+  placeholder,
+  placeholderLabels,
+  onEnterCosts,
+}: {
+  report: SavingsReport;
+  cur: string;
+  /** Computed from the placeholder costs: show the workflow-derived facts only. */
+  placeholder: boolean;
+  /** Which money inputs are still placeholders, for the message. */
+  placeholderLabels: string[];
+  onEnterCosts: () => void;
+}) {
   const h = report.headline;
   const payback =
     h.payback_months === null ? "—" : h.payback_months <= 0 ? "Immediate" : `${h.payback_months.toFixed(1)} mo`;
@@ -260,12 +338,30 @@ function SavingsResults({ report, cur }: { report: SavingsReport; cur: string })
       transition={{ duration: 0.3 }}
       className="space-y-6"
     >
+      {placeholder && (
+        <Card className="flex flex-wrap items-center gap-3 border-warning/30 bg-warning/5">
+          <Info className="h-4 w-4 shrink-0 text-warning" />
+          <p className="flex-1 text-sm text-[var(--fg)]">
+            Savings, payback and ROI aren't shown yet, because these costs are still placeholders:{" "}
+            {placeholderLabels.join(", ")}. Enter them, or confirm they're yours, to see them. Below is what
+            comes from the workflows alone: about {Math.round(h.dev_hours_avoided)} of{" "}
+            {report.estate.total_manual_hours} rewrite hours automated.
+          </p>
+          <Button size="sm" onClick={onEnterCosts}>
+            <Pencil className="h-4 w-4" />
+            Enter your costs
+          </Button>
+        </Card>
+      )}
+
+      {!placeholder && (
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <MoneyStat label="Net annual savings" value={money(cur, h.net_annual_savings)} tone={h.net_annual_savings >= 0 ? "good" : "bad"} hint="Licenses + maintenance − Databricks run cost" />
         <MoneyStat label="Payback" value={payback} hint="Time to recoup the migration investment" />
         <MoneyStat label={`${report.assumptions.analysis_horizon_years}-yr ROI`} value={roi} />
         <MoneyStat label="Dev time saved" value={money(cur, h.dev_time_saved)} tone="good" hint={`${Math.round(h.dev_hours_avoided)} hrs automated`} />
       </div>
+      )}
 
       {/* Estate grounding */}
       <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--fg-muted)]">
@@ -276,12 +372,13 @@ function SavingsResults({ report, cur }: { report: SavingsReport; cur: string })
         </span>
         <span className="inline-flex items-center gap-1">
           <TrendingUp className="h-3.5 w-3.5" />
-          mean coverage {report.estate.mean_coverage_pct}%
+          coverage {report.estate.mean_coverage_pct}%
         </span>
         <span>· automation {Math.round(h.automation_factor_effective * 100)}%</span>
       </div>
 
       {/* Breakdown */}
+      {!placeholder && (
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
           <PiggyBank className="h-4 w-4 text-[var(--ring)]" />
@@ -318,6 +415,7 @@ function SavingsResults({ report, cur }: { report: SavingsReport; cur: string })
           </table>
         </div>
       </Card>
+      )}
 
       <p className="text-[11px] text-[var(--fg-muted)]">{report.disclaimer}</p>
     </motion.div>

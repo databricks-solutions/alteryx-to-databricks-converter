@@ -1,22 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { ApiError } from "@/lib/api";
 import { isProjectsNotConfigured } from "@/hooks/use-project";
 import { slugify } from "@/lib/files";
 import { useEstateStore } from "@/stores/estate";
 
 describe("isProjectsNotConfigured", () => {
-  const notConfigured =
-    "Saved projects need a database, and this server doesn't have one configured. The app still works with a project kept in the browser.";
-
-  it("is true only for the server's no-database 503", () => {
-    expect(isProjectsNotConfigured(new ApiError(notConfigured, 503))).toBe(true);
+  it("is true only when the server reports no database", () => {
+    expect(isProjectsNotConfigured({ projects: { configured: false } })).toBe(true);
   });
 
-  it("is false when the database is configured but down, or for other errors", () => {
-    expect(isProjectsNotConfigured(new ApiError("Saved projects are temporarily unavailable", 503))).toBe(false);
-    expect(isProjectsNotConfigured(new ApiError(notConfigured, 500))).toBe(false);
-    expect(isProjectsNotConfigured(new Error(notConfigured))).toBe(false);
-    expect(isProjectsNotConfigured(null)).toBe(false);
+  it("is false when a database is configured (even if it's down) or the status isn't known yet", () => {
+    expect(isProjectsNotConfigured({ projects: { configured: true } })).toBe(false);
+    expect(isProjectsNotConfigured(undefined)).toBe(false);
   });
 });
 

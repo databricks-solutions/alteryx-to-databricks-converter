@@ -21,30 +21,30 @@ def _parse_join_keys(cfg: dict) -> list[JoinKey]:
     if isinstance(join_info, dict):
         raw_keys = ensure_list(join_info.get("Field", join_info.get("JoinField", [])))
     elif isinstance(join_info, list):
-        # Old XML format: two <JoinInfo connection="Left/Right"> elements,
-        # each with a @field attribute.  Pair them positionally.
+        # Alteryx's own format: one <JoinInfo connection="Left|Right"> per side,
+        # each holding one <Field field="X"/> per key. The i-th left field joins
+        # the i-th right field. One key parses as {"Field": {"@field": "X"}},
+        # several as {"Field": [{"@field": "X"}, {"@field": "Y"}]}. Older
+        # shapes put @field on the JoinInfo element itself.
         left_fields: list[str] = []
         right_fields: list[str] = []
         for entry in join_info:
             if not isinstance(entry, dict):
                 continue
             conn = entry.get("@connection", "")
-            # Field is a child element: <Field field="X"/> → {"Field": {"@field": "X"}}
-            # Fall back to @field directly on entry for older XML shapes.
-            field_elem = entry.get("Field", {})
-            if isinstance(field_elem, dict):
-                field_name = field_elem.get("@field", entry.get("@field", ""))
+            if "Field" in entry:
+                names = [f.get("@field", "") for f in ensure_list(entry["Field"]) if isinstance(f, dict)]
             else:
-                field_name = entry.get("@field", "")
+                names = [entry.get("@field", "")]
             if conn == "Left":
-                left_fields.append(field_name)
+                left_fields.extend(names)
             elif conn == "Right":
-                right_fields.append(field_name)
-        keys: list[JoinKey] = []
-        for lf, rf in zip(left_fields, right_fields, strict=False):
-            if lf and rf:
-                keys.append(JoinKey(left_field=lf, right_field=rf))
-        return keys
+                right_fields.extend(names)
+        # A partial key set would silently join on the wrong condition, so keys
+        # that don't pair up give no keys and the generator flags the join.
+        if len(left_fields) != len(right_fields) or not all(left_fields + right_fields):
+            return []
+        return [JoinKey(left_field=lf, right_field=rf) for lf, rf in zip(left_fields, right_fields, strict=True)]
     else:
         raw_keys = []
 
@@ -80,6 +80,17 @@ def _parse_field_ops(cfg: dict, section_key: str) -> list[FieldOperation]:
                 )
             )
     return ops
+
+
+def _keeps_unlisted(cfg: dict) -> bool:
+    """Whether the Join's ``*Unknown`` entry passes unlisted fields through (the default)."""
+    for c in ensure_list((cfg.get("SelectConfiguration") or {}).get("Configuration", {})):
+        if not isinstance(c, dict) or c.get("@outputConnection", "join").lower() != "join":
+            continue
+        for f in ensure_list((c.get("SelectFields") or {}).get("SelectField", [])):
+            if isinstance(f, dict) and f.get("@field") == "*Unknown":
+                return f.get("@selected", "True").lower() != "false"
+    return True
 
 
 def _parse_select_configuration(cfg: dict) -> tuple[list[FieldOperation], list[FieldOperation]]:
@@ -180,6 +191,7 @@ class JoinConverter(ToolConverter):
             join_type=join_type,
             select_left=select_left,
             select_right=select_right,
+            keep_unlisted=_keeps_unlisted(cfg),
             conversion_notes=[
                 "Alteryx Join produces 3 outputs (J/L/R); downstream connections determine effective join type."
             ],

@@ -87,6 +87,74 @@ class TestJoinConverter:
         assert result.join_keys[1].left_field == "Month"
         assert result.join_keys[1].right_field == "Mo"
 
+    @staticmethod
+    def _side(conn: str, *fields: str) -> dict:
+        """One <JoinInfo> as the parser reads Alteryx's own XML."""
+        elems = [{"@field": f} for f in fields]
+        return {"@connection": conn, "Field": elems[0] if len(elems) == 1 else elems}
+
+    def test_join_alteryx_format_single_key(self):
+        node = make_node(
+            tool_type="Join",
+            configuration={"JoinInfo": [self._side("Left", "CustomerID"), self._side("Right", "CustID")]},
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert [(k.left_field, k.right_field) for k in result.join_keys] == [("CustomerID", "CustID")]
+
+    def test_join_alteryx_format_composite_key(self):
+        """<JoinInfo connection="Left"><Field field="A"/><Field field="B"/></JoinInfo>, per side."""
+        node = make_node(
+            tool_type="Join",
+            configuration={
+                "JoinInfo": [
+                    self._side("Left", "COMPANY_ID", "ARTICLE_ID"),
+                    self._side("Right", "COMPANY_ID", "ART_ID"),
+                ]
+            },
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert [(k.left_field, k.right_field) for k in result.join_keys] == [
+            ("COMPANY_ID", "COMPANY_ID"),
+            ("ARTICLE_ID", "ART_ID"),
+        ]
+
+    def test_join_unknown_deselected(self):
+        """<SelectField field="*Unknown" selected="False"/>: only listed fields come out."""
+        sel = {
+            "SelectConfiguration": {
+                "Configuration": {
+                    "@outputConnection": "Join",
+                    "SelectFields": {
+                        "SelectField": [
+                            {"@field": "A", "@selected": "True", "@input": "Left_"},
+                            {"@field": "*Unknown", "@selected": "False"},
+                        ]
+                    },
+                }
+            }
+        }
+        node = make_node(
+            tool_type="Join", configuration={"JoinInfo": [self._side("Left", "K"), self._side("Right", "K")], **sel}
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert result.keep_unlisted is False
+        assert [op.field_name for op in result.select_left] == ["A"]
+
+    def test_join_unknown_default_keeps_unlisted(self):
+        node = make_node(
+            tool_type="Join", configuration={"JoinInfo": [self._side("Left", "K"), self._side("Right", "K")]}
+        )
+        assert ConverterRegistry.convert_node(node, DEFAULT_CONFIG).keep_unlisted is True
+
+    def test_join_keys_that_dont_pair_up_give_no_keys(self):
+        """A partial condition would join wrongly without saying so; no keys gets flagged."""
+        node = make_node(
+            tool_type="Join",
+            configuration={"JoinInfo": [self._side("Left", "A", "B"), self._side("Right", "A")]},
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert result.join_keys == []
+
 
 class TestUnionConverter:
     def test_union_by_name(self):
@@ -109,21 +177,71 @@ class TestUnionConverter:
 
 
 class TestFindReplaceConverter:
-    def test_find_replace(self):
+    """Configuration as Alteryx saves it (keys taken from the Packt workflows)."""
+
+    def test_find_whole_field_replace(self):
         node = make_node(
             tool_type="FindReplace",
             configuration={
-                "FindField": "Status",
-                "ReplaceField": "NewStatus",
-                "FindMode": "Find Entire Field",
-                "CaseSensitive": "False",
+                "FieldFind": "Status",
+                "FieldSearch": "Code",
+                "ReplaceFoundField": "NewStatus",
+                "FindMode": "FindWhole",
+                "NoCase": {"@value": "True"},
+                "MatchWholeWord": {"@value": "False"},
+                "ReplaceMode": "Replace",
+                "ReplaceMultipleFound": {"@value": "False"},
             },
         )
         result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
         assert isinstance(result, FindReplaceNode)
-        assert result.find_field == "Status"
+        assert (result.find_field, result.search_field, result.replace_field) == ("Status", "Code", "NewStatus")
         assert result.find_mode == "exact"
         assert result.case_sensitive is False
+        assert result.replace_mode == "replace"
+
+    def test_find_any_part_append(self):
+        node = make_node(
+            tool_type="FindReplace",
+            configuration={
+                "FieldFind": "ARTICLES_KEY",
+                "FieldSearch": "ARTICLES_KEY",
+                "ReplaceFoundField": "DESCRIPTION",
+                "FindMode": "FindAny",
+                "NoCase": {"@value": "False"},
+                "MatchWholeWord": {"@value": "True"},
+                "ReplaceMode": "Append",
+                "ReplaceMultipleFound": {"@value": "True"},
+                "ReplaceAppendFields": {"Field": [{"@field": "DESCRIPTION"}, {"@field": "PRICE"}]},
+            },
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert result.find_mode == "contains"
+        assert result.case_sensitive is True
+        assert result.whole_word is True
+        assert result.replace_mode == "append"
+        assert result.replace_multiple is True
+        assert result.append_fields == ["DESCRIPTION", "PRICE"]
+
+    def test_single_append_field(self):
+        node = make_node(
+            tool_type="FindReplace",
+            configuration={
+                "FieldFind": "a",
+                "FieldSearch": "b",
+                "ReplaceMode": "Append",
+                "ReplaceAppendFields": {"Field": {"@field": "C"}},
+            },
+        )
+        assert ConverterRegistry.convert_node(node, DEFAULT_CONFIG).append_fields == ["C"]
+
+    def test_unknown_find_mode_is_kept_for_the_message(self):
+        node = make_node(
+            tool_type="FindReplace", configuration={"FieldFind": "a", "FieldSearch": "b", "FindMode": "FindSomething"}
+        )
+        result = ConverterRegistry.convert_node(node, DEFAULT_CONFIG)
+        assert result.find_mode == "FindSomething"
+        assert result.raw_find_mode == "FindSomething"
 
 
 class TestAppendFieldsConverter:

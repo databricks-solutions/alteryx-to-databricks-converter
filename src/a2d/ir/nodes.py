@@ -301,8 +301,13 @@ class JoinNode(IRNode):
 
     join_keys: list[JoinKey] = field(default_factory=list)
     join_type: str = "inner"  # inner, left, right, full
+    # Field operations for the Join output, by side. Names are Alteryx's output
+    # names: a right-side field whose name is also on the left is called
+    # ``Right_<name>``.
     select_left: list[FieldOperation] = field(default_factory=list)
     select_right: list[FieldOperation] = field(default_factory=list)
+    # The ``*Unknown`` entry: whether fields not listed above pass through.
+    keep_unlisted: bool = True
 
 
 @dataclass
@@ -317,10 +322,16 @@ class UnionNode(IRNode):
 class FindReplaceNode(IRNode):
     """Find and replace values using a lookup input."""
 
-    find_field: str = ""
-    replace_field: str = ""
-    find_mode: str = "exact"  # "exact", "starts_with", "contains", "regex"
+    find_field: str = ""  # F input: the field searched in ("Find Within Field")
+    search_field: str = ""  # R input: the values to look for ("Find Value")
+    replace_field: str = ""  # R input: the replacement value (replace mode)
+    find_mode: str = "exact"  # "exact" (entire field) or "contains" (any part)
+    raw_find_mode: str = ""  # FindMode as saved, for messages about unsupported modes
     case_sensitive: bool = True
+    whole_word: bool = False
+    replace_mode: str = "replace"  # "replace" or "append"
+    replace_multiple: bool = False  # any part only: replace every found item
+    append_fields: list[str] = field(default_factory=list)  # R fields to append
 
 
 @dataclass

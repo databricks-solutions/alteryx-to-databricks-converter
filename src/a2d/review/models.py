@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -18,18 +19,38 @@ ReviewDecision = Literal["pending", "accepted", "edited", "rejected"]
 _AUTO_ACCEPT_CONFIDENCE = 0.8
 
 
-def node_review_status(node: IRNode, warnings: list[str]) -> ReviewStatus:
+# A line the converter leaves when it couldn't finish the step's code.
+_UNFINISHED_RE = re.compile(r"^\s*#\s*(TODO|CANNOT CONVERT)\b|#\s*PLACEHOLDER\b", re.MULTILINE)
+
+
+def is_unfinished(code: str) -> bool:
+    """True when the generated code still carries a converter TODO, PLACEHOLDER
+    or CANNOT CONVERT line, i.e. the step isn't done."""
+    return bool(_UNFINISHED_RE.search(code or ""))
+
+
+def node_review_status(node: IRNode, warnings: list[str], code: str = "") -> ReviewStatus:
     """Classify how a node's auto-conversion turned out.
 
     * ``cannot_convert`` — an UnsupportedNode (no dataflow-safe conversion).
-    * ``needs_review`` — converted but low confidence or carrying warnings.
-    * ``auto_accepted`` — high confidence and no warnings.
+    * ``needs_review`` — converted but unfinished (a TODO left in its code), low
+      confidence, or carrying warnings.
+    * ``auto_accepted`` — high confidence, finished, and no warnings.
     """
     if isinstance(node, UnsupportedNode):
         return "cannot_convert"
-    if warnings or node.conversion_confidence < _AUTO_ACCEPT_CONFIDENCE:
+    if warnings or is_unfinished(code) or node.conversion_confidence < _AUTO_ACCEPT_CONFIDENCE:
         return "needs_review"
     return "auto_accepted"
+
+
+def node_confidence(node: IRNode, code: str) -> float:
+    """The confidence Review shows for a node: the converter's mapping confidence,
+    or 0 when the step isn't converted or isn't finished (its code still has a
+    TODO), since nothing about an unfinished step is known to be right."""
+    if isinstance(node, UnsupportedNode) or is_unfinished(code):
+        return 0.0
+    return node.conversion_confidence
 
 
 @dataclass
@@ -41,7 +62,7 @@ class ReviewNode:
     annotation: str | None
     position: tuple[float, float]
     status: ReviewStatus
-    confidence: float
+    confidence: float  # see node_confidence
     generated_code: str
     warnings: list[str] = field(default_factory=list)
     conversion_method: str = "deterministic"
@@ -63,6 +84,7 @@ class ReviewNode:
             "position_y": self.position[1],
             "status": self.status,
             "confidence": round(self.confidence, 3),
+            "unfinished": is_unfinished(self.generated_code),
             "conversion_method": self.conversion_method,
             "generated_code": self.generated_code,
             "warnings": list(self.warnings),

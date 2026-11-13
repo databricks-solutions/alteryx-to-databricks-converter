@@ -22,3 +22,13 @@ def test_stats(client):
     assert data["expression_functions"] > 0
     assert data["output_formats"] == 5
     assert "version" in data
+
+
+def test_status_says_whether_projects_have_a_database(client, monkeypatch):
+    """The UI picks session or saved mode from this, without a request that fails."""
+    from server.services import project as project_service
+
+    monkeypatch.setattr(project_service, "is_configured", lambda: False)
+    assert client.get("/api/status").json() == {"projects": {"configured": False}}
+    monkeypatch.setattr(project_service, "is_configured", lambda: True)
+    assert client.get("/api/status").json() == {"projects": {"configured": True}}

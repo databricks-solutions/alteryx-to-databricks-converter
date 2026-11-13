@@ -28,7 +28,7 @@ class ReportGenerator:
             avg_coverage = sum(a.coverage.coverage_percentage for a in analyses) / total_workflows
             avg_complexity = sum(a.complexity.total_score for a in analyses) / total_workflows
 
-        total_nodes = sum(a.node_count for a in analyses)
+        total_nodes = sum(a.coverage.total_nodes for a in analyses)  # tools, not canvas comments
 
         # Tool frequency across all workflows
         tool_counter: Counter = Counter()

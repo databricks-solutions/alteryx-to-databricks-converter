@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from a2d.__about__ import __version__
 from a2d.converters.registry import ConverterRegistry
 from server.models.responses import HealthResponse, ReadinessResponse, StatsResponse
+from server.services import project as project_service
 from server.services.tool_matrix import get_stats
 
 router = APIRouter(prefix="/api", tags=["health"])
@@ -33,3 +34,12 @@ async def ready() -> JSONResponse:
 async def stats() -> StatsResponse:
     s = get_stats()
     return StatsResponse(version=__version__, **s)
+
+
+@router.get("/status")
+async def status() -> dict:
+    """What this server has turned on, so the UI picks its mode without making a
+    request it knows will fail. ``projects.configured`` is false when no database
+    is set up (projects then live in the browser tab); a configured database that
+    isn't reachable still reports true, and its errors surface as errors."""
+    return {"projects": {"configured": project_service.is_configured()}}

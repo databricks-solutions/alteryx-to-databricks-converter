@@ -7,6 +7,11 @@ const BASE = "/api";
  * files the workflows may call that aren't among `files` (a batch run on part
  * of a session project); a saved project's macros come from the server.
  */
+/** GET /api/status. */
+export interface ServerStatus {
+  projects: { configured: boolean };
+}
+
 export type EstateSource = { projectId: string } | { files: File[]; macros?: File[] };
 
 function appendSource(fd: FormData, source: EstateSource) {
@@ -217,6 +222,9 @@ export const api = {
   },
 
   // ── Migration Project ────────────────────────────────────────────────
+
+  /** What the server has turned on (no failing request needed to find out). */
+  status: () => request<ServerStatus>("/status"),
 
   listProjects: () => request<{ projects: ProjectSummary[]; total: number }>("/projects"),
 
@@ -457,14 +465,27 @@ export interface WorkflowAnalysis {
   workflow_name: string;
   node_count: number;
   connection_count: number;
+  /** Supported tools over all tools (canvas comments excluded): the same figure
+   * Convert shows after converting. */
   coverage_percentage: number;
+  /** Share of distinct tool types that are supported (a different question). */
+  type_coverage_percentage?: number;
+  tool_count?: number;
+  supported_tool_count?: number;
   complexity_score: number;
   complexity_level: string;
   migration_priority: string;
   estimated_effort: string;
   tool_types: string[];
   unsupported_types: string[];
+  unresolved_macros?: UnresolvedMacro[];
   warnings: string[];
+}
+
+/** A macro call that wasn't expanded (file missing, batch or iterative, ...). */
+export interface UnresolvedMacro {
+  name: string;
+  reason: string;
 }
 
 export interface AnalysisResult {
@@ -477,6 +498,8 @@ export interface AnalysisResult {
   workflows: WorkflowAnalysis[];
   tool_frequency: Record<string, number>;
   unsupported_tools: string[];
+  /** Macro calls that weren't expanded, by macro file name. */
+  unresolved_macros?: UnresolvedMacro[];
 }
 
 export interface AssessWorkflow {
@@ -560,7 +583,10 @@ export interface ReviewNode {
   position_x: number;
   position_y: number;
   status: ReviewStatus;
+  /** Mapping confidence 0..1; 0 when the step isn't converted or isn't finished. */
   confidence: number;
+  /** The generated code still has a converter TODO / PLACEHOLDER / CANNOT CONVERT line. */
+  unfinished: boolean;
   conversion_method: string;
   generated_code: string;
   warnings: string[];
@@ -843,6 +869,8 @@ export type WorkflowStage = "uploaded" | "assessed" | "converted" | "reviewed" |
 /** Per-workflow analysis summary kept on a saved project. */
 export interface WorkflowAnalysisSummary {
   coverage_percentage?: number;
+  tool_count?: number;
+  supported_tool_count?: number;
   complexity_score?: number;
   complexity_level?: string;
   migration_priority?: string;
