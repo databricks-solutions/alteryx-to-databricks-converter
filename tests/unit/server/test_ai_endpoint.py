@@ -13,7 +13,7 @@ from server.services import project as project_service
 from a2d.advisor.llm_client import ChatMessage
 
 WF = Path(__file__).parent.parent.parent / "fixtures" / "workflows" / "message_passthrough.yxmd"
-REPLY = "df_1 = df_1.limit(10)"
+REPLY = "df_2 = df_1.limit(10)"
 
 
 class FakeClient:

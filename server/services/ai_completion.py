@@ -68,6 +68,7 @@ class _Converted:
     ctx: MigrationContext
     dag: WorkflowDAG
     cell_nodes: list[int | None] | None
+    node_io: dict[int, dict[str, dict[str, str]]] | None
 
 
 def _convert_pyspark(
@@ -109,6 +110,7 @@ def _convert_pyspark(
         ctx=ctx,
         dag=result.dag,
         cell_nodes=result.output.cell_nodes.get(notebook_file.filename),
+        node_io=result.output.node_io.get(notebook_file.filename),
     )
 
 
@@ -140,6 +142,7 @@ def complete_workflow(
                 converted.dag,
                 converted.cell_nodes,
                 deadline=deadline,
+                node_io=converted.node_io,
             )
     finally:
         _completion_slots.release()

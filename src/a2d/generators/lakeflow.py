@@ -88,7 +88,7 @@ class LakeflowGenerator(SQLGenerator):
                     continue
 
             input_views = self._resolve_input_views(node.node_id, dag, view_map)
-            sql_body, step_warnings = self._generate_cte_body(node, input_views)
+            sql_body, step_warnings = self._generate_cte_body(node, input_views, dag)
             warnings.extend(step_warnings)
 
             stmt_type = self._statement_type(node)

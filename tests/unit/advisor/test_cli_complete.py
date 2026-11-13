@@ -20,7 +20,7 @@ runner = CliRunner()
 GAP_WF = Path(__file__).parent.parent.parent / "fixtures" / "workflows" / "message_passthrough.yxmd"
 
 
-def _reply(text: str = "df_1 = df_1.dropDuplicates()"):
+def _reply(text: str = "df_2 = df_1.dropDuplicates()"):
     class _Response:
         def read(self) -> bytes:
             return json.dumps({"choices": [{"message": {"content": text}}]}).encode()

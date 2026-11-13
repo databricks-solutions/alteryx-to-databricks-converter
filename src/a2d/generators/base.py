@@ -39,6 +39,10 @@ class GeneratedOutput:
     # footer), keyed by filename. Metadata only; the file content is unchanged.
     # Lets tools address "the cell for node N" without parsing comment text.
     cell_nodes: dict[str, list[int | None]] = field(default_factory=dict)
+    # Per filename: node id -> {"inputs": {anchor: variable}, "outputs": {anchor:
+    # variable}}, the DataFrame variables each step reads and assigns. Lets
+    # tools wire code into a step without parsing it.
+    node_io: dict[str, dict[int, dict[str, dict[str, str]]]] = field(default_factory=dict)
 
 
 @dataclass

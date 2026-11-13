@@ -102,6 +102,18 @@ class NodeParser:
                 elif anno_elem.text and anno_elem.text.strip():
                     annotation = anno_elem.text.strip()
 
+        # Columns per output anchor from the last run, when the file has them.
+        output_fields: dict[str, list[tuple[str, str]]] = {}
+        if props is not None:
+            for meta in props.findall("MetaInfo"):
+                fields = [
+                    (get_attr(f, "name", ""), get_attr(f, "type", ""))
+                    for f in meta.findall("RecordInfo/Field")
+                    if get_attr(f, "name", "")
+                ]
+                if fields:
+                    output_fields[get_attr(meta, "connection", "") or "Output"] = fields
+
         # Preserve raw XML
         raw_xml = etree.tostring(node_element, encoding="unicode")
 
@@ -114,4 +126,5 @@ class NodeParser:
             configuration=configuration,
             annotation=annotation,
             raw_xml=raw_xml,
+            output_fields=output_fields,
         )

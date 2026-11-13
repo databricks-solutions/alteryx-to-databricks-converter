@@ -813,7 +813,7 @@ class DesignerGenerator(CodeGenerator):
         # Build a name→id CTE map so the SQL body references upstream cell ids.
         cte_map = {p.node_id: id_map.get(p.node_id, _cte_name(p)) for p in dag.get_predecessors(node.node_id)}
         input_ctes = self._sql._resolve_input_ctes(node.node_id, dag, cte_map)
-        sql_body, warnings = self._sql._generate_cte_body(node, input_ctes)
+        sql_body, warnings = self._sql._generate_cte_body(node, input_ctes, dag)
         inputs = self._resolve_inputs(node.node_id, dag, id_map)
         return (
             DesignerCell(

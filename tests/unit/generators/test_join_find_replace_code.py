@@ -136,3 +136,14 @@ class TestFindReplaceSQL:
         warnings: list[str] = []
         sql = _find_replace_sql(_fr(), {"Targets": "t1"}, warnings)
         assert "R (replace) input missing" in sql
+
+
+class TestJoinSQLWithKnownColumns:
+    def test_every_shared_column_gets_the_right_prefix(self):
+        node = JoinNode(node_id=25, join_keys=KEYS, select_right=[_op("Right_COMPANY_ID", False)])
+        left = [("COMPANY_ID", ""), ("ARTICLE_ID", ""), ("A", "")]
+        right = [("COMPANY_ID", ""), ("ARTICLE_ID", ""), ("B", ""), ("A", "")]
+        sql = _join_select_list(node, left, right)
+        assert "r.* EXCEPT (`COMPANY_ID`, `ARTICLE_ID`, `A`)" in sql
+        assert "r.`ARTICLE_ID` AS `Right_ARTICLE_ID`" in sql and "r.`A` AS `Right_A`" in sql
+        assert "come out twice" not in sql  # nothing left unhandled

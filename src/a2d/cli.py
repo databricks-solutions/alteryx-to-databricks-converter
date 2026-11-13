@@ -1376,7 +1376,12 @@ def complete(
     )
     try:
         completion = complete_notebook(
-            notebook_file.content, ctx, client, result.dag, result.output.cell_nodes.get(notebook_file.filename)
+            notebook_file.content,
+            ctx,
+            client,
+            result.dag,
+            result.output.cell_nodes.get(notebook_file.filename),
+            node_io=result.output.node_io.get(notebook_file.filename),
         )
     except CompletionUnavailableError as e:
         console.print(f"[red]{e}[/red]")
