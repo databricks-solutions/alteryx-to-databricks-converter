@@ -32,9 +32,11 @@ dependencies = [
 
 [project.optional-dependencies]
 server = [
-    # Optional MLflow tracing of the AI steps (A2D_MLFLOW_EXPERIMENT); the
-    # lightweight tracing SDK, not full MLflow.
-    "mlflow-tracing>=3.18,<4",
+    # Optional MLflow tracing of the AI steps (A2D_MLFLOW_EXPERIMENT).
+    # mlflow-skinny, not mlflow-tracing: Databricks Apps preinstall
+    # mlflow-skinny, and mlflow-tracing writes into the same "mlflow" package,
+    # so the two versions mix and the import fails. Requiring skinny upgrades it.
+    "mlflow-skinny>=3.18,<4",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "python-multipart>=0.0.12",
