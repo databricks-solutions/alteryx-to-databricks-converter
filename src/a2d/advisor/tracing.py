@@ -47,8 +47,17 @@ def _resolve() -> tuple[Any, str | None]:
             return None, None
         try:
             import mlflow
-        except ImportError:
-            logger.warning("%s is set but mlflow-tracing isn't installed; AI tracing is off", ENV_EXPERIMENT)
+        except ImportError as exc:
+            # Say what failed: "not installed" and "installed but won't import"
+            # (a clash with another mlflow package) need different fixes.
+            logger.warning("%s is set but mlflow won't import (%s); AI tracing is off", ENV_EXPERIMENT, exc)
+            return None, None
+        if not hasattr(mlflow, "start_span_no_context"):
+            logger.warning(
+                "%s is set but the installed mlflow (%s) has no start_span_no_context; AI tracing is off",
+                ENV_EXPERIMENT,
+                getattr(mlflow, "__version__", "unknown version"),
+            )
             return None, None
         os.environ.setdefault("MLFLOW_TRACKING_URI", "databricks")
         try:
