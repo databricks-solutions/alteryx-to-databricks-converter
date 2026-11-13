@@ -35,6 +35,8 @@ from server.utils.project_input import resolve_one_workflow
 
 logger = logging.getLogger("a2d.server.routers.ai")
 
+_TRACE_ID_RE = re.compile(r"tr-[0-9a-f]{8,64}|trace:/[A-Za-z0-9_]+(\.[A-Za-z0-9_]+){1,2}/[0-9a-f]{8,64}")
+
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 _NOT_CONFIGURED = (
@@ -154,7 +156,8 @@ async def feedback(payload: dict = Body(...)) -> dict:
     ``discarded``) on its MLflow trace. A no-op when AI tracing is off."""
     trace_id = payload.get("trace_id")
     outcome = payload.get("outcome")
-    if not isinstance(trace_id, str) or not re.fullmatch(r"tr-[0-9a-f]{8,64}", trace_id):
+    # "tr-<hex>" (experiment storage) or "trace:/<catalog>.<schema>[.<prefix>]/<hex>" (Unity Catalog).
+    if not isinstance(trace_id, str) or not _TRACE_ID_RE.fullmatch(trace_id):
         raise HTTPException(status_code=422, detail="'trace_id' must be an MLflow trace id")
     if outcome not in tracing.OUTCOMES:
         raise HTTPException(status_code=422, detail=f"'outcome' must be one of {', '.join(tracing.OUTCOMES)}")

@@ -561,7 +561,17 @@ To turn AI on in a Databricks Apps deployment, set `A2D_FMAPI_ENDPOINT` in the a
 
 #### Tracing the AI calls (opt-in)
 
-Set `A2D_MLFLOW_EXPERIMENT` to an MLflow experiment path (or id) in the workspace, and each AI completion and Review suggestion is logged as a trace. The trace has a span per model call with the prompt, the reply, whether it passed the checks and why not, the time and the tokens. When a reviewer uses, edits or discards a suggestion, that's logged on its trace as `reviewer_outcome` feedback, so the experiment shows how often the AI helps, per tool. It needs `mlflow-skinny` 3.18 or later (in the app's requirements; Databricks Apps already ship an older one, which this upgrades), and the app's service principal needs CAN_EDIT on the experiment. Prompts carry workflow configuration with credentials masked, so give the experiment to the people who should see it. Without the variable nothing is traced, and a tracing error never fails an AI request.
+Set `A2D_MLFLOW_EXPERIMENT` to an MLflow experiment path in the workspace, and each AI completion and Review suggestion is logged as a trace. The trace has a span per model call with the prompt, the reply, whether it passed the checks and why not, the time and the tokens. When a reviewer uses, edits or discards a suggestion, that's logged on its trace as `reviewer_outcome` feedback, so you can see how often the AI helps, per tool.
+
+The experiment should store its traces in Unity Catalog. A Databricks App can reach the workspace host, but not the presigned storage URLs that plain experiment storage uses, so without UC only the trace summaries arrive, without spans. `scripts/setup_ai_tracing.py` does the whole setup in one go: it creates the schema and an experiment linked to it, and gives the app's service principal CAN_EDIT on the experiment plus USE CATALOG and USE SCHEMA, SELECT and MODIFY on the schema.
+
+```bash
+python scripts/setup_ai_tracing.py --profile <profile> --app <app name> \
+    --catalog <catalog> --schema a2d_ai_traces \
+    --experiment /Users/<you>/a2d-ai-traces-uc --warehouse <sql warehouse id>
+```
+
+The traces then live in Delta tables (`<schema>.a2d_otel_spans`, `a2d_otel_annotations`, ...) as well as the experiment's Traces tab, so you can query outcomes with SQL. It needs `mlflow-skinny` 3.18 or later, which is in the app's requirements (Databricks Apps already ship an older one, which this upgrades). Prompts carry workflow configuration with credentials masked, so give the experiment and schema only to the people who should see them. Without the variable nothing is traced, and a tracing error never fails an AI request.
 
 #### Evaluating a model or a prompt change
 
