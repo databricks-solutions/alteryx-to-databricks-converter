@@ -11,3 +11,4 @@ pydantic-settings>=2.0
 psycopg[binary]>=3.2
 psycopg_pool>=3.2
 databricks-sdk>=0.105.0
+mlflow-tracing>=3.18,<4

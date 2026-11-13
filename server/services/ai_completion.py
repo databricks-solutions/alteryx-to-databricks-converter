@@ -214,6 +214,9 @@ def suggest_step(
         "reason": cell.reason,
         "code": _from_step_line(cell.after, node_id) if cell.status == "completed" else None,
         "before": _from_step_line(cell.before, node_id),
+        # The MLflow trace for this suggestion when AI tracing is on, so the
+        # reviewer's use / edit / discard can be recorded on it.
+        "trace_id": result.trace_id,
     }
 
 

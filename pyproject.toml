@@ -32,6 +32,9 @@ dependencies = [
 
 [project.optional-dependencies]
 server = [
+    # Optional MLflow tracing of the AI steps (A2D_MLFLOW_EXPERIMENT); the
+    # lightweight tracing SDK, not full MLflow.
+    "mlflow-tracing>=3.18,<4",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "python-multipart>=0.0.12",

@@ -550,15 +550,27 @@ a2d suggest workflow.yxmd          # writes workflow_suggestions.md
 - **`a2d complete`** writes an AI-completed copy of the PySpark notebook. Only the cells that need work are sent to the model, one at a time. Each step's own header stays as generated, and the model's code goes under it between `# >>> AI-GENERATED (unverified)` and `# <<< AI-GENERATED` comments; a banner right after the notebook's first line says the file is AI-generated and unverified. Each reply is checked before it's used: it has to parse, assign the variables later steps read, leave other steps' DataFrames alone, keep a write step's destination, and stay away from shell commands, file deletes and destructive SQL. A reply that fails keeps the step's deterministic code and is reported with the reason. Credentials in the workflow are masked before anything is sent. The deterministic `workflow.py` is never touched, and `a2d complete` refuses to write over it or the source workflow.
 - **`a2d suggest`** writes a Markdown report with a suggested Databricks implementation for each gap. With no endpoint configured it still writes the deterministic gap list, just without suggestions.
 
-In the web app both live on the **AI completion** step, the only step that uses AI. Pick a converted workflow, see what the converter couldn't finish and which of those steps AI completion would fill in (this part works without AI), then generate the completed copy, compare each step before and after, and download it or the suggestions notes. AI completion covers PySpark notebooks for now. A few completions can run at once; past that the app asks you to try again shortly.
+In the web app, AI shows up in two places:
 
-To enable it in a Databricks Apps deployment, pass the endpoint at deploy time:
+- The **AI completion** step. Pick a converted workflow, see what the converter couldn't finish and which of those steps AI completion would fill in (this part works without AI), then generate the completed copy, compare each step before and after, and download it or the suggestions notes.
+- **Review**. A flagged step in a PySpark review has **Suggest code with AI**. The model drafts that one step with the same prompt and checks, and you use it, edit it or discard it, or add a note and try again. Review decisions, including whether edited code came from AI, are saved to the project.
+
+The model is told each step's inputs by their Alteryx anchor (Left, Right, Targets, Source...), with the columns Designer saved for them after the workflow's last run, and the columns the step should output. AI covers PySpark notebooks for now. A few AI requests can run at once; past that the app asks you to try again shortly.
+
+To turn AI on in a Databricks Apps deployment, set `A2D_FMAPI_ENDPOINT` in the app's environment. A deployed `app.yaml` is what the app reads (it overrides bundle variables), so set it there, with `databricks apps update`, or in an untracked overlay like `.local/app.env.yaml`, which `make deploy-dev` adds to `app.yaml` for the deploy. In-workspace serving endpoints need no token, because the app's service principal credentials are used. Leave it empty (the default) to keep AI off; the AI steps then explain how to turn it on.
+
+#### Tracing the AI calls (opt-in)
+
+Set `A2D_MLFLOW_EXPERIMENT` to an MLflow experiment path (or id) in the workspace, and each AI completion and Review suggestion is logged as a trace. The trace has a span per model call with the prompt, the reply, whether it passed the checks and why not, the time and the tokens. When a reviewer uses, edits or discards a suggestion, that's logged on its trace as `reviewer_outcome` feedback, so the experiment shows how often the AI helps, per tool. It needs the `mlflow-tracing` package (in the app's requirements), and the app's service principal needs CAN_EDIT on the experiment. Prompts carry workflow configuration with credentials masked, so give the experiment to the people who should see it. Without the variable nothing is traced, and a tracing error never fails an AI request.
+
+#### Evaluating a model or a prompt change
 
 ```bash
-databricks bundle deploy --var fmapi_endpoint="https://<workspace>/serving-endpoints/<name>/invocations"
+make eval-ai MODEL=databricks-claude-opus-5-5 PROFILE=<your profile>
+# or: a2d eval-ai --model <endpoint name> -o report.json --baseline tests/fixtures/ai_eval/baseline.json
 ```
 
-In-workspace serving endpoints need no token, because the app's service principal credentials are used. Leave `fmapi_endpoint` empty (the default) to keep AI off; the AI completion step then explains how to turn it on.
+`a2d eval-ai` runs AI completion on 13 real workflows (or the ones you pass) and reports, per step, whether the reply passed the checks, why not, the time and the tokens, compared with the baseline in `tests/fixtures/ai_eval/`. `--min-completed-rate` makes it exit 1 below a threshold. Passing the checks doesn't prove the code is right, so read a sample of the replies too. A test that needs no model (`tests/integration/test_ai_wiring.py`) checks that every step on the real workflows reaches the model and that a well-formed reply passes.
 
 ---
 

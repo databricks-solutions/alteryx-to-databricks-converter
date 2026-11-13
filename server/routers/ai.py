@@ -17,11 +17,14 @@ answer 422 with what to set. The deterministic output is never modified.
 from __future__ import annotations
 
 import logging
+import re
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 from lxml.etree import XMLSyntaxError
+from starlette.concurrency import run_in_threadpool
 
+from a2d.advisor import tracing
 from a2d.advisor.completion import CompletionUnavailableError
 from a2d.exceptions import A2dError
 from server.models.requests import ConversionOptions, conversion_options
@@ -143,6 +146,26 @@ async def suggest(
         raise HTTPException(status_code=422, detail=str(e)) from None
     except (ValueError, XMLSyntaxError, A2dError) as e:
         raise _bad_workflow(name, e) from None
+
+
+@router.post("/feedback")
+async def feedback(payload: dict = Body(...)) -> dict:
+    """Record what a reviewer did with a suggestion (``used``, ``edited`` or
+    ``discarded``) on its MLflow trace. A no-op when AI tracing is off."""
+    trace_id = payload.get("trace_id")
+    outcome = payload.get("outcome")
+    if not isinstance(trace_id, str) or not re.fullmatch(r"tr-[0-9a-f]{8,64}", trace_id):
+        raise HTTPException(status_code=422, detail="'trace_id' must be an MLflow trace id")
+    if outcome not in tracing.OUTCOMES:
+        raise HTTPException(status_code=422, detail=f"'outcome' must be one of {', '.join(tracing.OUTCOMES)}")
+    recorded = await run_in_threadpool(tracing.log_outcome, trace_id, outcome)
+    return {"recorded": recorded}
+
+
+@router.get("/tracing")
+async def tracing_status() -> dict:
+    """Whether AI calls are traced to MLflow."""
+    return {"enabled": await run_in_threadpool(tracing.enabled)}
 
 
 @router.post("/notes", response_class=PlainTextResponse)

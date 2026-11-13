@@ -177,3 +177,17 @@ def test_suggest_is_opt_in_and_limits_the_note(client, disabled, monkeypatch):
     monkeypatch.setattr(ai_completion, "get_client", lambda *a, **k: FakeClient())
     resp = client.post("/api/ai/suggest", files=_upload(), data={"node_id": "2", "hint": "x" * 2001})
     assert resp.status_code == 422
+
+
+def test_feedback_validates_and_is_a_no_op_without_tracing(client, monkeypatch):
+    from a2d.advisor import tracing
+
+    monkeypatch.delenv(tracing.ENV_EXPERIMENT, raising=False)
+    tracing.reset()
+    ok = client.post("/api/ai/feedback", json={"trace_id": "tr-0123456789abcdef", "outcome": "used"})
+    assert ok.status_code == 200 and ok.json() == {"recorded": False}
+    assert client.post("/api/ai/feedback", json={"trace_id": "nope", "outcome": "used"}).status_code == 422
+    assert (
+        client.post("/api/ai/feedback", json={"trace_id": "tr-0123456789abcdef", "outcome": "liked"}).status_code == 422
+    )
+    assert client.get("/api/ai/tracing").json() == {"enabled": False}
