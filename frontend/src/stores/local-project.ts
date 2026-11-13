@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  ReviewDecisionsRecord,
   WorkflowAnalysisSummary,
   WorkflowConversionSummary,
   WorkflowStage,
@@ -30,6 +31,7 @@ export interface LocalWorkflow {
   file: File;
   analysis: WorkflowAnalysisSummary | null;
   conversion: WorkflowConversionSummary | null;
+  review: ReviewDecisionsRecord | null;
 }
 
 interface LocalProjectState {
@@ -46,6 +48,7 @@ interface LocalProjectState {
   advance: (match: (w: LocalWorkflow) => boolean, stage: WorkflowStage) => void;
   setAnalysis: (byFileName: Record<string, WorkflowAnalysisSummary>) => void;
   setConversion: (fileName: string, summary: WorkflowConversionSummary) => void;
+  setReview: (id: string, record: ReviewDecisionsRecord) => void;
 }
 
 let counter = 0;
@@ -62,6 +65,7 @@ function upsert(workflows: LocalWorkflow[], files: File[]): LocalWorkflow[] {
       file,
       analysis: null,
       conversion: null,
+      review: null,
     };
     const at = next.findIndex((w) => w.file_name === file.name);
     if (at >= 0) next[at] = { ...fresh, id: next[at].id };
@@ -96,6 +100,8 @@ export const useLocalProjectStore = create<LocalProjectState>((set) => ({
         byFileName[w.file_name] ? { ...w, analysis: byFileName[w.file_name] } : w,
       ),
     })),
+  setReview: (id, record) =>
+    set((s) => ({ workflows: s.workflows.map((w) => (w.id === id ? { ...w, review: record } : w)) })),
   setConversion: (fileName, summary) =>
     set((s) => ({
       workflows: s.workflows.map((w) =>

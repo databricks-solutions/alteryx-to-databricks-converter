@@ -10,13 +10,18 @@ from a2d.config import ConversionConfig, OutputFormat
 from a2d.parser.workflow_parser import WorkflowParser
 from a2d.pipeline import ConversionPipeline
 from a2d.review.builder import build_review_session
+from server.models.requests import ConversionOptions
 from server.utils.package import materialize_upload, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.review")
 
 
 def build_review(
-    filename: str, content: bytes, output_format: str = "pyspark", macros: list[tuple[str, bytes]] | None = None
+    filename: str,
+    content: bytes,
+    output_format: str = "pyspark",
+    macros: list[tuple[str, bytes]] | None = None,
+    opts: ConversionOptions | None = None,
 ) -> dict:
     """Parse one .yxmd/.yxmc file and return a review-session dict.
 
@@ -34,7 +39,16 @@ def build_review(
         path, _ = materialize_upload(content, filename, Path(tmpdir))
         library = write_macro_library(macros or [], Path(tmpdir))
 
-        config = ConversionConfig(output_format=fmt, expand_macros=True, macro_search_paths=tuple(library))
+        # The project's table location and comment setting, like Convert, so a
+        # step reads the same here as there.
+        config = ConversionConfig(
+            output_format=fmt,
+            expand_macros=True,
+            macro_search_paths=tuple(library),
+            catalog_name=opts.catalog_name if opts else "main",
+            schema_name=opts.schema_name if opts else "default",
+            include_comments=opts.include_comments if opts else True,
+        )
         parsed = WorkflowParser().parse(path)
         dag = ConversionPipeline(config)._build_dag(parsed)
         session = build_review_session(dag, path.stem, output_format=fmt, config=config)

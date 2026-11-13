@@ -119,3 +119,61 @@ def test_project_sourced_completion_reads_the_stored_workflow(client, enabled, m
 
 def test_nothing_to_work_on_is_422(client, enabled):
     assert client.post("/api/ai/gaps").status_code == 422
+
+
+# ── /api/ai/suggest: one step, for Review ───────────────────────────────────
+
+
+class RecordingClient:
+    def __init__(self, reply: str = REPLY) -> None:
+        self.reply, self.prompts = reply, []
+
+    def chat(self, messages: list[ChatMessage], *, max_tokens: int = 4000) -> str:
+        self.prompts.append(messages[-1].content)
+        return self.reply
+
+
+def test_suggest_returns_the_step_like_review_shows_it(client, monkeypatch):
+    rec = RecordingClient()
+    monkeypatch.setattr(ai_completion, "get_client", lambda *a, **k: rec)
+    resp = client.post("/api/ai/suggest", files=_upload(), data={"node_id": "2", "hint": "keep 10 rows"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["node_id"] == 2 and body["status"] == "completed", body
+    assert body["code"].startswith("# Step 2: Message\n# >>> AI-GENERATED")
+    assert "df_2 = df_1.limit(10)" in body["code"]
+    assert body["before"].startswith("# Step 2: Message")
+    assert "The reviewer's note on this step" in rec.prompts[0] and "keep 10 rows" in rec.prompts[0]
+
+
+def test_suggest_works_on_a_step_the_converter_finished(client, monkeypatch):
+    """A reviewer can ask about any step, not only unfinished ones."""
+    rec = RecordingClient("df_1 = spark.table('main.default.orders')")
+    monkeypatch.setattr(ai_completion, "get_client", lambda *a, **k: rec)
+    resp = client.post("/api/ai/suggest", files=_upload(), data={"node_id": "1"})
+    assert resp.status_code == 200
+    assert len(rec.prompts) == 1 and "Alteryx node id: 1" in rec.prompts[0]
+
+
+def test_suggest_for_a_missing_macro_says_to_add_it(client, monkeypatch):
+    rec = RecordingClient()
+    monkeypatch.setattr(ai_completion, "get_client", lambda *a, **k: rec)
+    path = Path(__file__).parent.parent.parent / "fixtures" / "macro" / "parent_missing_macro.yxmd"
+    files = {"file": (path.name, path.read_bytes(), "application/xml")}
+    body = client.post("/api/ai/suggest", files=files, data={"node_id": "2"}).json()
+    assert body["status"] == "skipped"
+    assert ".yxmc to the project" in body["reason"]
+    assert rec.prompts == []  # no model call
+
+
+def test_suggest_needs_a_step_with_code(client, enabled):
+    resp = client.post("/api/ai/suggest", files=_upload(), data={"node_id": "999"})
+    assert resp.status_code == 422
+    assert "no PySpark code of its own" in resp.json()["detail"]
+
+
+def test_suggest_is_opt_in_and_limits_the_note(client, disabled, monkeypatch):
+    assert client.post("/api/ai/suggest", files=_upload(), data={"node_id": "2"}).status_code == 422
+    monkeypatch.setattr(ai_completion, "get_client", lambda *a, **k: FakeClient())
+    resp = client.post("/api/ai/suggest", files=_upload(), data={"node_id": "2", "hint": "x" * 2001})
+    assert resp.status_code == 422

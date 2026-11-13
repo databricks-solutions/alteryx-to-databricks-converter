@@ -399,7 +399,8 @@ def get_project(project_id: str) -> dict | None:
             if not prow:
                 return None
             wrows = conn.execute(
-                """SELECT id, file_name, stage, analysis, updated_at, size_bytes, conversion_refs, content_hash
+                """SELECT id, file_name, stage, analysis, updated_at, size_bytes, conversion_refs, content_hash,
+                          review_decisions
                    FROM project_workflow WHERE project_id = %s ORDER BY file_name""",
                 (project_id,),
             ).fetchall()
@@ -420,6 +421,8 @@ def get_project(project_id: str) -> dict | None:
             # Changes only when the file's bytes do (not on stage moves), so a
             # client can tell whether a cached analysis still describes it.
             "content_hash": w[7] or "",
+            # The reviewer's per-step decisions from Review (cleared when the file changes).
+            "review": w[8],
         }
         for w in wrows
     ]

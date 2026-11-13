@@ -157,6 +157,66 @@ def complete_workflow(
     return payload
 
 
+def _from_step_line(cell: str, node_id: int) -> str:
+    """A cell from its ``# Step N:`` line on, the way Review shows a step's code."""
+    marker = f"# Step {node_id}:"
+    at = cell.find(marker)
+    return (cell[at:] if at >= 0 else cell).rstrip()
+
+
+def suggest_step(
+    filename: str,
+    content: bytes,
+    client: AdvisoryClient,
+    node_id: int,
+    opts: ConversionOptions | None = None,
+    *,
+    hint: str | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
+    budget_seconds: float | None = None,
+) -> dict:
+    """Ask the model for one step's code, for Review. Same prompt, checks and
+    wiring as AI completion; the step needn't be one the converter left
+    unfinished, and the reviewer can add a note.
+
+    Returns ``{"node_id", "status", "reason", "code", "before"}`` where ``code``
+    (when completed) is the step's cell with the AI code between the markers.
+    Raises ValueError when the step has no PySpark code of its own, and
+    :class:`CompletionBusyError` when the concurrency limit is reached.
+    """
+    if not _completion_slots.acquire(blocking=False):
+        raise CompletionBusyError("Other AI requests are running right now. Try again in a minute.")
+    try:
+        budget = settings.conversion_timeout_seconds if budget_seconds is None else budget_seconds
+        deadline = time.monotonic() + max(budget - _DEADLINE_MARGIN_SECONDS, 1.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            converted = _convert_pyspark(filename, content, opts, Path(tmp), macros)
+            result = complete_notebook(
+                converted.notebook,
+                converted.ctx,
+                client,
+                converted.dag,
+                converted.cell_nodes,
+                deadline=deadline,
+                node_io=converted.node_io,
+                only={node_id},
+                hint=hint,
+            )
+    finally:
+        _completion_slots.release()
+    if not result.cells:
+        raise ValueError(f"Step {node_id} has no PySpark code of its own to suggest for.")
+    cell = result.cells[0]
+    logger.info("AI suggestion for %s step %s: %s", filename, node_id, cell.status)
+    return {
+        "node_id": node_id,
+        "status": cell.status,
+        "reason": cell.reason,
+        "code": _from_step_line(cell.after, node_id) if cell.status == "completed" else None,
+        "before": _from_step_line(cell.before, node_id),
+    }
+
+
 def gap_summary(
     filename: str,
     content: bytes,

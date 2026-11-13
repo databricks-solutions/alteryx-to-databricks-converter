@@ -21,6 +21,9 @@ All notable changes to this project are documented here. Follows [Keep a Changel
 - The parser keeps each tool's saved output columns (`ParsedNode.output_fields`, `IRNode.output_fields`); `a2d.ir.schema` resolves the columns on any input or output. The PySpark generator records each step's input and output variables (`GeneratedOutput.node_io`).
 - SQL joins name every shared column like Alteryx (`Right_<name>`) when both inputs' columns are known.
 - `make ci` runs what the CI workflow runs.
+- **Suggest code in Review.** A flagged step in a PySpark review has **Suggest code with AI**: the model drafts that step (same prompt, checks and wiring as AI completion, for any flagged step, not only unfinished ones), and the reviewer can **Use it**, **Edit it** or **Discard** it, or add a note and **Try again**. A step that calls a missing macro says to add the macro instead. New endpoint: `POST /api/ai/suggest` (`node_id`, optional `hint`, and a workflow like the other AI endpoints).
+- **Review decisions are saved.** Accept, edit and reject decisions (and whether edited code came from an AI suggestion) are saved to the project (`review_decisions`, returned as each workflow's `review`) or to the tab's session project, and come back when the workflow is reviewed again in the same format. A decision is only restored while that step's generated code is unchanged; the screen says how many were picked up and how many were left out. Replacing the file clears them.
+- Review uses the project's table location and comment setting, like Convert, so a step reads the same on both screens.
 
 ### Removed
 - The `/api/chat` endpoints and their server session store. The app's chat page was already gone; AI completion replaces it. `a2d suggest` and the `a2d.advisor.chat` library are unchanged.

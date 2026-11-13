@@ -169,9 +169,10 @@ export const api = {
       body: JSON.stringify({ code, filename: filename || "<input>" }),
     }),
 
-  review: (source: WorkflowSource, outputFormat: FormatId = "pyspark") => {
+  review: (source: WorkflowSource, outputFormat: FormatId = "pyspark", opts?: ConvertOptions) => {
     const fd = new FormData();
     appendWorkflow(fd, source);
+    appendOptions(fd, opts);
     fd.append("output_format", outputFormat);
     return request<ReviewSession>("/review", { method: "POST", body: fd });
   },
@@ -288,6 +289,16 @@ export const api = {
     appendWorkflow(fd, source);
     appendOptions(fd, opts);
     return request<MigrationContext>("/ai/gaps", { method: "POST", body: fd });
+  },
+
+  /** AI code for one step, for Review (PySpark). `hint` is the reviewer's note. */
+  aiSuggest: (source: WorkflowSource, nodeId: number, opts?: ConvertOptions, hint?: string) => {
+    const fd = new FormData();
+    appendWorkflow(fd, source);
+    appendOptions(fd, opts);
+    fd.append("node_id", String(nodeId));
+    if (hint && hint.trim()) fd.append("hint", hint.trim());
+    return request<AISuggestion>("/ai/suggest", { method: "POST", body: fd });
   },
 
   aiComplete: (source: WorkflowSource, opts?: ConvertOptions) => {
@@ -885,12 +896,35 @@ export interface WorkflowConversionSummary {
   at?: string;
 }
 
+/** One step's AI suggestion for Review. `code` is the step as Review shows it
+ * (from its "# Step N:" line), with the AI code between the markers. */
+export interface AISuggestion {
+  node_id: number;
+  status: "completed" | "failed" | "skipped";
+  reason: string;
+  code: string | null;
+  before: string;
+}
+
+/** A reviewer's saved decisions for one workflow, per step. `base` is a hash of
+ * the generated code the decision was made on, so a decision is only restored
+ * while that step's code is unchanged. */
+export interface ReviewDecisionsRecord {
+  output_format: FormatId;
+  nodes: Record<
+    string,
+    { decision: ReviewDecision; code: string | null; source: "ai" | "user" | null; base: string }
+  >;
+  saved_at: string;
+}
+
 export interface ProjectWorkflow {
   id: string;
   file_name: string;
   stage: WorkflowStage;
   analysis: WorkflowAnalysisSummary | null;
   conversion?: WorkflowConversionSummary | null;
+  review?: ReviewDecisionsRecord | null;
   size_bytes?: number;
   content_hash?: string;
   updated_at: string;

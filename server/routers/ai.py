@@ -108,6 +108,43 @@ async def complete(
         raise _bad_workflow(name, e) from None
 
 
+@router.post("/suggest")
+async def suggest(
+    node_id: int = Form(...),
+    hint: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    project_id: str | None = Form(None),
+    workflow_id: str | None = Form(None),
+    macros: list[UploadFile] = File(default=[]),
+    opts: ConversionOptions = Depends(conversion_options),
+) -> dict:
+    """AI code for one step, for Review: a suggestion the reviewer accepts,
+    edits or discards. PySpark only, like AI completion."""
+    client = _require_client()
+    if hint is not None and len(hint) > 2000:
+        raise HTTPException(status_code=422, detail="The note is too long (2,000 characters at most).")
+    wf = await resolve_one_workflow(file, project_id, workflow_id, macros)
+    name, content = wf.name, wf.content
+    try:
+        return await run_with_timeout(
+            ai_completion.suggest_step,
+            name,
+            content,
+            client,
+            node_id,
+            opts,
+            hint=hint,
+            macros=wf.macros,
+            label=f"AI suggestion for {name} step {node_id}",
+        )
+    except ai_completion.CompletionBusyError as e:
+        raise HTTPException(status_code=429, detail=str(e)) from None
+    except CompletionUnavailableError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (ValueError, XMLSyntaxError, A2dError) as e:
+        raise _bad_workflow(name, e) from None
+
+
 @router.post("/notes", response_class=PlainTextResponse)
 async def notes(
     file: UploadFile | None = File(None),
