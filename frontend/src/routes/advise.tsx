@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useAdvise } from "@/hooks/use-insights";
 import { downloadJson } from "@/lib/portfolio-download";
-import type { CloudName } from "@/lib/api";
+import type { CloudName, WorkflowSource } from "@/lib/api";
 import { Play, Loader2, Download, Server, Zap, Info } from "lucide-react";
 
 const PRIORITY_VARIANT: Record<string, "destructive" | "warning" | "secondary"> = {
@@ -17,7 +17,7 @@ const PRIORITY_VARIANT: Record<string, "destructive" | "warning" | "secondary"> 
 
 /** Cluster sizing and Spark hints for one workflow from the project (picked by
  * the Review step). Its header action only appears while the tab is showing. */
-export function AdvisePage({ file, active = true }: { file: File | null; active?: boolean }) {
+export function AdvisePage({ source, active = true }: { source: WorkflowSource | null; active?: boolean }) {
   const [cloud, setCloud] = useState<CloudName>("aws");
   const mutation = useAdvise();
   const report = mutation.data;
@@ -26,11 +26,11 @@ export function AdvisePage({ file, active = true }: { file: File | null; active?
   const { reset } = mutation;
   useEffect(() => {
     reset();
-  }, [file, reset]);
+  }, [source, reset]);
 
   const handleAdvise = () => {
-    if (!file) return;
-    mutation.mutate({ file, cloud });
+    if (!source) return;
+    mutation.mutate({ source, cloud });
   };
 
   return (
@@ -76,7 +76,7 @@ export function AdvisePage({ file, active = true }: { file: File | null; active?
               <option value="azure">Azure</option>
               <option value="gcp">GCP</option>
             </select>
-            <Button onClick={handleAdvise} disabled={!file || mutation.isPending}>
+            <Button onClick={handleAdvise} disabled={!source || mutation.isPending}>
               {mutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (

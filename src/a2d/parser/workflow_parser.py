@@ -124,11 +124,12 @@ class WorkflowParser:
         return False
 
     def _find_macro_references(self, nodes: list[ParsedNode]) -> list[str]:
-        """Find any macro file references in the workflow."""
-        refs = []
-        for node in nodes:
-            if node.plugin_name and "Macro" in node.plugin_name:
-                macro_path = node.configuration.get("MacroPath", "")
-                if macro_path:
-                    refs.append(macro_path)
-        return refs
+        """Find the custom macros the workflow calls (one entry per calling tool).
+
+        Uses the same rule as macro expansion, so the complexity score and the
+        portfolio's shared-macro view count the calls expansion will see.
+        """
+        # Imported here: a2d.macro imports this parser.
+        from a2d.macro.detect import macro_path_for_node
+
+        return [path for node in nodes if (path := macro_path_for_node(node))]

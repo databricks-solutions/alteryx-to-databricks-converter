@@ -84,6 +84,7 @@ from a2d.ir.nodes import (
     WriteNode,
     XMLParseNode,
 )
+from a2d.macro.detect import macro_path_for_ir_node
 from a2d.utils.types import alteryx_fmt_to_spark, normalize_sql_for_spark
 
 logger = logging.getLogger("a2d.generators.pyspark")
@@ -2243,6 +2244,9 @@ class PySparkGenerator(CodeGenerator):
             ]
         else:
             lines = [f"# {tool}: manual conversion required"]
+            if macro_path_for_ir_node(node):
+                # Name the macro and why it wasn't expanded (missing file, batch macro, ...).
+                lines.append(f"# {reason}")
 
         return NodeCodeResult(
             code_lines=lines,

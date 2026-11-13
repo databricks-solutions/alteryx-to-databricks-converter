@@ -170,9 +170,7 @@ class TestJobYml:
     def test_sql_output_uses_sql_task_no_cluster(self, generator: DABGenerator):
         """A SQL GeneratedOutput must produce a sql_task (warehouse), a .sql source
         file, and NO spark_python_task / job cluster (SQL is not valid Python)."""
-        output = _make_output(
-            [GeneratedFile(filename="wf.sql", content="SELECT 1", file_type="sql")]
-        )
+        output = _make_output([GeneratedFile(filename="wf.sql", content="SELECT 1", file_type="sql")])
         files = generator.generate(None, "wf", output)
 
         job_yml = _find_file(files, "resources/wf_job.yml")

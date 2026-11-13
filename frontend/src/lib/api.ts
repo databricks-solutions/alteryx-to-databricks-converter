@@ -3,24 +3,37 @@ const BASE = "/api";
 /**
  * Where a multi-file call gets its workflows: a saved project (the server reads
  * the stored files — nothing is re-uploaded) or, for a session-only project when
- * no database is configured, the files held in the browser.
+ * no database is configured, the files held in the browser. `macros` are .yxmc
+ * files the workflows may call that aren't among `files` (a batch run on part
+ * of a session project); a saved project's macros come from the server.
  */
-export type EstateSource = { projectId: string } | { files: File[] };
+export type EstateSource = { projectId: string } | { files: File[]; macros?: File[] };
 
 function appendSource(fd: FormData, source: EstateSource) {
   if ("projectId" in source) fd.append("project_id", source.projectId);
-  else source.files.forEach((f) => fd.append("files", f));
+  else {
+    source.files.forEach((f) => fd.append("files", f));
+    source.macros?.forEach((f) => fd.append("macros", f));
+  }
 }
 
-/** One workflow for a single-workflow call: a saved project's, or a browser file. */
-export type WorkflowSource = { projectId: string; workflowId: string } | { file: File };
+/** One workflow for a single-workflow call: a saved project's (its macros come
+ * with it), or a browser file plus the session project's macros. */
+export type WorkflowSource = { projectId: string; workflowId: string } | { file: File; macros?: File[] };
 
 function appendWorkflow(fd: FormData, source: WorkflowSource) {
-  if ("file" in source) fd.append("file", source.file);
-  else {
+  if ("file" in source) {
+    fd.append("file", source.file);
+    source.macros?.forEach((f) => fd.append("macros", f));
+  } else {
     fd.append("project_id", source.projectId);
     fd.append("workflow_id", source.workflowId);
   }
+}
+
+/** True for an Alteryx macro file (.yxmc). */
+export function isMacroFile(name: string): boolean {
+  return name.toLowerCase().endsWith(".yxmc");
 }
 
 export interface ConvertOptions {
@@ -31,7 +44,6 @@ export interface ConvertOptions {
   includePerformanceHints?: boolean;
   generateDdl?: boolean;
   generateDab?: boolean;
-  expandMacros?: boolean;
 }
 
 function appendOptions(fd: FormData, opts?: ConvertOptions) {
@@ -44,7 +56,6 @@ function appendOptions(fd: FormData, opts?: ConvertOptions) {
     fd.append("include_performance_hints", String(opts.includePerformanceHints));
   if (opts?.generateDdl !== undefined) fd.append("generate_ddl", String(opts.generateDdl));
   if (opts?.generateDab !== undefined) fd.append("generate_dab", String(opts.generateDab));
-  if (opts?.expandMacros !== undefined) fd.append("expand_macros", String(opts.expandMacros));
 }
 
 async function requestText(path: string, init?: RequestInit): Promise<string> {
@@ -94,9 +105,9 @@ export const api = {
       supported_tools: number;
     }>("/tools"),
 
-  convert: (file: File, opts?: ConvertOptions) => {
+  convert: (source: WorkflowSource, opts?: ConvertOptions) => {
     const fd = new FormData();
-    fd.append("file", file);
+    appendWorkflow(fd, source);
     appendOptions(fd, opts);
     return request<ConversionResult>("/convert", { method: "POST", body: fd });
   },
@@ -153,9 +164,9 @@ export const api = {
       body: JSON.stringify({ code, filename: filename || "<input>" }),
     }),
 
-  review: (file: File, outputFormat: FormatId = "pyspark") => {
+  review: (source: WorkflowSource, outputFormat: FormatId = "pyspark") => {
     const fd = new FormData();
-    fd.append("file", file);
+    appendWorkflow(fd, source);
     fd.append("output_format", outputFormat);
     return request<ReviewSession>("/review", { method: "POST", body: fd });
   },
@@ -168,9 +179,9 @@ export const api = {
     return request<PortfolioReport>("/portfolio", { method: "POST", body: fd });
   },
 
-  advise: (file: File, cloud: CloudName = "aws") => {
+  advise: (source: WorkflowSource, cloud: CloudName = "aws") => {
     const fd = new FormData();
-    fd.append("file", file);
+    appendWorkflow(fd, source);
     fd.append("cloud", cloud);
     return request<AdvisorReport>("/advise", { method: "POST", body: fd });
   },

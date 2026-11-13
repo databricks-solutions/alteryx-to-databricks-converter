@@ -3,6 +3,7 @@ import { useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   api,
+  isMacroFile,
   type EstateSource,
   type Project,
   type WorkflowAnalysisSummary,
@@ -42,10 +43,13 @@ export interface ProjectContext {
   hasData: boolean;
   /** For multi-file calls (analyze, assess, portfolio, savings, batch). */
   source: EstateSource | null;
-  /** For single-workflow calls that accept a project reference (AI). */
+  /** For single-workflow calls (convert, review, advise, AI): the saved
+   * project's reference, or the session file plus the session's macros. */
   workflowSource: (workflowId: string) => WorkflowSource | null;
-  /** The workflow's file, for single-file calls (convert, review, advise). */
+  /** The workflow's file (a saved one is downloaded from the project). */
   getFile: (workflowId: string) => Promise<File>;
+  /** A session project's macros (.yxmc), for a batch run on part of it. */
+  localMacros: File[];
   /** Move one workflow forward to `stage` (never backward). */
   setStage: (workflowId: string, stage: WorkflowStage, conversion?: WorkflowConversionSummary) => Promise<void>;
   /** After a whole-estate pass: refetch a saved project, or record it locally. */
@@ -134,13 +138,18 @@ export function useProjectContext(): ProjectContext {
     return null;
   }, [saved, localLive, projectId, localWorkflows]);
 
+  const localMacros = useMemo(
+    () => (localLive ? localWorkflows.filter((w) => isMacroFile(w.file_name)).map((w) => w.file) : []),
+    [localLive, localWorkflows],
+  );
+
   const workflowSource = useCallback(
     (workflowId: string): WorkflowSource | null => {
       if (saved && projectId) return { projectId, workflowId };
-      const w = localWorkflows.find((x) => x.id === workflowId);
-      return w ? { file: w.file } : null;
+      const w = localLive ? localWorkflows.find((x) => x.id === workflowId) : undefined;
+      return w ? { file: w.file, macros: localMacros } : null;
     },
-    [saved, projectId, localWorkflows],
+    [saved, projectId, localLive, localWorkflows, localMacros],
   );
 
   const getFile = useCallback(
@@ -226,6 +235,7 @@ export function useProjectContext(): ProjectContext {
       source,
       workflowSource,
       getFile,
+      localMacros,
       setStage,
       afterEstatePass,
       afterBatch,
@@ -245,6 +255,7 @@ export function useProjectContext(): ProjectContext {
       source,
       workflowSource,
       getFile,
+      localMacros,
       setStage,
       afterEstatePass,
       afterBatch,

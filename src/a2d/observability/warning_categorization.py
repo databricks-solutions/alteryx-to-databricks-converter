@@ -86,10 +86,11 @@ class CategorizedWarnings:
 # the tool name in parens; SQL/DLT emit the older ``Unsupported node N: ...``
 # shape. Accept both — the parens group is optional; tool name is captured
 # when present and preferred over the trailing ``tool type: X`` form.
-_RE_UNSUPPORTED = re.compile(
-    r"^Unsupported node (\d+)(?:\s*\(([^)]+)\))?:\s*No converter for tool type:\s*(.+?)\s*$",
-    re.IGNORECASE,
-)
+# "Unsupported node N (Tool): <reason>" (the tool in parens is optional in
+# older output). The reason is usually "No converter for tool type: X", but can
+# say more, e.g. why a macro call wasn't expanded.
+_RE_UNSUPPORTED = re.compile(r"^Unsupported node (\d+)(?:\s*\(([^)]+)\))?:\s*(.+?)\s*$", re.IGNORECASE)
+_RE_NO_CONVERTER = re.compile(r"^No converter for tool type:\s*(.+?)\s*$", re.IGNORECASE)
 _RE_NO_GENERATOR = re.compile(
     r"^No (PySpark|DLT|SQL|Lakeflow)\s+generator\s+for\s+(\w+)\s*\(node\s*(\d+)\)",
     re.IGNORECASE,
@@ -159,9 +160,14 @@ def parse_warning(raw: str) -> ParsedWarning:
     m = _RE_UNSUPPORTED.match(trimmed)
     if m:
         node_id = int(m.group(1))
-        # Group 2 is the optional parenthesized tool name (PySpark style);
-        # group 3 is the trailing ``tool type: X``. Prefer the parens form.
-        tool = m.group(2) or m.group(3)
+        reason = m.group(3)
+        no_converter = _RE_NO_CONVERTER.match(reason)
+        # The parenthesized tool name wins; else the ``tool type: X`` in the reason.
+        tool = m.group(2) or (no_converter.group(1) if no_converter else "unknown")
+        skipped = (
+            f"The generated code skips this node, so the dataflow downstream of node {node_id} "
+            "will be incomplete. You must replace this step manually."
+        )
         return ParsedWarning(
             kind="unsupported_tool",
             severity="blocker",
@@ -170,10 +176,9 @@ def parse_warning(raw: str) -> ParsedWarning:
             tool=tool,
             title=f"Node {node_id} ({tool}) — no converter",
             detail=(
-                f'a2d does not yet support the Alteryx tool "{tool}". The '
-                f"generated code skips this node, so the dataflow downstream "
-                f"of node {node_id} will be incomplete. You must replace "
-                "this step manually."
+                f'a2d does not yet support the Alteryx tool "{tool}". {skipped}'
+                if no_converter
+                else f"{reason.rstrip('.')}. {skipped}"
             ),
         )
 

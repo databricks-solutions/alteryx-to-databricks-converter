@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from a2d.parser.node_parser import MACRO_CALL_TOOL_TYPE
 from a2d.parser.schema import ParsedNode, ParsedWorkflow
 
 # Plugin strings for the macro *boundary* tools (not macro calls) — these live
@@ -16,9 +17,11 @@ def macro_path_for_node(node: ParsedNode) -> str | None:
     """Return the ``.yxmc`` path a node references, or None if it isn't a call.
 
     A macro call is recognized by an explicit ``MacroPath`` in configuration, or
-    a ``macro:<file>`` plugin name synthesized by the parser from
-    ``EngineSettings Macro=``. Boundary tools (MacroInput/MacroOutput) are
-    excluded.
+    by the parser's encoding of ``EngineSettings Macro=`` (tool type ``Macro``,
+    plugin name ``macro:<path>``), which is how Alteryx saves a macro call.
+    Boundary tools (MacroInput/MacroOutput) are excluded, and so are built-in
+    tools that Alteryx ships as macros: the parser maps those to their own tool
+    type, and they have their own converters.
     """
     if node.tool_type in _BOUNDARY_TOOL_TYPES:
         return None
@@ -30,10 +33,34 @@ def macro_path_for_node(node: ParsedNode) -> str | None:
         return macro_path.strip()
 
     # Parser encodes EngineSettings Macro="foo.yxmc" as plugin_name "macro:foo.yxmc".
-    if node.plugin_name.startswith("macro:"):
+    if node.plugin_name.startswith("macro:") and node.tool_type == MACRO_CALL_TOOL_TYPE:
         return node.plugin_name.split(":", 1)[1]
 
     return None
+
+
+def macro_path_for_ir_node(node: object) -> str | None:
+    """The ``.yxmc`` path an IR node calls, if it's a macro call left unexpanded.
+
+    An unexpanded call converts to an ``UnsupportedNode`` that keeps the tool's
+    original configuration (``MacroPath``) and plugin name (``macro:<file>``).
+    """
+    config = getattr(node, "original_configuration", None) or {}
+    macro_path = config.get("MacroPath", "") if isinstance(config, dict) else ""
+    if isinstance(macro_path, dict):
+        macro_path = macro_path.get("#text", "")
+    if isinstance(macro_path, str) and macro_path.strip():
+        return macro_path.strip()
+    plugin = getattr(node, "original_plugin_name", "") or ""
+    tool_type = getattr(node, "original_tool_type", "")
+    if isinstance(plugin, str) and plugin.startswith("macro:") and tool_type == MACRO_CALL_TOOL_TYPE:
+        return plugin.split(":", 1)[1]
+    return None
+
+
+def macro_file_name(macro_path: str) -> str:
+    """``C:\\Macros\\Cleanse.yxmc`` -> ``Cleanse.yxmc``."""
+    return macro_path.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 @dataclass

@@ -1,9 +1,7 @@
-"""Tests for the Lakebase pool and the history service's failure behaviour.
+"""Tests for the Lakebase pool's credential rotation.
 
-Both were previously untested (lakebase 0%, history 17%) despite owning the
-credential-rotation and persistence paths. These cover the contract without
-needing a live workspace or database: the Databricks SDK and psycopg pool are
-mocked.
+These cover the contract without needing a live workspace or database: the
+Databricks SDK and psycopg pool are mocked.
 """
 
 from __future__ import annotations
@@ -15,7 +13,7 @@ import pytest
 
 # `psycopg_pool` ships with the `server` extra but isn't required for the core
 # package, so a bare dev env can lack it. Skip the pool tests there rather than
-# fail collection — the history tests below only need `psycopg` itself.
+# fail collection.
 psycopg_pool = pytest.importorskip("psycopg_pool", reason="requires the 'server' extra")
 
 from server.services.lakebase import OAuthConnection, create_lakebase_pool

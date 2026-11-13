@@ -26,17 +26,16 @@ pytestmark = [
 
 @pytest.fixture(scope="module")
 def store():
-    from server.services import history
+    from server.services import db
     from server.services import project as project_service
     from server.settings import settings
 
-    saved = (settings.database_url, settings.db_backend, history._pool, project_service._initialized)
-    settings.database_url, settings.db_backend, history._pool = DB_URL, "postgres", None
+    saved = (settings.database_url, settings.db_backend, db._pool, project_service._initialized)
+    settings.database_url, settings.db_backend, db._pool = DB_URL, "postgres", None
     assert project_service.init_db()
     yield project_service
-    if history._pool is not None:
-        history._pool.close()
-    settings.database_url, settings.db_backend, history._pool, project_service._initialized = saved
+    db.close_pool()
+    settings.database_url, settings.db_backend, db._pool, project_service._initialized = saved
 
 
 @pytest.fixture()
@@ -103,9 +102,9 @@ def test_analysis_is_stored_and_feeds_the_rollup(store, project):
 
 
 def test_unique_names_are_enforced_by_the_database(store, project):
-    from server.services import history
+    from server.services import db
 
-    with pytest.raises(store._DatabaseError), history._get_pool().connection() as conn:
+    with pytest.raises(store._DatabaseError), db.get_pool().connection() as conn:
         conn.execute(
             "INSERT INTO project_workflow (project_id, file_name, source_b64) VALUES (%s, 'a.yxmd', 'eA==')",
             (project["id"],),
@@ -119,3 +118,23 @@ def test_delete_cascades_and_bad_ids_are_not_found(store):
     assert store.get_project(p["id"]) is None
     assert store.get_workflow_file(p["id"], wid) is None
     assert store.get_project("not-a-uuid") is None
+
+
+def test_a_workflow_comes_with_its_projects_macros(store):
+    p = store.create_project(
+        "macros",
+        [("main.yxmd", b"<M/>"), ("Cleanse.YXMC", b"<C/>"), ("other.yxmd", b"<O/>"), ("Helper.yxmc", b"<H/>")],
+    )
+    try:
+        main_id = next(w["id"] for w in p["workflows"] if w["file_name"] == "main.yxmd")
+        (name, content), macros = store.get_workflow_with_macros(p["id"], main_id)
+        assert (name, content) == ("main.yxmd", b"<M/>")
+        assert sorted(macros) == [("Cleanse.YXMC", b"<C/>"), ("Helper.yxmc", b"<H/>")]
+        # A macro asked for by itself is both the workflow and one of the macros.
+        macro_id = next(w["id"] for w in p["workflows"] if w["file_name"] == "Helper.yxmc")
+        (name, _), macros = store.get_workflow_with_macros(p["id"], macro_id)
+        assert name == "Helper.yxmc" and len(macros) == 2
+        assert store.get_workflow_with_macros(p["id"], "00000000-0000-0000-0000-000000000000") is None
+        assert store.get_workflow_with_macros(p["id"], "not-a-uuid") is None
+    finally:
+        store.delete_project(p["id"])

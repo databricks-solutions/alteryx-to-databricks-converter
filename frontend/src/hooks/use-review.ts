@@ -1,13 +1,13 @@
 import { useMutation } from "@tanstack/react-query";
-import { api, type FormatId, type ReviewSession } from "@/lib/api";
+import { api, type FormatId, type ReviewSession, type WorkflowSource } from "@/lib/api";
 
 interface ReviewParams {
-  file: File;
+  source: WorkflowSource;
   outputFormat?: FormatId;
 }
 
 export function useReview() {
   return useMutation<ReviewSession, Error, ReviewParams>({
-    mutationFn: ({ file, outputFormat }) => api.review(file, outputFormat),
+    mutationFn: ({ source, outputFormat }) => api.review(source, outputFormat),
   });
 }

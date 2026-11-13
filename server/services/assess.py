@@ -13,7 +13,7 @@ from pathlib import Path
 
 from a2d.analyzer.batch import BatchAnalyzer
 from a2d.analyzer.profiler import ProfilerConfig, build_estate_profile
-from server.utils.package import analyze_each, materialize_uploads, upload_name_for
+from server.utils.package import analyze_each, macro_files, materialize_uploads, upload_name_for, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.assess")
 
@@ -41,9 +41,12 @@ def profile_estate(
     skipped: list[str] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         paths = materialize_uploads(files, Path(tmpdir), skipped=skipped)
-        # Expand macros so a .yxzp's co-located .yxmc is inlined rather than
-        # classified as an unsupported Unknown tier; no-op when no macro is present.
-        analyses = analyze_each(BatchAnalyzer(expand_macros=True), paths, Path(tmpdir), files, skipped)
+        # Expand macros (a .yxzp's own, or ones uploaded as separate files) so a
+        # macro call is tiered by its real interior, not as an unsupported Unknown.
+        analyzer = BatchAnalyzer(
+            expand_macros=True, macro_search_paths=write_macro_library(macro_files(files), Path(tmpdir))
+        )
+        analyses = analyze_each(analyzer, paths, Path(tmpdir), files, skipped)
         analyzed = [upload_name_for(a.file_path, Path(tmpdir), files) for a in analyses]
 
     if not analyses:

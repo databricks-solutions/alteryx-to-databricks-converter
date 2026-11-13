@@ -7,6 +7,10 @@ Date: 2026-08-04. Reviewed at commit `e82c4ab` (main, post PR #9).
 > showed the report was wrong (marked *not an issue*). Test count went 1440 →
 > 1517 Python tests plus 14 new TypeScript tests. See the per-item **Outcome**
 > lines and the [summary table](#outcome-summary).
+>
+> **Later change:** the conversion History API (`/api/history`, P0-2 and P1-5
+> below) was removed when migration projects replaced it; the findings are kept
+> as they were at review time.
 
 Scope: full codebase — Python core (`src/a2d/`), server (`server/`), frontend
 (`frontend/`), docs, CI and deploy config. Produced by three parallel review

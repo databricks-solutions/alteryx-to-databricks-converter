@@ -14,6 +14,7 @@ import { useToastStore } from "@/stores/toast";
 import { useProjectSettingsStore } from "@/stores/project-settings";
 import { STAGE_VARIANT } from "@/lib/stages";
 import type { Project } from "@/lib/api";
+import { WorkflowName } from "@/components/shared/workflow-name";
 import { FilePlus2, Loader2, Pencil, Trash2, X, Check } from "lucide-react";
 
 function changeSummary(changes: Project["changes"], fallbackCount: number): string {
@@ -192,8 +193,10 @@ export function WorkflowsPage() {
             </div>
             <p className="text-xs text-[var(--fg-muted)]">
               A file with the same name as one already here replaces it and starts it over at "uploaded" (the
-              same file again changes nothing). If a workflow uses macros, add its <code>.yxzp</code> package
-              (in Alteryx: File, Export Workflow) so the macros come with it.
+              same file again changes nothing). If a workflow calls macros, add their <code>.yxmc</code> files
+              here too: every workflow in the project finds its macros by file name, wherever they were saved on
+              the author's machine. A <code>.yxzp</code> package (in Alteryx: File, Export Workflow) also works,
+              because it carries its macros.
             </p>
             <FileDropzone files={files} onFilesChange={setFiles} multiple />
             <div>
@@ -221,7 +224,9 @@ export function WorkflowsPage() {
               <tbody>
                 {ctx.workflows.map((w) => (
                   <tr key={w.id} className="border-b border-[var(--border)] last:border-0">
-                    <td className="px-4 py-2.5 text-[var(--fg)]">{w.file_name}</td>
+                    <td className="px-4 py-2.5 text-[var(--fg)]">
+                      <WorkflowName fileName={w.file_name} />
+                    </td>
                     <td className="px-4 py-2.5">
                       <Badge variant={STAGE_VARIANT[w.stage]}>{w.stage}</Badge>
                     </td>

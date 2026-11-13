@@ -13,6 +13,7 @@ import type {
   ReviewNode,
   ReviewSession,
   ReviewStatus,
+  WorkflowSource,
 } from "@/lib/api";
 import { saveAs } from "file-saver";
 import { Play, Loader2, Check, X, Pencil, Download } from "lucide-react";
@@ -60,11 +61,11 @@ function effectiveCode(node: ReviewNode, local: LocalDecision | undefined): stri
  * step). ``active`` says whether this tab is showing (its header action only
  * appears then); ``onProgress`` reports how many flagged nodes are still open. */
 export function ReviewPage({
-  file,
+  source,
   active = true,
   onProgress,
 }: {
-  file: File | null;
+  source: WorkflowSource | null;
   active?: boolean;
   onProgress?: (p: { needsReview: number; resolved: number; started: boolean }) => void;
 }) {
@@ -114,8 +115,8 @@ export function ReviewPage({
   }, [onProgress, progress.needsReview, progress.resolved, session]);
 
   const handleReview = () => {
-    if (!file) return;
-    mutation.mutate({ file, outputFormat });
+    if (!source) return;
+    mutation.mutate({ source, outputFormat });
   };
 
   // An in-progress edit whose draft diverges from the saved code would be lost
@@ -132,7 +133,7 @@ export function ReviewPage({
     setSelectedId(null);
     setDecisions({});
     setEditing(false);
-  }, [file, resetReview]);
+  }, [source, resetReview]);
 
   const selectNode = (nodeId: number) => {
     if (nodeId === selectedId) return;
@@ -199,7 +200,7 @@ export function ReviewPage({
               <option value="sql">Databricks SQL</option>
               <option value="lakeflow">Lakeflow</option>
             </select>
-            <Button onClick={handleReview} disabled={!file || mutation.isPending}>
+            <Button onClick={handleReview} disabled={!source || mutation.isPending}>
               {mutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (

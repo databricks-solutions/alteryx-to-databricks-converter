@@ -32,7 +32,7 @@ from server.services.conversion import (
     generate_ddl_dab_files,
 )
 from server.settings import settings
-from server.utils.package import materialize_upload
+from server.utils.package import materialize_upload, write_macro_library
 from server.utils.validation import sanitize_filename
 
 logger = logging.getLogger("a2d.server.services.batch")
@@ -82,8 +82,8 @@ class JobStore:
         # Full UUID, not a 12-hex-char truncation. Job ids are the only thing
         # guarding a job's status/download/WebSocket endpoints, so a 48-bit value
         # was needlessly guessable for a URL that returns another user's generated
-        # code. (Ownership binding is the real fix — see the tenancy note in
-        # server/routers/history.py — but there is no reason to shorten the id.)
+        # code. (Ownership binding would be the real fix — see the tenancy note in
+        # server/routers/projects.py — but there is no reason to shorten the id.)
         job_id = uuid.uuid4().hex
         job = BatchJob(job_id=job_id, total=total)
         with self._lock:
@@ -168,13 +168,16 @@ async def create_batch_job(
     include_performance_hints: bool = False,
     generate_ddl: bool = False,
     generate_dab: bool = False,
-    expand_macros: bool = False,
+    expand_macros: bool = True,
     project_id: str | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
 ) -> str:
     """Create a multi-format batch job and return job_id. Starts conversion in background.
 
     With ``project_id`` the files came from a saved project: each workflow that
     converts is recorded on the project (stage + a small summary) as it finishes.
+    ``macros`` are ``.yxmc`` files every workflow in the run may call (a project's
+    macros, including ones not selected for this run).
     """
     job = _store.create(total=len(files))
     logger.info("Created batch job %s: %d files (multi-format)", job.job_id, len(files))
@@ -191,6 +194,7 @@ async def create_batch_job(
             generate_dab=generate_dab,
             expand_macros=expand_macros,
             project_id=project_id,
+            macros=macros or [],
         )
     )
     return job.job_id
@@ -313,8 +317,9 @@ async def _run_batch(
     include_performance_hints: bool = False,
     generate_ddl: bool = False,
     generate_dab: bool = False,
-    expand_macros: bool = False,
+    expand_macros: bool = True,
     project_id: str | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
 ) -> None:
     """Run multi-format batch conversion in the background."""
     job.status = JobStatus.RUNNING
@@ -336,7 +341,6 @@ async def _run_batch(
             include_performance_hints=include_performance_hints,
             expand_macros=expand_macros,
         )
-        pipeline = ConversionPipeline(config)
         # A .yxzp bundles its macros; extraction co-locates them, so package-derived
         # files convert with macro expansion. This is scoped to the package's own
         # files — plain .yxmd uploads keep the caller's expand_macros setting rather
@@ -345,6 +349,10 @@ async def _run_batch(
         pkg_pipeline: ConversionPipeline | None = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            # The run's shared macros, searched after each workflow's own folder.
+            library = write_macro_library(macros or [], Path(tmpdir))
+            config = dataclasses.replace(config, macro_search_paths=tuple(library))
+            pipeline = ConversionPipeline(config)
             # (filename, workflow_path, was_package)
             file_paths: list[tuple[str, Path, bool]] = []
             # Each upload gets its own subdirectory. sanitize_filename is lossy —

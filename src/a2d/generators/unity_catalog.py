@@ -135,9 +135,7 @@ class UnityCatalogGenerator:
             fmt = _DDL_FORMAT_MAP.get(node.file_format.lower(), "DELTA")
 
             if fmt == "DELTA":
-                return (
-                    f"CREATE TABLE IF NOT EXISTS {fq_name}\n  -- Migrated from file: {_cmt(node.file_path)}\n  USING DELTA\n;"
-                )
+                return f"CREATE TABLE IF NOT EXISTS {fq_name}\n  -- Migrated from file: {_cmt(node.file_path)}\n  USING DELTA\n;"
             else:
                 # Modern pattern: ingest non-Delta files via read_files() into a
                 # managed Delta table. UC Volumes friendly, governed, and avoids
@@ -164,8 +162,10 @@ class UnityCatalogGenerator:
     def _write_node_ddl(self, node: WriteNode) -> str | None:
         """Generate DDL for a WriteNode."""
         conn_name = node.connection_string or "default"
-        table_name = _safe_identifier(node.table_name) if node.table_name else self._table_name_from_path(
-            node.file_path, node.node_id
+        table_name = (
+            _safe_identifier(node.table_name)
+            if node.table_name
+            else self._table_name_from_path(node.file_path, node.node_id)
         )
         fq_name = self._mapping.resolve(conn_name, table_name)
 

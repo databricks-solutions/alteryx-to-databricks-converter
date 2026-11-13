@@ -31,8 +31,13 @@ class TestMacroPathForNode:
         assert macro_path_for_node(node) == "m/a.yxmc"
 
     def test_engine_settings_plugin_prefix(self):
-        node = _node(1, plugin_name="macro:helper.yxmc", tool_type="Helper")
+        node = _node(1, plugin_name="macro:helper.yxmc", tool_type="Macro")
         assert macro_path_for_node(node) == "helper.yxmc"
+
+    def test_builtin_tool_shipped_as_a_macro_is_not_a_call(self):
+        # The parser maps e.g. RandomRecords.yxmc to Sample, which has a converter.
+        node = _node(1, plugin_name="macro:randomrecords.yxmc", tool_type="Sample")
+        assert macro_path_for_node(node) is None
 
     def test_boundary_tools_excluded(self):
         node = _node(1, "AlteryxBasePluginsGui.MacroInput.MacroInput", "MacroInput", {"MacroPath": "x.yxmc"})

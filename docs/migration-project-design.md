@@ -216,5 +216,14 @@ The sections above are the original design. Where the build went another way:
 - Tests: `tests/unit/server/test_project_service.py` and
   `tests/unit/server/test_project_batch.py` (mocked), and
   `tests/integration/test_project_store_postgres.py` against a real Postgres.
-- Projects are shared by everyone who can open the app (the same tenancy as
-  conversion history); per-user ownership is not built.
+- Projects are shared by everyone who can open the app (one service principal,
+  no per-user scoping, by decision); per-user ownership is not built.
+- The conversion History API and its `conversion_history` writes were removed;
+  a project's workflows carry their latest conversion. The connection pool moved
+  from the history service to `server/services/db.py`.
+- A project's `.yxmc` files are a shared macro library: every step that reads a
+  project workflow (estate passes, batch on any selection, single-workflow
+  convert/review/advise/AI) expands its macro calls against them
+  (`server/utils/package.py::write_macro_library`,
+  `project.get_workflow_with_macros`). The single-workflow steps send
+  `project_id` + `workflow_id` rather than re-uploading the file.

@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HeaderActions } from "@/components/layout/header-actions";
 import { EmptyProject } from "@/components/shared/empty-project";
+import { WorkflowName } from "@/components/shared/workflow-name";
 import { useProjectContext } from "@/hooks/use-project-context";
 import { useConvertOptions } from "@/hooks/use-convert-options";
 import { useBatchConversion } from "@/hooks/use-batch";
@@ -162,9 +163,12 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
           projectId: ctx.projectId,
         });
       } else {
-        // Session-only project: send the selected files themselves.
+        // Session-only project: send the selected files themselves, and the
+        // project's macros so the selection can call them.
         const files = await Promise.all(chosen.map((w) => ctx.getFile(w.id)));
-        await batch.mutateAsync({ ...opts, source: { files }, projectId: ctx.projectId });
+        const picked = new Set(chosen.map((w) => w.file_name));
+        const macros = ctx.localMacros.filter((m) => !picked.has(m.name));
+        await batch.mutateAsync({ ...opts, source: { files, macros }, projectId: ctx.projectId });
       }
     } catch (e) {
       addToast(e instanceof Error ? e.message : "Could not start the conversion", "error");
@@ -295,7 +299,9 @@ function WorkflowList({ onOpen }: { onOpen: (id: string) => void }) {
                       className="h-4 w-4 accent-[var(--ring)]"
                     />
                   </td>
-                  <td className="px-4 py-2.5 text-[var(--fg)]">{w.file_name}</td>
+                  <td className="px-4 py-2.5 text-[var(--fg)]">
+                    <WorkflowName fileName={w.file_name} />
+                  </td>
                   <td className="px-4 py-2.5">
                     <Badge variant={STAGE_VARIANT[w.stage]}>{w.stage}</Badge>
                   </td>
@@ -337,16 +343,18 @@ function WorkflowResult({ workflowId, fileName, onBack }: { workflowId: string; 
   const mutation = useConversion();
   const [loadError, setLoadError] = useState<string | null>(null);
   const started = useRef(false);
-  const { getFile } = ctx;
+  const { workflowSource } = ctx;
   const { mutate } = mutation;
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    getFile(workflowId)
-      .then((file) => mutate({ file, ...opts }))
-      .catch((e) => setLoadError(e instanceof Error ? e.message : "Could not load the workflow"));
-  }, [getFile, workflowId, mutate, opts]);
+    // A saved project's workflow is read by the server (with the project's
+    // macros); a session one is sent with the session's macros.
+    const source = workflowSource(workflowId);
+    if (source) mutate({ source, ...opts });
+    else setLoadError("That workflow is no longer in this project.");
+  }, [workflowSource, workflowId, mutate, opts]);
 
   return (
     <div className="space-y-6">

@@ -107,10 +107,10 @@ def test_project_sourced_completion_reads_the_stored_workflow(client, enabled, m
 
     def fake_get(project_id, workflow_id):
         seen["ids"] = (project_id, workflow_id)
-        return "message_passthrough.yxmd", WF.read_bytes()
+        return ("message_passthrough.yxmd", WF.read_bytes()), []
 
     monkeypatch.setattr(project_service, "is_available", lambda: True)
-    monkeypatch.setattr(project_service, "get_workflow_file", fake_get)
+    monkeypatch.setattr(project_service, "get_workflow_with_macros", fake_get)
     resp = client.post("/api/ai/complete", data={"project_id": pid, "workflow_id": wid})
     assert resp.status_code == 200
     assert seen["ids"] == (pid, wid)

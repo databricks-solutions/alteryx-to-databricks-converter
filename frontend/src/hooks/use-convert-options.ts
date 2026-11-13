@@ -17,7 +17,6 @@ export function useConvertOptions(projectId?: string | null): ConvertOptions {
   const includePerformanceHints = useSettingsStore((s) => s.includePerformanceHints);
   const generateDdl = useSettingsStore((s) => s.generateDdl);
   const generateDab = useSettingsStore((s) => s.generateDab);
-  const expandMacros = useSettingsStore((s) => s.expandMacros);
   const catalogName = own?.catalogName ?? defaultCatalog;
   const schemaName = own?.schemaName ?? defaultSchema;
   return useMemo(
@@ -29,7 +28,6 @@ export function useConvertOptions(projectId?: string | null): ConvertOptions {
       includePerformanceHints,
       generateDdl,
       generateDab,
-      expandMacros,
     }),
     [
       catalogName,
@@ -39,7 +37,6 @@ export function useConvertOptions(projectId?: string | null): ConvertOptions {
       includePerformanceHints,
       generateDdl,
       generateDab,
-      expandMacros,
     ],
   );
 }

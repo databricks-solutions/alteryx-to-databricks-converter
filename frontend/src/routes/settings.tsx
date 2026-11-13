@@ -30,12 +30,6 @@ const CODE_GEN_OPTIONS: CheckboxOption[] = [
     description: "Detect broadcast join, persist, and repartition optimization opportunities",
     preview: "Hint: small lookup table detected — wrap with F.broadcast(...)",
   },
-  {
-    key: "expandMacros",
-    label: "Expand macros",
-    description: "Resolve .yxmc macro references and convert them as inline functions",
-    preview: "# Inlined from CleanseEmail.yxmc (3 nodes)\ndef cleanse_email(df): ...",
-  },
 ];
 
 const EXTRAS_OPTIONS: CheckboxOption[] = [

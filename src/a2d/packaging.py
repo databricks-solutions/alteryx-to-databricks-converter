@@ -139,7 +139,5 @@ def extract_primary_workflow(
     max_total_bytes: int = MAX_TOTAL_EXTRACTED_BYTES,
 ) -> Path:
     """Extract a package and return its primary workflow path (macros co-located)."""
-    extracted = extract_package(
-        source, dest_dir, max_members=max_members, max_total_bytes=max_total_bytes
-    )
+    extracted = extract_package(source, dest_dir, max_members=max_members, max_total_bytes=max_total_bytes)
     return find_primary_workflow(extracted, dest_dir)

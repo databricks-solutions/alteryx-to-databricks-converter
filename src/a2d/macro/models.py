@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from a2d.ir.graph import WorkflowDAG
+from a2d.macro.detect import MacroCall
 
 
 @dataclass
@@ -37,6 +38,14 @@ class MacroDefinition:
     inputs: list[MacroBoundary] = field(default_factory=list)
     outputs: list[MacroBoundary] = field(default_factory=list)
     node_count: int = 0
+    # Macro calls inside this macro (ids are the macro's own), expanded in turn.
+    calls: list[MacroCall] = field(default_factory=list)
+    # "standard", "batch" (runs once per control-parameter value) or "iterative"
+    # (re-runs on its own output). Only standard macros are inlined.
+    kind: str = "standard"
+    # True when the macro rewrites its own tools from the calling tool's settings
+    # (interface Actions), so the inlined steps carry the macro's saved values.
+    takes_settings: bool = False
 
     @property
     def interior_node_count(self) -> int:
@@ -46,11 +55,17 @@ class MacroDefinition:
 
 @dataclass
 class UnresolvedMacro:
-    """A macro reference that could not be resolved or parsed."""
+    """A macro call left unexpanded, and why.
+
+    ``kind`` is "missing" (the file wasn't found or couldn't be parsed),
+    "batch" / "iterative" (a looping macro, which one inlined pass can't
+    reproduce), "self_call" or "too_deep".
+    """
 
     macro_path: str
     call_node_id: int
     reason: str
+    kind: str = "missing"
 
 
 @dataclass
@@ -67,6 +82,8 @@ class ExpansionResult:
     definitions: list[MacroDefinition] = field(default_factory=list)
     expanded_calls: int = 0
     unresolved: list[UnresolvedMacro] = field(default_factory=list)
+    # Things to check about macros that WERE inlined (user-facing sentences).
+    notes: list[str] = field(default_factory=list)
 
     @property
     def macro_count(self) -> int:

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StepHeader } from "@/components/layout/step-header";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,6 @@ export function ReviewHubPage() {
   const addToast = useToastStore((s) => s.add);
   const [view, setView] = useState("review");
   const [workflowId, setWorkflowId] = useState<string | null>(() => defaultWorkflowId(ctx.workflows, "reviewed"));
-  const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState({ needsReview: 0, resolved: 0, started: false });
   const workflow = ctx.workflows.find((w) => w.id === workflowId) ?? null;
   const onProgress = useCallback((p: typeof progress) => setProgress(p), []);
@@ -39,24 +38,10 @@ export function ReviewHubPage() {
     if (workflowId == null && ctx.workflows.length > 0) setWorkflowId(defaultWorkflowId(ctx.workflows, "reviewed"));
   }, [workflowId, ctx.workflows]);
 
-  // Load the picked workflow's file from the project (only on a new pick).
-  const { getFile } = ctx;
-  const [loadedFor, setLoadedFor] = useState<string | null>(null);
-  useEffect(() => {
-    if (!workflowId || loadedFor === workflowId) return;
-    let cancelled = false;
-    setFile(null);
-    getFile(workflowId)
-      .then((f) => {
-        if (cancelled) return;
-        setFile(f);
-        setLoadedFor(workflowId);
-      })
-      .catch((e) => addToast(e instanceof Error ? e.message : "Could not load the workflow", "error"));
-    return () => {
-      cancelled = true;
-    };
-  }, [workflowId, loadedFor, getFile, addToast]);
+  // The picked workflow as the API takes it: a saved project's reference (the
+  // server reads it, with the project's macros), or the session file.
+  const { workflowSource } = ctx;
+  const source = useMemo(() => (workflowId ? workflowSource(workflowId) : null), [workflowId, workflowSource]);
 
   const mark = async (stage: WorkflowStage) => {
     if (!workflow) return;
@@ -117,10 +102,10 @@ export function ReviewHubPage() {
             <TabsTrigger value="advise">Cluster &amp; performance</TabsTrigger>
           </TabsList>
           <TabsContent value="review" forceMount className="data-[state=inactive]:hidden">
-            <ReviewPage key={workflowId ?? ""} file={file} active={view === "review"} onProgress={onProgress} />
+            <ReviewPage key={workflowId ?? ""} source={source} active={view === "review"} onProgress={onProgress} />
           </TabsContent>
           <TabsContent value="advise" forceMount className="data-[state=inactive]:hidden">
-            <AdvisePage key={workflowId ?? ""} file={file} active={view === "advise"} />
+            <AdvisePage key={workflowId ?? ""} source={source} active={view === "advise"} />
           </TabsContent>
         </Tabs>
       </div>

@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 
 from a2d.analyzer.batch import BatchAnalyzer
-from server.utils.package import analyze_each, materialize_uploads, upload_name_for
+from server.utils.package import analyze_each, macro_files, materialize_uploads, upload_name_for, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.analysis")
 
@@ -20,10 +20,13 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
         # .yxzp packages are unzipped to their primary workflow; other files pass through.
         paths = materialize_uploads(files, Path(tmpdir), skipped=skipped)
 
-        # Expand macros so a .yxzp's co-located .yxmc is inlined rather than shown
-        # as an unsupported Unknown; a no-op for bare uploads with no macro file.
+        # Expand macros so a .yxzp's co-located .yxmc, or a macro uploaded as its
+        # own file, is inlined rather than shown as an unsupported Unknown.
         # One unreadable workflow is skipped and named, not fatal to the estate.
-        analyses = analyze_each(BatchAnalyzer(expand_macros=True), paths, Path(tmpdir), files, skipped)
+        analyzer = BatchAnalyzer(
+            expand_macros=True, macro_search_paths=write_macro_library(macro_files(files), Path(tmpdir))
+        )
+        analyses = analyze_each(analyzer, paths, Path(tmpdir), files, skipped)
         sources = [upload_name_for(a.file_path, Path(tmpdir), files) for a in analyses]
 
     total = len(analyses)

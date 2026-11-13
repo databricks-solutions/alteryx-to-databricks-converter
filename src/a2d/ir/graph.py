@@ -61,6 +61,15 @@ class WorkflowDAG:
             )
         self._graph.add_node(ir_node.node_id, ir=ir_node)
 
+    def replace_node(self, ir_node: IRNode) -> None:
+        """Swap in a new payload for an existing node, keeping its edges.
+
+        Raises :class:`KeyError` if the node is not present.
+        """
+        if ir_node.node_id not in self._graph:
+            raise KeyError(f"Node {ir_node.node_id} not in graph")
+        self._graph.nodes[ir_node.node_id]["ir"] = ir_node
+
     def remove_node(self, node_id: int) -> None:
         """Remove a node and all its incident edges.
 

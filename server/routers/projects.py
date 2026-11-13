@@ -8,9 +8,17 @@ and move a workflow's lifecycle stage forward.
 Projects are optional. With no database configured these endpoints answer 503
 "not configured" and the app keeps its project in the browser instead; with a
 database that isn't responding they answer 503 "temporarily unavailable", so a
-client can tell an outage from "no database". Projects are shared by everyone who
-can open the app (the same tenancy as conversion history). See
+client can tell an outage from "no database". See
 ``docs/migration-project-design.md``.
+
+**Tenancy: projects are shared by everyone who can open the app, by design.** In
+Databricks Apps the app runs as one service principal, so the database has one
+identity for every user, and there is no per-user scoping: anyone with access to
+the app sees every project and can change or delete it. Access control is the
+Databricks Apps permission on the app itself (the ``permissions:`` block in
+``databricks.yml``), so grant app access only to the people who should see the
+estate. Per-user projects would need an owner column filled from the Apps
+forwarded-identity header, plus a filter on every read and write.
 
 The database driver is synchronous, so every store call runs in a worker thread
 rather than on the event loop.

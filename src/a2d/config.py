@@ -81,6 +81,9 @@ class ConversionConfig:
     generate_ddl: bool = False
     generate_dab: bool = False
     expand_macros: bool = False
+    # Extra directories to find macros in (besides the workflow's own), e.g. a
+    # migration project's shared .yxmc files. Only used when expand_macros is on.
+    macro_search_paths: tuple[Path, ...] = ()
     cloud: CloudName = "aws"
 
     def __post_init__(self) -> None:

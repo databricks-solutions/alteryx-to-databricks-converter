@@ -872,7 +872,7 @@ class SQLGenerator(CodeGenerator):
         if isinstance(node, UnsupportedNode):
             inp = self._get_single_input(input_ctes)
             reason = node.unsupported_reason or "No auto-conversion"
-            warnings.append(f"Unsupported node {node.node_id}: {reason}")
+            warnings.append(f"Unsupported node {node.node_id} ({node.original_tool_type}): {reason}")
             return f"SELECT * FROM {inp} /* UNSUPPORTED: {node.original_tool_type} - {reason} */", warnings
 
         # Fallback

@@ -4,8 +4,8 @@ A project is one migration: its uploaded workflows (stored once), a per-workflow
 lifecycle stage, the artifacts each step produces, and estate rollups. See
 ``docs/migration-project-design.md``.
 
-Persistence reuses the history service's connection pool (one pool for the whole
-server). Three states, kept distinct because the app treats them differently:
+Persistence uses the server's one connection pool (:mod:`server.services.db`).
+Three states, kept distinct because the app treats them differently:
 
 * **No database configured**: every call returns its "unavailable" value (None,
   False, an empty list) and the app runs session-only projects in the browser.
@@ -33,13 +33,11 @@ import logging
 import time
 import uuid
 
-from server.services import history
+from server.services import db
 
 logger = logging.getLogger("a2d.server.services.project")
 
-# Reuse the history service's pool and DB-error type: one pool per server, and no
-# second copy of the backend-resolution rule.
-_DatabaseError = history._DatabaseError
+_DatabaseError = db.DatabaseError
 
 _initialized = False
 _last_init_attempt = 0.0
@@ -124,14 +122,14 @@ def content_hash(content: bytes) -> str:
 
 def is_configured() -> bool:
     """True when a database is configured, whether or not it's reachable now."""
-    return bool(history.resolve_backend())
+    return bool(db.resolve_backend())
 
 
 def init_db() -> bool:
     """Create or migrate the project tables. Returns True if projects are usable."""
     global _initialized, _last_init_attempt
     _last_init_attempt = time.monotonic()
-    pool = history._get_pool()
+    pool = db.get_pool()
     if pool is None:
         return False
     try:
@@ -156,7 +154,7 @@ def is_available() -> bool:
     retries initialization (at most every few seconds), so the app recovers
     without a restart.
     """
-    if _initialized and history._get_pool() is not None:
+    if _initialized and db.get_pool() is not None:
         return True
     if is_configured() and time.monotonic() - _last_init_attempt >= _INIT_RETRY_SECONDS:
         return init_db()
@@ -165,7 +163,7 @@ def is_available() -> bool:
 
 def _pool():
     """The pool when projects are usable, else None (no database configured)."""
-    pool = history._get_pool()
+    pool = db.get_pool()
     if pool is None or not _initialized:
         return None
     return pool
@@ -419,6 +417,38 @@ def get_workflow_file(project_id: str, workflow_id: str) -> tuple[str, bytes] | 
     if not row:
         return None
     return row[0], base64.b64decode(row[1])
+
+
+def get_workflow_with_macros(
+    project_id: str, workflow_id: str
+) -> tuple[tuple[str, bytes], list[tuple[str, bytes]]] | None:
+    """A stored workflow plus every macro (``.yxmc``) in its project, in one read.
+
+    Returns ``((file_name, bytes), [(macro_name, bytes), ...])``, or None if the
+    workflow doesn't exist. A single-workflow step uses this so the workflow's
+    macro calls resolve against the project's macros, the same as in a batch run.
+    """
+    pool = _pool()
+    if pool is None:
+        return None
+    try:
+        with pool.connection() as conn:
+            rows = conn.execute(
+                """SELECT id = %s::uuid, file_name, source_b64 FROM project_workflow
+                   WHERE project_id = %s AND (id = %s::uuid OR lower(file_name) LIKE '%%.yxmc')
+                   ORDER BY file_name""",
+                (workflow_id, project_id, workflow_id),
+            ).fetchall()
+    except _DatabaseError as exc:
+        if _is_bad_id(exc):
+            return None
+        logger.exception("Failed to read workflow %s with its project's macros", workflow_id)
+        raise StoreUnavailableError("Could not read the workflow; the database isn't responding.") from exc
+    target = next(((r[1], base64.b64decode(r[2])) for r in rows if r[0]), None)
+    if target is None:
+        return None
+    macros = [(r[1], base64.b64decode(r[2])) for r in rows if r[1].lower().endswith(".yxmc")]
+    return target, macros
 
 
 def get_project_files(project_id: str) -> list[tuple[str, bytes]] | None:

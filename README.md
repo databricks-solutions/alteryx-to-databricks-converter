@@ -144,6 +144,15 @@ Some Alteryx features cannot be automatically converted. The tool will always fl
 
 > **Tip:** After converting, search the output file for `# TODO` and `# WARNING` — every item that needs attention is marked there.
 
+### Macros
+
+A tool that runs a macro converts by inlining the macro's own steps, including macros that call other macros. That needs the `.yxmc` file:
+
+- **In the app**, add the macro files to the project on the Workflows step, next to the workflows that use them. Every workflow in the project finds its macros by file name, wherever they were saved on the author's machine. A `.yxzp` package works too, because it carries its macros.
+- **On the CLI**, keep the macros next to the workflow (or in its folder tree) and pass `--expand-macros`. It's on by default for a `.yxzp`.
+
+Batch and iterative macros aren't inlined, because one pass can't reproduce their loop; they're flagged to rewrite by hand. A macro that takes settings from the tool that calls it is inlined with the values saved in the macro, and the result says to check them. Any macro that isn't expanded shows up as a warning saying why, and its tool is left as a `# TODO`.
+
 ---
 
 ## Getting Started
@@ -199,7 +208,7 @@ pip install -e ".[server]"
 make frontend
 PYTHONPATH=src:. uvicorn server.main:app --host 0.0.0.0 --port 8000
 ```
-Open http://localhost:8000. To save projects (and conversion history), set `A2D_DATABASE_URL=postgresql://...`.
+Open http://localhost:8000. To save projects, set `A2D_DATABASE_URL=postgresql://...`.
 </details>
 
 <details>
@@ -224,7 +233,7 @@ Open http://localhost:8000. The app is organized around a **migration project**:
 
 The sidebar shows how many workflows have reached each step. Tool coverage, Settings and About sit under Reference.
 
-Projects are saved when the server has a database (`A2D_DATABASE_URL`, or Lakebase in a Databricks Apps deployment). Without one, the app still works the same way, but the project lives in your browser tab and a reload clears it. Saved projects are shared by everyone who can open the app, the same as conversion history, so treat the app's access list as the project's access list. The catalog and schema the generated code uses can be set per project on its Convert step; Settings holds the default.
+Projects are saved when the server has a database (`A2D_DATABASE_URL`, or Lakebase in a Databricks Apps deployment). Without one, the app still works the same way, but the project lives in your browser tab and a reload clears it. Saved projects are shared by everyone who can open the app, so treat the app's access list as the project's access list. The catalog and schema the generated code uses can be set per project on its Convert step; Settings holds the default.
 </details>
 
 <details>
@@ -249,8 +258,8 @@ If you need to deploy by hand instead, run `make frontend` first (built assets a
 | `A2D_MAX_UPLOAD_SIZE_BYTES` | `52428800` (50 MB) | Max upload file size |
 | `A2D_MAX_BATCH_FILES` | `50` | Max files per batch |
 | `A2D_LOG_LEVEL` | `info` | Logging level |
-| `A2D_DATABASE_URL` | `""` (disabled) | PostgreSQL URL for conversion history |
-| `A2D_DB_BACKEND` | `""` | Set to `lakebase` to use Databricks Lakebase Postgres for history (see `server/services/lakebase.py`) |
+| `A2D_DATABASE_URL` | `""` (disabled) | PostgreSQL URL for saved projects |
+| `A2D_DB_BACKEND` | `""` | Set to `lakebase` to keep saved projects in Databricks Lakebase Postgres (see `server/services/lakebase.py`) |
 | `PORT` | `8000` | Server port |
 </details>
 
@@ -631,8 +640,8 @@ src/a2d/
 
 server/                    # FastAPI backend
   main.py                  # App entry point
-  routers/                 # REST endpoints (ai, analyze, assess, convert, chat, health,
-                           #   history, insights [portfolio/advise/savings], projects,
+  routers/                 # REST endpoints (ai, analyze, assess, convert, health,
+                           #   insights [portfolio/advise/savings], projects,
                            #   readiness, review, tools, validate)
   services/                # Business logic
   websocket/               # Real-time batch progress

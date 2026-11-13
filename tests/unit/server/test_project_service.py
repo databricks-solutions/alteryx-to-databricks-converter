@@ -1,6 +1,6 @@
 """Migration Project service: pure logic, graceful degradation, and endpoint wiring.
 
-Mirrors the history-service test philosophy — no database required. The DB CRUD
+No database required. The DB CRUD
 itself needs a live Postgres (exercised in deployment), so here we cover the
 logic that must be right regardless of the database: rollup computation, stage
 validation, the "no backend -> unavailable" degradation, and that the endpoints
@@ -51,7 +51,7 @@ def test_set_stage_rejects_unknown_artifact_key():
 
 @pytest.fixture()
 def _no_backend(monkeypatch):
-    monkeypatch.setattr(project_service.history, "_get_pool", lambda: None)
+    monkeypatch.setattr(project_service.db, "get_pool", lambda: None)
     monkeypatch.setattr(project_service, "_initialized", False)
 
 
@@ -77,8 +77,8 @@ def test_db_error_raises_store_unavailable(monkeypatch):
     # "deleted", so reads raise rather than returning empty values.
     monkeypatch.setattr(project_service, "_initialized", True)
     monkeypatch.setattr(
-        project_service.history,
-        "_get_pool",
+        project_service.db,
+        "get_pool",
         lambda: _pool_raising(project_service._DatabaseError("down")),
     )
     with pytest.raises(project_service.StoreUnavailableError):
@@ -92,8 +92,8 @@ def test_db_error_raises_store_unavailable(monkeypatch):
 def test_best_effort_bookkeeping_degrades_on_db_error(monkeypatch):
     monkeypatch.setattr(project_service, "_initialized", True)
     monkeypatch.setattr(
-        project_service.history,
-        "_get_pool",
+        project_service.db,
+        "get_pool",
         lambda: _pool_raising(project_service._DatabaseError("down")),
     )
     assert project_service.record_conversion("p", "a.yxmd", {}) is False

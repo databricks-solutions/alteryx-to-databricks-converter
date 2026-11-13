@@ -19,7 +19,7 @@ def sanitize_filename(filename: str) -> str:
       upload can never be written outside its temp directory.
     * Characters outside ``[A-Za-z0-9_.-]`` are replaced with ``_``, so
       ``sales@2024 (final).yxmd`` arrives as ``sales_2024__final_.yxmd``. The
-      rewritten name is what appears in generated output and history, which can
+      rewritten name is what appears in generated output, which can
       surprise someone who expected the original spelling.
     """
     name = PurePosixPath(filename).name

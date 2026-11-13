@@ -1,9 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { api, type AdvisorReport, type CloudName, type CostAssumptions } from "@/lib/api";
+import { api, type AdvisorReport, type CloudName, type CostAssumptions, type WorkflowSource } from "@/lib/api";
 
 export function useAdvise() {
-  return useMutation<AdvisorReport, Error, { file: File; cloud?: CloudName }>({
-    mutationFn: ({ file, cloud }) => api.advise(file, cloud),
+  return useMutation<AdvisorReport, Error, { source: WorkflowSource; cloud?: CloudName }>({
+    mutationFn: ({ source, cloud }) => api.advise(source, cloud),
   });
 }
 

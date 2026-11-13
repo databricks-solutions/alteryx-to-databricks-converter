@@ -90,7 +90,7 @@ resources:
       # # auto-injects PGHOST/PGPORT/PGDATABASE/PGUSER/PGSSLMODE.
       # resources:
       #   - name: database
-      #     description: "Lakebase Database Instance for conversion history"
+      #     description: "Lakebase Database Instance for saved migration projects"
       #     database:
       #       database_name: ${var.lakebase_database_name}
       #       instance_name: ${var.lakebase_instance_name}

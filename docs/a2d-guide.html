@@ -860,7 +860,7 @@ step_N_filter_false</code></pre>
       <tr><td><code>--performance-hints / --no-performance-hints</code></td><td>true</td><td>Include Spark performance hints (default on)</td></tr>
       <tr><td><code>--generate-ddl</code></td><td>false</td><td>Unity Catalog DDL (non-Delta external tables emit <code>read_files()</code>)</td></tr>
       <tr><td><code>--generate-dab</code></td><td>false</td><td>Databricks Asset Bundle project</td></tr>
-      <tr><td><code>--expand-macros</code></td><td>false</td><td>Expand macro references as functions (flag accepted; core impl is currently a no-op)</td></tr>
+      <tr><td><code>--expand-macros</code></td><td>false</td><td>Inline the <code>.yxmc</code> macros a workflow calls, found next to the workflow (on by default for a <code>.yxzp</code>). Batch and iterative macros are flagged to rewrite by hand.</td></tr>
       <tr><td><code>-q, --quiet</code></td><td>false</td><td>Suppress info messages (warnings only)</td></tr>
       <tr><td><code>--debug</code></td><td>false</td><td>Enable debug logging</td></tr>
     </tbody>
@@ -977,7 +977,7 @@ a2d convert workflows/ -o output/ --batch --report-format all</code></pre>
       <tr><td><code>A2D_MAX_UPLOAD_SIZE_BYTES</code></td><td><code>52428800</code> (50 MB)</td><td>Max upload file size</td></tr>
       <tr><td><code>A2D_MAX_BATCH_FILES</code></td><td><code>50</code></td><td>Max files per batch</td></tr>
       <tr><td><code>A2D_LOG_LEVEL</code></td><td><code>info</code></td><td>Logging level (debug/info/warning/error)</td></tr>
-      <tr><td><code>A2D_DATABASE_URL</code></td><td><code>""</code> (disabled)</td><td>PostgreSQL URL for conversion history</td></tr>
+      <tr><td><code>A2D_DATABASE_URL</code></td><td><code>""</code> (disabled)</td><td>PostgreSQL URL for saved projects</td></tr>
       <tr><td><code>PORT</code></td><td><code>8000</code></td><td>Server port</td></tr>
     </tbody>
   </table>
@@ -1000,13 +1000,13 @@ PYTHONPATH=src:. uvicorn server.main:app --host 0.0.0.0</code></pre>
     <thead><tr><th>Step</th><th>What you do there</th></tr></thead>
     <tbody>
       <tr><td>Projects</td><td>Create a migration project and add its Alteryx files, or open an existing one</td></tr>
-      <tr><td>1. Workflows</td><td>Add, replace, or remove the project's files (the only place you upload)</td></tr>
+      <tr><td>1. Workflows</td><td>Add, replace, or remove the project's files, including the <code>.yxmc</code> macros they call (the only place you upload)</td></tr>
       <tr><td>2. Assess</td><td>Readiness report, difficulty tiers, dependencies &amp; migration waves (runs by itself)</td></tr>
       <tr><td>3. Business case</td><td>Savings, payback and ROI; organizational readiness questionnaire</td></tr>
       <tr><td>4. Convert</td><td>Convert one workflow or all of them; open any workflow for its graph and code in every format</td></tr>
-      <tr><td>5. Review</td><td>Node-by-node review, cluster sizing, quick syntax check; mark reviewed / deployed</td></tr>
+      <tr><td>5. Review</td><td>Node-by-node review and cluster sizing; mark reviewed / deployed</td></tr>
       <tr><td>6. AI completion</td><td>Optional: a separate, marked notebook copy with the unfinished cells filled in by a model</td></tr>
-      <tr><td>Reference</td><td>Tool coverage, Settings, About</td></tr>
+      <tr><td>Reference</td><td>Tool coverage, syntax check, Settings, About</td></tr>
     </tbody>
   </table>
 </section>

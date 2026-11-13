@@ -31,7 +31,7 @@ from a2d.ir.graph import WorkflowDAG
 from a2d.pipeline import ConversionPipeline
 from server.models.requests import ConversionOptions
 from server.settings import settings
-from server.utils.package import materialize_upload
+from server.utils.package import materialize_upload, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.ai_completion")
 
@@ -70,8 +70,16 @@ class _Converted:
     cell_nodes: list[int | None] | None
 
 
-def _convert_pyspark(filename: str, content: bytes, opts: ConversionOptions | None, tmpdir: Path) -> _Converted:
+def _convert_pyspark(
+    filename: str,
+    content: bytes,
+    opts: ConversionOptions | None,
+    tmpdir: Path,
+    macros: list[tuple[str, bytes]] | None = None,
+) -> _Converted:
+    """Convert like Convert does (same options, same macros), PySpark only."""
     path, was_package = materialize_upload(content, filename, tmpdir)
+    library = write_macro_library(macros or [], tmpdir)
     config = ConversionConfig(
         input_path=path,
         output_dir=tmpdir / "out",
@@ -80,7 +88,8 @@ def _convert_pyspark(filename: str, content: bytes, opts: ConversionOptions | No
         schema_name=opts.schema_name if opts else "default",
         include_comments=opts.include_comments if opts else True,
         # A package bundles its macros; expand them like Convert does.
-        expand_macros=was_package or bool(opts and opts.expand_macros),
+        expand_macros=was_package or (opts.expand_macros if opts else True),
+        macro_search_paths=tuple(library),
     )
     result = ConversionPipeline(config).convert(path)
     notebook_file = next((f for f in result.output.files if f.filename.endswith(".py")), None)
@@ -110,6 +119,7 @@ def complete_workflow(
     opts: ConversionOptions | None = None,
     *,
     budget_seconds: float | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
 ) -> dict:
     """Return the AI-completed PySpark notebook for one workflow, as a dict.
 
@@ -122,7 +132,7 @@ def complete_workflow(
         budget = settings.conversion_timeout_seconds if budget_seconds is None else budget_seconds
         deadline = time.monotonic() + max(budget - _DEADLINE_MARGIN_SECONDS, 1.0)
         with tempfile.TemporaryDirectory() as tmp:
-            converted = _convert_pyspark(filename, content, opts, Path(tmp))
+            converted = _convert_pyspark(filename, content, opts, Path(tmp), macros)
             completion = complete_notebook(
                 converted.notebook,
                 converted.ctx,
@@ -144,20 +154,29 @@ def complete_workflow(
     return payload
 
 
-def gap_summary(filename: str, content: bytes, opts: ConversionOptions | None = None) -> dict:
+def gap_summary(
+    filename: str,
+    content: bytes,
+    opts: ConversionOptions | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
+) -> dict:
     """What the converter couldn't finish, and which of those steps AI completion
     would work on. No model call."""
     with tempfile.TemporaryDirectory() as tmp:
-        converted = _convert_pyspark(filename, content, opts, Path(tmp))
+        converted = _convert_pyspark(filename, content, opts, Path(tmp), macros)
     payload = converted.ctx.to_dict()
     payload["completable"] = completable_steps(converted.notebook, converted.ctx, converted.dag, converted.cell_nodes)
     return payload
 
 
 def suggestions_markdown(
-    filename: str, content: bytes, client: AdvisoryClient, opts: ConversionOptions | None = None
+    filename: str,
+    content: bytes,
+    client: AdvisoryClient,
+    opts: ConversionOptions | None = None,
+    macros: list[tuple[str, bytes]] | None = None,
 ) -> tuple[str, str]:
     """Render the Markdown suggestions notes. Returns ``(filename, markdown)``."""
     with tempfile.TemporaryDirectory() as tmp:
-        converted = _convert_pyspark(filename, content, opts, Path(tmp))
+        converted = _convert_pyspark(filename, content, opts, Path(tmp), macros)
     return f"{converted.ctx.workflow_name}_suggestions.md", render_report(converted.ctx, client)

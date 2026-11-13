@@ -23,8 +23,7 @@ from server.services import batch as batch_service
 from server.services.conversion import convert_file
 from server.settings import settings
 from server.utils.deadline import run_with_timeout
-from server.utils.project_input import resolve_input_files
-from server.utils.validation import read_upload, validate_yxmd_file
+from server.utils.project_input import resolve_one_workflow, resolve_run_inputs
 
 logger = logging.getLogger("a2d.server.routers.convert")
 
@@ -44,19 +43,28 @@ def _safe_zip_component(name: str) -> str:
 
 @router.post("/convert", response_model=ConversionResponse)
 async def convert_single(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    project_id: str | None = Form(None),
+    workflow_id: str | None = Form(None),
+    macros: list[UploadFile] = File(default=[]),
     opts: ConversionOptions = Depends(conversion_options),
 ) -> ConversionResponse:
-    validate_yxmd_file(file)
-    file_bytes = await read_upload(file)
+    """Convert one workflow into every output format.
 
-    logger.info("Converting %s (multi-format, size=%d bytes)", file.filename, len(file_bytes))
+    Send the workflow as ``file`` (with any ``.yxmc`` it calls in ``macros``), or
+    name a saved project's workflow with ``project_id`` + ``workflow_id``; then
+    its macro calls resolve against the project's macros.
+    """
+    wf = await resolve_one_workflow(file, project_id, workflow_id, macros)
+    filename, file_bytes = wf.name, wf.content
+
+    logger.info("Converting %s (multi-format, size=%d bytes)", filename, len(file_bytes))
     try:
         result = await run_with_timeout(
             convert_file,
             file_bytes,
-            file.filename,
-            label=f"Converting {file.filename}",
+            filename,
+            label=f"Converting {filename}",
             catalog_name=opts.catalog_name,
             schema_name=opts.schema_name,
             include_comments=opts.include_comments,
@@ -65,22 +73,23 @@ async def convert_single(
             generate_ddl=opts.generate_ddl,
             generate_dab=opts.generate_dab,
             expand_macros=opts.expand_macros,
+            macros=wf.macros,
         )
     except XMLSyntaxError as e:
         # Empty/corrupt XML is a bad request, not a server fault.
-        logger.warning("Malformed XML in %s: %s", file.filename, e)
+        logger.warning("Malformed XML in %s: %s", filename, e)
         raise HTTPException(status_code=400, detail=f"File is not valid XML: {e}")
     except ValueError as e:
-        logger.warning("Validation error converting %s: %s", file.filename, e)
+        logger.warning("Validation error converting %s: %s", filename, e)
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
         # Already an HTTP response (e.g. the 408 deadline) — don't rewrite it as a 500.
         raise
     except Exception:
-        logger.exception("Unexpected error converting %s", file.filename)
+        logger.exception("Unexpected error converting %s", filename)
         raise HTTPException(status_code=500, detail="Internal conversion error")
 
-    logger.info("Successfully converted %s (best_format=%s)", file.filename, result.get("best_format"))
+    logger.info("Successfully converted %s (best_format=%s)", filename, result.get("best_format"))
     return ConversionResponse(**result)
 
 
@@ -89,6 +98,7 @@ async def convert_batch(
     files: list[UploadFile] = File(default=[]),
     project_id: str | None = Form(None),
     workflow_names: str | None = Form(None),
+    macros: list[UploadFile] = File(default=[]),
     opts: ConversionOptions = Depends(conversion_options),
 ) -> BatchStartResponse:
     """Convert many workflows at once: uploaded, or a saved project's.
@@ -96,7 +106,9 @@ async def convert_batch(
     With ``project_id`` the workflows come from the project (no re-upload) and each
     one that converts is recorded on it. ``workflow_names`` (JSON list of file
     names) narrows a project run to a selection; every name must be in the
-    project. Omitted, the whole project runs.
+    project. Omitted, the whole project runs. Either way the workflows can call
+    any macro in the project. An upload can send macros it doesn't convert in
+    ``macros``.
     """
     only: set[str] | None = None
     if workflow_names is not None:
@@ -111,7 +123,8 @@ async def convert_batch(
         if not parsed:
             raise HTTPException(status_code=422, detail="Select at least one workflow to convert.")
         only = set(parsed)
-    file_data = await resolve_input_files(files, project_id, only=only)
+    inputs = await resolve_run_inputs(files, project_id, only=only, macros=macros)
+    file_data = inputs.files
 
     logger.info("Starting batch conversion: %d files (multi-format)", len(file_data))
     job_id = await batch_service.create_batch_job(
@@ -125,6 +138,7 @@ async def convert_batch(
         generate_dab=opts.generate_dab,
         expand_macros=opts.expand_macros,
         project_id=project_id,
+        macros=inputs.macros,
     )
 
     return BatchStartResponse(job_id=job_id, total_files=len(file_data))

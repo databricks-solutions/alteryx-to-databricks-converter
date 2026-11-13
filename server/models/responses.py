@@ -212,18 +212,3 @@ class AnalysisResponse(BaseModel):
     unsupported_tools: list[str]
     # Uploaded names that couldn't be read or analyzed.
     skipped_files: list[str] = []
-
-
-class HistoryListItem(BaseModel):
-    id: str
-    workflow_name: str
-    output_format: str
-    created_at: str
-    node_count: int
-    edge_count: int
-    coverage_percentage: float | None
-
-
-class HistoryListResponse(BaseModel):
-    items: list[HistoryListItem]
-    total: int

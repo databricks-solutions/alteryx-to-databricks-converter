@@ -162,7 +162,7 @@ export function AiCompletionPage() {
                     {gaps.data.gaps.map((g, i) => (
                       <li key={i} className="flex flex-wrap items-baseline gap-2 text-sm">
                         <Badge variant={g.kind === "unsupported_tool" ? "destructive" : "warning"}>
-                          {GAP_LABEL[g.kind] ?? g.kind}
+                          {g.tool_type === "Macro" ? "Missing macro" : (GAP_LABEL[g.kind] ?? g.kind)}
                         </Badge>
                         <span className="text-[var(--fg)]">{g.summary}</span>
                         {g.node_id != null && <span className="text-xs text-[var(--fg-muted)]">step {g.node_id}</span>}
@@ -172,6 +172,8 @@ export function AiCompletionPage() {
                 )}
                 {gaps.data.gaps.length > 0 && (
                   <p className="text-xs text-[var(--fg-muted)]">
+                    {gaps.data.gaps.some((g) => g.tool_type === "Macro") &&
+                      "A missing macro isn't something a model can fill in, since only the macro file says what it does: add its .yxmc to the project on the Workflows step and convert again. "}
                     {completable.length === 0
                       ? "None of these are steps AI completion fills in (it works on unsupported tools and TODO stubs). Review them on the Review step."
                       : `AI completion would fill in ${completable.length} step${completable.length === 1 ? "" : "s"}: ${completable

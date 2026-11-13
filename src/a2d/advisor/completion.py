@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from a2d.advisor.context import Gap, MigrationContext
 from a2d.advisor.llm_client import AdvisoryClient, ChatMessage
 from a2d.ir.graph import WorkflowDAG
+from a2d.macro.detect import macro_path_for_ir_node
 
 logger = logging.getLogger("a2d.advisor.completion")
 
@@ -328,7 +329,16 @@ def _unsupported_gaps(ctx: MigrationContext) -> dict[int, list[Gap]]:
     return by_node
 
 
-def _needs_work(cell: _Cell, unsupported: dict[int, list[Gap]]) -> bool:
+def _macro_calls(dag: WorkflowDAG) -> set[int]:
+    """Steps that call a macro the converter couldn't find. Only the macro file
+    knows what they do, so a model would be guessing; they're left for the user
+    to supply the macro instead."""
+    return {n.node_id for n in dag.all_nodes() if macro_path_for_ir_node(n)}
+
+
+def _needs_work(cell: _Cell, unsupported: dict[int, list[Gap]], skip: set[int]) -> bool:
+    if cell.node_id in skip:
+        return False
     return cell.node_id in unsupported or any(_WORK_LINE_RE.search(line) for line in cell.body.split("\n"))
 
 
@@ -342,9 +352,10 @@ def completable_steps(
     except CompletionUnavailableError:
         return []
     unsupported = _unsupported_gaps(ctx)
+    skip = _macro_calls(dag)
     steps = []
     for cell in cells:
-        if not _needs_work(cell, unsupported):
+        if not _needs_work(cell, unsupported, skip):
             continue
         gaps = unsupported.get(cell.node_id, [])
         node = _node(dag, cell.node_id)
@@ -553,7 +564,8 @@ def complete_notebook(
     node_cells = _node_cells(notebook, cell_nodes, dag)
     unsupported = _unsupported_gaps(ctx)
     assigned_by_node = {c.node_id: _df_assigned(c.body) for c in node_cells}
-    targets = [c for c in node_cells if _needs_work(c, unsupported)]
+    skip = _macro_calls(dag)
+    targets = [c for c in node_cells if _needs_work(c, unsupported, skip)]
 
     def defined_before(index: int) -> set[str]:
         return set().union(*(assigned_by_node[c.node_id] for c in node_cells if c.index < index))
