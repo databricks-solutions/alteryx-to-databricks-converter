@@ -44,6 +44,7 @@ node_modules/
 # service with a clear warning when it's absent.
 frontend/dist/
 frontend/.vite/
+frontend/*.tsbuildinfo
 
 # Secrets
 .env
