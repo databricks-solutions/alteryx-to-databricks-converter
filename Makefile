@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install dev test test-cov lint format typecheck clean all frontend serve run lock deploy-dev deploy-prod bundle-validate
+.PHONY: ci help install dev test test-cov lint format typecheck clean all frontend serve run lock deploy-dev deploy-prod bundle-validate
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -31,6 +31,13 @@ clean: ## Remove build artifacts
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 all: lint typecheck test ## Lint + typecheck + test
+
+ci: ## Run what .github/workflows/ci.yml runs (lint, format check, mypy, tests with coverage, frontend)
+	ruff check src/ tests/ server/
+	ruff format --check src/ tests/ server/
+	mypy src/a2d/ && mypy server/
+	PYTHONPATH=src:. pytest tests/ -q --tb=short --cov=a2d --cov-report=term-missing:skip-covered
+	cd frontend && npm ci --silent && npm run typecheck && npm test && npm run build
 
 frontend: ## Build React frontend
 	cd frontend && npm install && BUILD_SHA=$$(git rev-parse --short HEAD) BUILD_DATE=$$(date -u +%Y-%m-%dT%H:%M:%SZ) npm run build
@@ -86,7 +93,7 @@ _deploy:
 		cp app.yaml .app.yaml.bak; \
 		cat "$(LOCAL_APP_ENV)" >> app.yaml; \
 	else \
-		echo "No $(LOCAL_APP_ENV) — deploying with defaults (history off, AI off)"; \
+		echo "No $(LOCAL_APP_ENV) — deploying with defaults (no database, AI off)"; \
 	fi
 	@if [ -n "$(FULL_SYNC)" ]; then \
 		echo "Full sync (pruning stale workspace files)…"; \

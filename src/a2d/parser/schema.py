@@ -90,6 +90,10 @@ class ParsedNode:
     annotation: str | None = None
     raw_xml: str | None = None
     disabled: bool = False
+    # Columns each output anchor had when the workflow was last run in Designer
+    # (<MetaInfo connection="..."><RecordInfo><Field name type/>), as
+    # anchor -> [(name, type)]. Empty when the file wasn't saved after a run.
+    output_fields: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

@@ -108,7 +108,7 @@ CHAIN = [
 class TestOnlyStepsNeedingWorkChange:
     def test_untouched_cells_are_byte_identical(self):
         result, notebook, ctx, cell_nodes = _convert("message_passthrough.yxmd")
-        out = complete_notebook(notebook, ctx, FakeClient(), result.dag, cell_nodes)
+        out = complete_notebook(notebook, ctx, FakeClient("df_2 = df_1.dropDuplicates()"), result.dag, cell_nodes)
         original, completed = split_cells(notebook), split_cells(out.content)
         assert completed[0] == original[0]
         assert len(completed) == len(original) + 1  # the banner
@@ -118,7 +118,7 @@ class TestOnlyStepsNeedingWorkChange:
 
     def test_header_and_annotation_stay_and_markers_wrap_only_ai_code(self):
         result, notebook, ctx, cell_nodes = _convert("message_passthrough.yxmd")
-        out = complete_notebook(notebook, ctx, FakeClient(), result.dag, cell_nodes)
+        out = complete_notebook(notebook, ctx, FakeClient("df_2 = df_1.dropDuplicates()"), result.dag, cell_nodes)
         after = out.cells[0].after
         assert after.startswith("# Log message\n# Step 2: Message\n" + AI_BEGIN)
         assert after.endswith(AI_END)
@@ -337,3 +337,65 @@ class TestWhatLeavesForTheModel:
 def test_completed_filename_never_collides_with_the_notebook():
     assert completed_filename("sales") == "sales.ai-completed.py"
     assert "\n" not in completed_filename("evil\nname")
+
+
+class TestRealInputsAndColumns:
+    """Steps get their own output variable, and the model is told every input by
+    its Alteryx anchor, with columns when the workflow saved them."""
+
+    @staticmethod
+    def _generate(dag: WorkflowDAG):
+        from a2d.generators.pyspark import PySparkGenerator
+
+        out = PySparkGenerator(ConversionConfig(output_format=OutputFormat.PYSPARK)).generate(dag, "wf")
+        nb = out.files[0]
+        ctx = build_migration_context(dag, workflow_name="wf", output_format="pyspark", generated_code=nb.content)
+        return nb.content, ctx, out.cell_nodes[nb.filename], out.node_io[nb.filename]
+
+    def test_unsupported_step_assigns_its_own_variable(self):
+        dag = _chain_with_message()
+        notebook, _ctx, _cells, io = self._generate(dag)
+        assert "df_2 = df_1  # passes its input through" in notebook
+        assert io[2] == {"inputs": {"Input": "df_1"}, "outputs": {"Output": "df_2"}}
+        assert io[3]["inputs"] == {"Input": "df_2"}
+
+    def test_source_step_without_converter_is_a_placeholder(self):
+        dag = WorkflowDAG()
+        dag.add_node(UnsupportedNode(node_id=5, original_tool_type="MongoInput", unsupported_reason="no converter"))
+        notebook, *_ = self._generate(dag)
+        assert "df_5 = None  # PLACEHOLDER" in notebook
+
+    def test_step_whose_input_feeds_others_is_now_sent(self):
+        """Before, a pass-through couldn't be completed when its input fed another
+        step too (its result would have overwritten that step's input)."""
+        dag = _chain_with_message()
+        dag.add_node(WriteNode(node_id=4, original_tool_type="Output"))
+        dag.add_edge(1, 4)
+        notebook, ctx, cells, io = self._generate(dag)
+        client = FakeClient("df_2 = df_1.dropDuplicates()")
+        out = complete_notebook(notebook, ctx, client, dag, cells, node_io=io)
+        assert [(c.node_id, c.status) for c in out.cells] == [(2, "completed")]
+        assert "df_1.write" in out.content or "saveAsTable" in out.content  # step 4 untouched
+
+    def test_prompt_lists_inputs_by_anchor_with_columns(self):
+        path = WORKFLOWS.parent / "packt" / "CH04-R02-Fixing_CrossTabRenames.yxmd"
+        result = ConversionPipeline(ConversionConfig(input_path=path, output_format=OutputFormat.PYSPARK)).convert(path)
+        nb = result.output.files[0]
+        ctx = build_migration_context(
+            result.dag, workflow_name=path.stem, output_format="pyspark", generated_code=nb.content
+        )
+        client = FakeClient("df_14 = df_2")
+        complete_notebook(
+            nb.content,
+            ctx,
+            client,
+            result.dag,
+            result.output.cell_nodes[nb.filename],
+            node_io=result.output.node_io[nb.filename],
+        )
+        prompt = next(p for p in client.prompts if "Alteryx node id: 14" in p)
+        assert "- df_2 (Alteryx input Targets); columns: Year (Double), Month (Double)" in prompt
+        assert "(Alteryx input Source)" in prompt  # the rename mapping input is named, not hidden
+        assert (
+            "columns it should have (from the workflow's saved metadata): Year (Double), Month (Double), 7.50" in prompt
+        )

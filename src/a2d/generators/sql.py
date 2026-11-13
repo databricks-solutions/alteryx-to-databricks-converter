@@ -80,6 +80,7 @@ from a2d.ir.nodes import (
     WriteNode,
     XMLParseNode,
 )
+from a2d.ir.schema import Columns, input_columns
 from a2d.utils.types import alteryx_fmt_to_spark, normalize_sql_for_spark
 
 logger = logging.getLogger("a2d.generators.sql")
@@ -132,7 +133,7 @@ class SQLGenerator(CodeGenerator):
             cte_map[node.node_id] = name
 
             input_ctes = self._resolve_input_ctes(node.node_id, dag, cte_map)
-            sql_body, step_warnings = self._generate_cte_body(node, input_ctes)
+            sql_body, step_warnings = self._generate_cte_body(node, input_ctes, dag)
             warnings.extend(step_warnings)
 
             indented = sql_body.replace("\n", "\n    ")
@@ -203,7 +204,9 @@ class SQLGenerator(CodeGenerator):
             result[dest_anchor] = cte_map.get(pred.node_id, f"step_{pred.node_id}_unknown")
         return result
 
-    def _generate_cte_body(self, node: IRNode, input_ctes: dict[str, str]) -> tuple[str, list[str]]:
+    def _generate_cte_body(
+        self, node: IRNode, input_ctes: dict[str, str], dag: WorkflowDAG | None = None
+    ) -> tuple[str, list[str]]:
         """Generate the SQL body for a CTE."""
         warnings: list[str] = []
 
@@ -384,7 +387,9 @@ class SQLGenerator(CodeGenerator):
             else:
                 on_clause = "TRUE"
                 warnings.append(f"Join node {node.node_id}: no join keys found — manual condition required")
-            return f"SELECT {_join_select_list(node)} FROM {left} l {jtype} JOIN {right} r ON {on_clause}", warnings
+            cols = input_columns(dag, node.node_id) if dag is not None else {}
+            select = _join_select_list(node, cols.get("Left"), cols.get("Right"))
+            return f"SELECT {select} FROM {left} l {jtype} JOIN {right} r ON {on_clause}", warnings
 
         if isinstance(node, UnionNode):
             tables = list(input_ctes.values())
@@ -908,9 +913,13 @@ class _JoinField:
     selected: bool
 
 
-def _join_fields(node: JoinNode) -> list[_JoinField]:
+def _join_fields(
+    node: JoinNode, left_cols: Columns | None = None, right_cols: Columns | None = None
+) -> list[_JoinField]:
     """Fields the J output handles by name: listed in the Join's Select settings,
-    plus right-side keys that share a name with a left key (Alteryx prefixes those)."""
+    plus right-side fields that share a name with a left one (Alteryx prefixes
+    those). The shared names are exact when both inputs' columns are known, else
+    just the same-named keys."""
     fields: list[_JoinField] = []
     for op in node.select_left:
         fields.append(_JoinField("l", op.field_name, op.rename_to or op.field_name, op.selected))
@@ -920,16 +929,21 @@ def _join_fields(node: JoinNode) -> list[_JoinField]:
         source = op.field_name.removeprefix("Right_")
         listed_right.add(source)
         fields.append(_JoinField("r", source, op.rename_to or op.field_name, op.selected))
-    left_keys = {jk.left_field for jk in node.join_keys}
-    for jk in node.join_keys:
-        if jk.right_field in left_keys and jk.right_field not in listed_right:
-            listed_right.add(jk.right_field)
+    if left_cols is not None and right_cols is not None:
+        left_names = {n for n, _ in left_cols}
+        shared = [n for n, _ in right_cols if n in left_names]
+    else:
+        left_keys = {jk.left_field for jk in node.join_keys}
+        shared = [jk.right_field for jk in node.join_keys if jk.right_field in left_keys]
+    for name in shared:
+        if name not in listed_right:
+            listed_right.add(name)
             # Not listed, so it comes out only when unlisted fields pass through.
-            fields.append(_JoinField("r", jk.right_field, f"Right_{jk.right_field}", node.keep_unlisted))
+            fields.append(_JoinField("r", name, f"Right_{name}", node.keep_unlisted))
     return fields
 
 
-def _join_select_list(node: JoinNode) -> str:
+def _join_select_list(node: JoinNode, left_cols: Columns | None = None, right_cols: Columns | None = None) -> str:
     """The SELECT list for an Alteryx Join's J output, over aliases ``l`` and ``r``.
 
     Alteryx names a right-side field that is also on the left ``Right_<name>``,
@@ -938,7 +952,7 @@ def _join_select_list(node: JoinNode) -> str:
     the same name on both sides, and fields the Join lists as ``Right_<name>``)
     and applies deselects and renames per side.
     """
-    fields = _join_fields(node)
+    fields = _join_fields(node, left_cols, right_cols)
     if not node.keep_unlisted:
         # *Unknown is deselected: only the listed, selected fields come out.
         kept = [f"{f.side}.{_bq(f.source)} AS {_bq(f.output)}" for f in fields if f.selected]
@@ -951,6 +965,8 @@ def _join_select_list(node: JoinNode) -> str:
         excepted = list(dict.fromkeys(f.source for f in mine if not f.selected or f.output != f.source))
         parts.append(f"{side}.*" + (f" EXCEPT ({', '.join(_bq(c) for c in excepted)})" if excepted else ""))
         parts += [f"{side}.{_bq(f.source)} AS {_bq(f.output)}" for f in mine if f.selected and f.output != f.source]
+    if left_cols is not None and right_cols is not None:
+        return ", ".join(parts)  # every shared column is known and handled
     note = (
         "/* Other columns both inputs share come out twice here; Alteryx names the right copy "
         "Right_<name>. Use the PySpark output, or list them, if that applies. */ "

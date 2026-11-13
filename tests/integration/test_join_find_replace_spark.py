@@ -95,6 +95,23 @@ def test_sql_join_matches_pyspark(spark, sides):
     assert _rows(got.select(*expected.columns)) == _rows(expected)
 
 
+def test_sql_join_with_known_columns_matches_pyspark(spark, sides):
+    """With both inputs' columns known (saved by Designer), SQL names every shared
+    column like Alteryx, including the non-key A."""
+    left, right = sides
+    node = JoinNode(
+        node_id=25, join_keys=KEYS, select_right=[_op("Right_COMPANY_ID", False), _op("Right_ARTICLE_ID", False)]
+    )
+    expected = _run("\n".join(join_output_lines(node, "L", "R", "OUT")), L=left, R=right)
+    left.createOrReplaceTempView("L")
+    right.createOrReplaceTempView("R")
+    cols = lambda df: [(f.name, "") for f in df.schema.fields]  # noqa: E731
+    on = " AND ".join(f"l.`{k.left_field}` = r.`{k.right_field}`" for k in KEYS)
+    got = spark.sql(f"SELECT {_join_select_list(node, cols(left), cols(right))} FROM L l INNER JOIN R r ON {on}")
+    assert sorted(got.columns) == sorted(expected.columns) == sorted(["COMPANY_ID", "ARTICLE_ID", "A", "B", "Right_A"])
+    assert _rows(got.select(*expected.columns)) == _rows(expected)
+
+
 @pytest.fixture(scope="module")
 def cities(spark):
     target = spark.createDataFrame([("NYC",), ("nyc",), ("LA",), (None,)], "city string")

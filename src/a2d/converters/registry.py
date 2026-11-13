@@ -83,8 +83,16 @@ class ConverterRegistry:
     @classmethod
     def convert_node(cls, parsed_node: ParsedNode, config: ConversionConfig) -> IRNode:
         """Convert a *parsed_node* to an IR node, falling back to
-        :class:`UnsupportedNode` when no converter is available.
+        :class:`UnsupportedNode` when no converter is available. The node keeps
+        the columns the workflow's last run saved for each output.
         """
+        node = cls._convert_node(parsed_node, config)
+        if parsed_node.output_fields and not node.output_fields:
+            node.output_fields = {k: list(v) for k, v in parsed_node.output_fields.items()}
+        return node
+
+    @classmethod
+    def _convert_node(cls, parsed_node: ParsedNode, config: ConversionConfig) -> IRNode:
         converter = cls.get_converter(parsed_node.tool_type)
         if converter:
             try:

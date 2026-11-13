@@ -41,6 +41,9 @@ class IRNode(ABC):
     conversion_confidence: float = 1.0
     conversion_notes: list[str] = field(default_factory=list)
     conversion_method: str = "deterministic"  # "deterministic", "expression-engine", "template", "mapping"
+    # Columns per output anchor from the workflow's last run in Designer
+    # (anchor -> [(name, type)]); empty when the file doesn't carry them.
+    output_fields: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

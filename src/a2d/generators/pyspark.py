@@ -143,6 +143,7 @@ class PySparkGenerator(CodeGenerator):
             "from pyspark.sql import Window",
         }
         var_map: dict[int, dict[str, str]] = {}  # node_id -> {anchor: var_name}
+        node_io: dict[int, dict[str, dict[str, str]]] = {}  # node_id -> its input and output variables
         cells: list[str] = []
         cell_ids: list[int | None] = []  # the node each cell came from (parallel to cells)
         node_count = 0
@@ -193,6 +194,7 @@ class PySparkGenerator(CodeGenerator):
 
             # Register output variables
             var_map[node.node_id] = result.output_vars
+            node_io[node.node_id] = {"inputs": dict(input_vars), "outputs": dict(result.output_vars)}
 
             # Eliminate pure passthrough cells: if the only generated line is a simple
             # variable alias "df_N = df_M" (no method calls), redirect var_map to the
@@ -284,7 +286,13 @@ class PySparkGenerator(CodeGenerator):
         # Cells in file order: "notebook source" line, header, imports, the node
         # cells, footer.
         cell_nodes = {f"{workflow_name}.py": [None, None, None, *cell_ids, None]}
-        return GeneratedOutput(files=files, warnings=warnings, stats=stats, cell_nodes=cell_nodes)
+        return GeneratedOutput(
+            files=files,
+            warnings=warnings,
+            stats=stats,
+            cell_nodes=cell_nodes,
+            node_io={f"{workflow_name}.py": node_io},
+        )
 
     # -- Input resolution ---------------------------------------------------
 
@@ -2125,13 +2133,16 @@ class PySparkGenerator(CodeGenerator):
     def _unsupported_passthrough(
         self, node: IRNode, input_vars: dict[str, str], label: str | None = None
     ) -> NodeCodeResult:
-        """Emit a concise passthrough for unsupported node types.
+        """Emit a pass-through for a tool with no converter.
 
-        Instead of emitting a redundant ``df_N = df_M`` identity assignment,
-        the input variable is returned directly as the output so downstream
-        nodes reference the original DataFrame without an indirection chain.
+        The step gets its own output variable (``df_N = df_M``) that later steps
+        read. That costs Spark nothing and gives the step one place to put its
+        real code later (by hand or by AI completion) without touching the
+        variable other steps read. A step with no input (a source the converter
+        can't read) assigns a marked placeholder.
         """
-        inp = self._get_single_input(input_vars)
+        out_var = f"df_{node.node_id}"
+        inp = self._get_single_input(input_vars) if input_vars else None
         tool = label or node.original_tool_type or node.original_plugin_name or type(node).__name__
         reason = getattr(node, "unsupported_reason", None) or "No auto-conversion available"
 
@@ -2147,9 +2158,13 @@ class PySparkGenerator(CodeGenerator):
                 # Name the macro and why it wasn't expanded (missing file, batch macro, ...).
                 lines.append(f"# {reason}")
 
+        if inp is None:
+            lines.append(f"{out_var} = None  # PLACEHOLDER: this step reads its own source; no converter yet")
+        else:
+            lines.append(f"{out_var} = {inp}  # passes its input through until this step is converted")
         return NodeCodeResult(
             code_lines=lines,
-            output_vars={"Output": inp},  # reuse input var — no identity assignment
+            output_vars={"Output": out_var},
             warnings=[f"Unsupported node {node.node_id} ({tool}): {reason}"],
         )
 
