@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 
 from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.sql_translator import SparkSQLTranslator
 from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput
+from a2d.generators.find_replace_code import problem as find_replace_problem
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
     AggAction,
@@ -378,11 +380,11 @@ class SQLGenerator(CodeGenerator):
                 return f"SELECT 1 WHERE FALSE  -- Join node {node.node_id}: {missing} input missing", warnings
             jtype = (node.join_type or "inner").upper()
             if node.join_keys:
-                on_parts = [f"{left}.`{jk.left_field}` = {right}.`{jk.right_field}`" for jk in node.join_keys]
-                on_clause = " AND ".join(on_parts)
+                on_clause = " AND ".join(f"l.{_bq(jk.left_field)} = r.{_bq(jk.right_field)}" for jk in node.join_keys)
             else:
                 on_clause = "TRUE"
-            return f"SELECT * FROM {left} {jtype} JOIN {right} ON {on_clause}", warnings
+                warnings.append(f"Join node {node.node_id}: no join keys found — manual condition required")
+            return f"SELECT {_join_select_list(node)} FROM {left} l {jtype} JOIN {right} r ON {on_clause}", warnings
 
         if isinstance(node, UnionNode):
             tables = list(input_ctes.values())
@@ -564,14 +566,7 @@ class SQLGenerator(CodeGenerator):
             return f"SELECT id AS `{output_field}` FROM range(0, 1000) /* Adjust range */", warnings
 
         if isinstance(node, FindReplaceNode):
-            target = self._get_single_input(input_ctes)
-            lookup = input_ctes.get("Source", input_ctes.get("Right", target))
-            find_field = node.find_field or "find_field"
-            replace_field = node.replace_field or "replace_field"
-            return (
-                f"SELECT t.*, COALESCE(l.`{replace_field}`, t.`{find_field}`) AS `{find_field}_replaced` "
-                f"FROM {target} t LEFT JOIN {lookup} l ON t.`{find_field}` = l.`{find_field}`"
-            ), warnings
+            return _find_replace_sql(node, input_ctes, warnings), warnings
 
         if isinstance(node, JoinMultipleNode):
             tables = list(input_ctes.values())
@@ -896,3 +891,116 @@ class SQLGenerator(CodeGenerator):
         fmt = node.file_format.lower() if node.file_format else "csv"
         path = node.file_path or "UNKNOWN_PATH"
         return f"SELECT * FROM {fmt}.`{path}`"
+
+
+def _bq(name: str) -> str:
+    """A backtick-quoted SQL identifier."""
+    return "`" + name.replace("`", "``") + "`"
+
+
+@dataclass
+class _JoinField:
+    """One field the Join's J output treats explicitly."""
+
+    side: str  # "l" or "r"
+    source: str  # column name on that input
+    output: str  # name in the J output
+    selected: bool
+
+
+def _join_fields(node: JoinNode) -> list[_JoinField]:
+    """Fields the J output handles by name: listed in the Join's Select settings,
+    plus right-side keys that share a name with a left key (Alteryx prefixes those)."""
+    fields: list[_JoinField] = []
+    for op in node.select_left:
+        fields.append(_JoinField("l", op.field_name, op.rename_to or op.field_name, op.selected))
+    listed_right: set[str] = set()
+    for op in node.select_right:
+        # A listed "Right_X" is the right input's X, renamed because the left has X too.
+        source = op.field_name.removeprefix("Right_")
+        listed_right.add(source)
+        fields.append(_JoinField("r", source, op.rename_to or op.field_name, op.selected))
+    left_keys = {jk.left_field for jk in node.join_keys}
+    for jk in node.join_keys:
+        if jk.right_field in left_keys and jk.right_field not in listed_right:
+            listed_right.add(jk.right_field)
+            # Not listed, so it comes out only when unlisted fields pass through.
+            fields.append(_JoinField("r", jk.right_field, f"Right_{jk.right_field}", node.keep_unlisted))
+    return fields
+
+
+def _join_select_list(node: JoinNode) -> str:
+    """The SELECT list for an Alteryx Join's J output, over aliases ``l`` and ``r``.
+
+    Alteryx names a right-side field that is also on the left ``Right_<name>``,
+    and the Join's Select settings use those names. SQL can't rename columns it
+    doesn't know, so this handles the collisions known when converting (keys with
+    the same name on both sides, and fields the Join lists as ``Right_<name>``)
+    and applies deselects and renames per side.
+    """
+    fields = _join_fields(node)
+    if not node.keep_unlisted:
+        # *Unknown is deselected: only the listed, selected fields come out.
+        kept = [f"{f.side}.{_bq(f.source)} AS {_bq(f.output)}" for f in fields if f.selected]
+        return ", ".join(kept) if kept else "NULL AS `_no_fields`"
+
+    parts: list[str] = []
+    for side in ("l", "r"):
+        mine = [f for f in fields if f.side == side]
+        # Listed fields leave the star when they're dropped or come out under another name.
+        excepted = list(dict.fromkeys(f.source for f in mine if not f.selected or f.output != f.source))
+        parts.append(f"{side}.*" + (f" EXCEPT ({', '.join(_bq(c) for c in excepted)})" if excepted else ""))
+        parts += [f"{side}.{_bq(f.source)} AS {_bq(f.output)}" for f in mine if f.selected and f.output != f.source]
+    note = (
+        "/* Other columns both inputs share come out twice here; Alteryx names the right copy "
+        "Right_<name>. Use the PySpark output, or list them, if that applies. */ "
+    )
+    return note + ", ".join(parts)
+
+
+def _find_replace_sql(node: FindReplaceNode, input_ctes: dict[str, str], warnings: list[str]) -> str:
+    """SQL for an Alteryx Find Replace (anchors Targets = F rows, Source = R lookup).
+
+    An entire-field find is a left join on the value, one lookup row per value.
+    An any-part find needs the lookup's values as patterns, which SQL can't build
+    from data, so it isn't generated here; the PySpark output handles it. In
+    replace mode the replaced field moves to the end of the column list.
+    """
+    target = input_ctes.get("Targets", input_ctes.get("Target", input_ctes.get("Input")))
+    lookup = input_ctes.get("Source")
+    nid = node.node_id
+    if not target or not lookup:
+        missing = "F (find)" if not target else "R (replace)"
+        warnings.append(
+            f"FindReplace node {nid}: {missing} input is not connected — "
+            "not generated. Connect both inputs and re-convert, or write it by hand."
+        )
+        return f"SELECT 1 WHERE FALSE  -- Find Replace node {nid}: {missing} input missing"
+    why = find_replace_problem(node)
+    if why is None and node.find_mode == "contains":
+        why = "finding any part of a field needs the lookup's values as patterns, which SQL can't build from data"
+    if why:
+        warnings.append(f"FindReplace node {nid}: {why}. Use the PySpark output for this step.")
+        return f"SELECT 1 WHERE FALSE  -- Find Replace node {nid}: {why}"
+
+    def key(expr: str) -> str:
+        return expr if node.case_sensitive else f"LOWER({expr})"
+
+    search, find = _bq(node.search_field), _bq(node.find_field)
+    # FIRST() per value: Alteryx uses the first lookup row for a repeated value.
+    if node.replace_mode == "replace":
+        lk = (
+            f"SELECT {key(search)} AS `_fr_key`, FIRST({_bq(node.replace_field)}) AS `_fr_value` "
+            f"FROM {lookup} GROUP BY {key(search)}"
+        )
+        return (
+            f"SELECT t.* EXCEPT ({find}), "
+            f"CASE WHEN l.`_fr_key` IS NOT NULL THEN l.`_fr_value` ELSE t.{find} END AS {find} "
+            f"FROM {target} t LEFT JOIN ({lk}) l ON {key('t.' + find)} = l.`_fr_key`"
+        )
+    appended = ", ".join(f"FIRST({_bq(a)}) AS {_bq(a)}" for a in node.append_fields)
+    lk = f"SELECT {key(search)} AS `_fr_key`, {appended} FROM {lookup} GROUP BY {key(search)}"
+    return (
+        f"SELECT t.*, {', '.join('l.' + _bq(a) for a in node.append_fields)} "
+        f"FROM {target} t LEFT JOIN ({lk}) l ON {key('t.' + find)} = l.`_fr_key`"
+    )

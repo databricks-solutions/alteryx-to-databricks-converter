@@ -258,3 +258,29 @@ class TestJoinKeysFromRealWorkflows:
         cell = code.split("# Step 25:")[1].split("# COMMAND ----------")[0]
         assert "F.lit(True)" not in cell
         assert "COMPANY_ID" in cell and "ARTICLE_ID" in cell
+
+
+class TestFindReplaceFromRealWorkflows:
+    """Every Find Replace reads its real settings and is generated without placeholders."""
+
+    def test_every_find_replace_converts(self, tmp_path: Path) -> None:
+        from a2d.ir.nodes import FindReplaceNode
+
+        seen = 0
+        for path in PACKT_FILES:
+            if "AlteryxBasePluginsGui.FindReplace" not in path.read_text(encoding="utf-8", errors="ignore"):
+                continue
+            for fmt in (OutputFormat.PYSPARK, OutputFormat.DLT, OutputFormat.SQL):
+                result = ConversionPipeline(
+                    ConversionConfig(output_dir=tmp_path / fmt.value, output_format=fmt)
+                ).convert(path)
+                code = "\n".join(f.content for f in result.output.files)
+                assert "MISSING_TARGET" not in code and "find_field" not in code, f"{path.name} {fmt.value}"
+                assert 'dlt.read("MISSING")' not in code, path.name
+                if fmt is OutputFormat.PYSPARK:
+                    for node in result.dag.all_nodes():
+                        if isinstance(node, FindReplaceNode):
+                            seen += 1
+                            assert node.find_field and node.search_field, f"{path.name} node {node.node_id}"
+                            assert node.replace_field or node.append_fields, f"{path.name} node {node.node_id}"
+        assert seen >= 9, seen

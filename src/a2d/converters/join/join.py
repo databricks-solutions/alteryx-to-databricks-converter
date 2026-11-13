@@ -82,6 +82,17 @@ def _parse_field_ops(cfg: dict, section_key: str) -> list[FieldOperation]:
     return ops
 
 
+def _keeps_unlisted(cfg: dict) -> bool:
+    """Whether the Join's ``*Unknown`` entry passes unlisted fields through (the default)."""
+    for c in ensure_list((cfg.get("SelectConfiguration") or {}).get("Configuration", {})):
+        if not isinstance(c, dict) or c.get("@outputConnection", "join").lower() != "join":
+            continue
+        for f in ensure_list((c.get("SelectFields") or {}).get("SelectField", [])):
+            if isinstance(f, dict) and f.get("@field") == "*Unknown":
+                return f.get("@selected", "True").lower() != "false"
+    return True
+
+
 def _parse_select_configuration(cfg: dict) -> tuple[list[FieldOperation], list[FieldOperation]]:
     """Parse SelectConfiguration XML block into (left_ops, right_ops).
 
@@ -180,6 +191,7 @@ class JoinConverter(ToolConverter):
             join_type=join_type,
             select_left=select_left,
             select_right=select_right,
+            keep_unlisted=_keeps_unlisted(cfg),
             conversion_notes=[
                 "Alteryx Join produces 3 outputs (J/L/R); downstream connections determine effective join type."
             ],

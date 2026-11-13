@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from a2d.config import ConversionConfig
 from a2d.converters.registry import ConverterRegistry, ToolConverter
-from a2d.converters.utils import safe_get
+from a2d.converters.utils import ensure_list, safe_get
 from a2d.ir.nodes import FindReplaceNode, IRNode
 from a2d.parser.schema import ParsedNode
 
@@ -18,22 +18,28 @@ class FindReplaceConverter(ToolConverter):
         return ["FindReplace"]
 
     def convert(self, parsed_node: ParsedNode, config: ConversionConfig) -> IRNode:
+        # Alteryx saves the tool as:
+        #   <FieldFind>     the F input's field to search in ("Find Within Field")
+        #   <FieldSearch>   the R input's field holding the values to find ("Find Value")
+        #   <ReplaceFoundField>  the R input's field to replace with
+        #   <FindMode>      FindWhole (entire field) or FindAny (any part of it)
+        #   <NoCase value=> / <MatchWholeWord value=>
+        #   <ReplaceMode>   Replace, or Append (add <ReplaceAppendFields> from R)
+        #   <ReplaceMultipleFound value=>  any part only: replace every found item
         cfg = parsed_node.configuration
 
-        find_field = safe_get(cfg, "FindField")
-        replace_field = safe_get(cfg, "ReplaceField")
+        def flag(key: str) -> bool:
+            return safe_get(cfg, key, default="False").strip().lower() == "true"
 
-        # FindMode: "Find Any Match", "Find Entire Field", "Find Begins With"
-        raw_mode = safe_get(cfg, "FindMode", default="Find Entire Field")
-        mode_map = {
-            "Find Entire Field": "exact",
-            "Find Any Match": "contains",
-            "Find Begins With": "starts_with",
-            "Regular Expression": "regex",
-        }
-        find_mode = mode_map.get(raw_mode, "exact")
-
-        case_sensitive = safe_get(cfg, "CaseSensitive", default="True").lower() != "false"
+        raw_mode = safe_get(cfg, "FindMode", default="FindWhole")
+        find_mode = {"FindWhole": "exact", "FindAny": "contains"}.get(raw_mode, raw_mode)
+        append_block = cfg.get("ReplaceAppendFields") or {}
+        append_fields = [
+            f.get("@field", "")
+            for f in ensure_list(append_block.get("Field", []) if isinstance(append_block, dict) else [])
+            if isinstance(f, dict) and f.get("@field")
+        ]
+        replace_mode = "append" if safe_get(cfg, "ReplaceMode", default="Replace").lower() == "append" else "replace"
 
         return FindReplaceNode(
             node_id=parsed_node.tool_id,
@@ -41,9 +47,15 @@ class FindReplaceConverter(ToolConverter):
             original_plugin_name=parsed_node.plugin_name,
             annotation=parsed_node.annotation,
             position=parsed_node.position,
-            find_field=find_field,
-            replace_field=replace_field,
+            find_field=safe_get(cfg, "FieldFind"),
+            search_field=safe_get(cfg, "FieldSearch"),
+            replace_field=safe_get(cfg, "ReplaceFoundField"),
             find_mode=find_mode,
-            case_sensitive=case_sensitive,
-            conversion_notes=["FindReplace maps to a PySpark join + replace pattern."],
+            raw_find_mode=raw_mode,
+            case_sensitive=not flag("NoCase"),
+            whole_word=flag("MatchWholeWord"),
+            replace_mode=replace_mode,
+            replace_multiple=flag("ReplaceMultipleFound"),
+            append_fields=append_fields,
+            conversion_notes=["FindReplace maps to a lookup join (entire field) or a match expression (any part)."],
         )

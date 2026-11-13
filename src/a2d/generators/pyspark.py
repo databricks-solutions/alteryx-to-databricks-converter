@@ -18,6 +18,9 @@ from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.translator import PySparkTranslator
 from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, NodeCodeResult
+from a2d.generators.find_replace_code import find_replace_lines
+from a2d.generators.find_replace_code import problem as find_replace_problem
+from a2d.generators.join_code import join_output_lines
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
     AggAction,
@@ -1107,8 +1110,6 @@ class PySparkGenerator(CodeGenerator):
         out_left = f"df_{node.node_id}_left"
         out_right = f"df_{node.node_id}_right"
 
-        join_type = node.join_type or "inner"
-
         no_keys_warning = False
         if node.join_keys:
             key_pairs = [f'{left_var}["{jk.left_field}"] == {right_var}["{jk.right_field}"]' for jk in node.join_keys]
@@ -1143,63 +1144,14 @@ class PySparkGenerator(CodeGenerator):
             for pred in predecessors:
                 if isinstance(pred, LiteralDataNode):
                     # Determine which side this predecessor feeds
-                    if f"df_{pred.node_id}" in right_var or right_var in (f"df_{pred.node_id}",):
+                    if right_var == f"df_{pred.node_id}":
                         broadcast_side = "right"
-                    elif f"df_{pred.node_id}" in left_var or left_var in (f"df_{pred.node_id}",):
+                    elif left_var == f"df_{pred.node_id}":
                         broadcast_side = "left"
                     break
 
-        # Apply broadcast wrapping
-        join_left = left_var
-        join_right = right_var
-        if broadcast_side == "right":
-            join_right = f"F.broadcast({right_var})"
-        elif broadcast_side == "left":
-            join_left = f"F.broadcast({left_var})"
-
         if need_join or (not need_left and not need_right):
-            # Build post-join column ops as a single chain: batched renames first,
-            # then drops. Use .withColumnsRenamed({...}) (Spark 3.4+, DBR 14.3 LTS+)
-            # to avoid the quadratic schema-rebuild cost of a long
-            # .withColumnRenamed chain.
-            post_ops: list[str] = []
-            renames: list[tuple[str, str]] = []
-            for op in node.select_left + node.select_right:
-                if op.action.value == "rename" and op.rename_to and op.rename_to != op.field_name:
-                    renames.append((op.field_name, op.rename_to))
-            if renames:
-                rename_entries = ", ".join(f'"{old}": "{new}"' for old, new in renames)
-                post_ops.append(f"    .withColumnsRenamed({{{rename_entries}}})")
-            drops_post = []
-            for op in node.select_left + node.select_right:
-                if not op.selected:
-                    drop_name = op.rename_to if (op.rename_to and op.rename_to != op.field_name) else op.field_name
-                    drops_post.append(f'"{drop_name}"')
-            if drops_post:
-                post_ops.append(f"    .drop({', '.join(drops_post)})")
-
-            # Same-named columns on both inputs make an unqualified post-join
-            # rename/drop ambiguous: withColumnsRenamed/drop by bare name would hit
-            # both occurrences, whereas Alteryx selects per side. Warn rather than
-            # silently touch the wrong column.
-            left_names = {op.field_name for op in node.select_left}
-            right_names = {op.field_name for op in node.select_right}
-            touched = {old for old, _ in renames} | {d.strip('"') for d in drops_post}
-            ambiguous = sorted((left_names & right_names) & touched)
-            if ambiguous:
-                warnings.append(
-                    f"Join node {node.node_id}: field(s) {ambiguous} exist on both inputs; the post-join "
-                    "rename/drop is by unqualified name and may affect the wrong side — qualify the column "
-                    "(alias left/right) and review manually."
-                )
-
-            if post_ops:
-                chain_body = "\n".join(post_ops)
-                lines.append(
-                    f'{out_join} = (\n    {join_left}.join({join_right}, {condition}, "{join_type}")\n{chain_body}\n)'
-                )
-            else:
-                lines.append(f'{out_join} = {join_left}.join({join_right}, {condition}, "{join_type}")')
+            lines.extend(join_output_lines(node, left_var, right_var, out_join, broadcast=broadcast_side))
             output_vars["Join"] = out_join
             output_vars["Output"] = out_join
         if need_left:
@@ -1259,83 +1211,30 @@ class PySparkGenerator(CodeGenerator):
         )
 
     def _generate_FindReplaceNode(self, node: FindReplaceNode, input_vars: dict[str, str]) -> NodeCodeResult:
-        target_var = input_vars.get("Input", input_vars.get("Target", "MISSING_TARGET"))
-        lookup_var = input_vars.get("Source", input_vars.get("Right", target_var))
+        # Alteryx's anchors are Targets (F, the rows to update) and Source (R, the lookup).
+        target_var = input_vars.get("Targets", input_vars.get("Target", input_vars.get("Input")))
+        lookup_var = input_vars.get("Source")
         out_var = f"df_{node.node_id}"
-        warnings: list[str] = []
-
-        find_field = node.find_field or "find_field"
-        replace_field = node.replace_field or "replace_field"
-
-        lines = [f"# FindReplace: find '{find_field}', replace with '{replace_field}' (mode: {node.find_mode})"]
-
-        if node.find_mode == "exact":
-            if not node.case_sensitive:
-                lines.append(
-                    f'_lookup_{node.node_id} = {lookup_var}.withColumn("_find_key", F.lower(F.col("{find_field}")))'
-                )
-                lines.append(
-                    f'_main_{node.node_id} = {target_var}.withColumn("_find_key", F.lower(F.col("{find_field}")))'
-                )
-                join_cond = f'_main_{node.node_id}["_find_key"] == _lookup_{node.node_id}["_find_key"]'
-                lines.append(
-                    f'{out_var} = _main_{node.node_id}.join(_lookup_{node.node_id}.select("_find_key", F.col("{replace_field}").alias("_replace_val_{node.node_id}")), {join_cond}, "left")'
-                )
-                lines.append(
-                    f'{out_var} = {out_var}.withColumn("{find_field}", F.coalesce(F.col("_replace_val_{node.node_id}"), F.col("{find_field}")))'
-                )
-                lines.append(f'{out_var} = {out_var}.drop("_find_key", "_replace_val_{node.node_id}")')
-            else:
-                lines.append(
-                    f'_lookup_{node.node_id} = {lookup_var}.select(F.col("{find_field}").alias("_find_val"), F.col("{replace_field}").alias("_replace_val_{node.node_id}"))'
-                )
-                lines.append(
-                    f'{out_var} = {target_var}.join(_lookup_{node.node_id}, {target_var}["{find_field}"] == _lookup_{node.node_id}["_find_val"], "left")'
-                )
-                lines.append(
-                    f'{out_var} = {out_var}.withColumn("{find_field}", F.coalesce(F.col("_replace_val_{node.node_id}"), F.col("{find_field}")))'
-                )
-                lines.append(f'{out_var} = {out_var}.drop("_find_val", "_replace_val_{node.node_id}")')
-        elif node.find_mode == "contains":
-            # Collect lookup values (small table) and apply regexp_replace for each
-            lines.append("# Contains-mode find/replace: collect lookup pairs, apply sequentially")
-            lines.append(f'_pairs_{node.node_id} = {lookup_var}.select("{find_field}", "{replace_field}").collect()')
-            lines.append(f"{out_var} = {target_var}")
-            # `target_fields` is not a field on FindReplaceNode (yet) — guard
-            # with getattr so older IR objects fall back to the find_field.
-            _tf = getattr(node, "target_fields", None)
-            target_col = _tf[0] if _tf else find_field
-            lines.append(f"for _pair in _pairs_{node.node_id}:")
-            lines.append(
-                f'    {out_var} = {out_var}.withColumn("{target_col}", F.regexp_replace(F.col("{target_col}"), F.lit(_pair["{find_field}"]), F.lit(_pair["{replace_field}"])))'
+        if not target_var or not lookup_var:
+            missing = "F (find)" if not target_var else "R (replace)"
+            return NodeCodeResult(
+                code_lines=[f"# CANNOT CONVERT: Find Replace node {node.node_id} has no {missing} input connected."],
+                output_vars={},
+                warnings=[
+                    f"FindReplace node {node.node_id}: {missing} input is not connected — "
+                    "not generated. Connect both inputs and re-convert, or write it by hand."
+                ],
             )
-            warnings.append(
-                f"FindReplace contains mode (node {node.node_id}): lookup table collected to driver — ensure it is small"
+        why = find_replace_problem(node)
+        if why:
+            return NodeCodeResult(
+                code_lines=[f"# TODO: Find Replace node {node.node_id}: {why}.", f"{out_var} = {target_var}"],
+                output_vars={"Output": out_var},
+                warnings=[f"FindReplace node {node.node_id}: {why} — the step passes its input through unchanged."],
             )
-        elif node.find_mode == "regex":
-            # Same approach but patterns are regex
-            lines.append("# Regex-mode find/replace: collect lookup patterns, apply sequentially")
-            lines.append(f'_pairs_{node.node_id} = {lookup_var}.select("{find_field}", "{replace_field}").collect()')
-            lines.append(f"{out_var} = {target_var}")
-            # `target_fields` is not a field on FindReplaceNode (yet) — guard
-            # with getattr so older IR objects fall back to the find_field.
-            _tf = getattr(node, "target_fields", None)
-            target_col = _tf[0] if _tf else find_field
-            lines.append(f"for _pair in _pairs_{node.node_id}:")
-            lines.append(
-                f'    {out_var} = {out_var}.withColumn("{target_col}", F.regexp_replace(F.col("{target_col}"), _pair["{find_field}"], _pair["{replace_field}"]))'
-            )
-            warnings.append(
-                f"FindReplace regex mode (node {node.node_id}): lookup table collected to driver — ensure it is small"
-            )
-        else:
-            lines.append(f"{out_var} = {target_var}")
-            warnings.append(f"FindReplace mode '{node.find_mode}' (node {node.node_id}) may need manual adjustment")
-
         return NodeCodeResult(
-            code_lines=lines,
+            code_lines=find_replace_lines(node, target_var, lookup_var, out_var),
             output_vars={"Output": out_var},
-            warnings=warnings,
         )
 
     def _generate_JoinMultipleNode(self, node: JoinMultipleNode, input_vars: dict[str, str]) -> NodeCodeResult:
