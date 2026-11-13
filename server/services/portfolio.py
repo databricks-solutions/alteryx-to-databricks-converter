@@ -11,9 +11,10 @@ import logging
 import tempfile
 from pathlib import Path
 
+from a2d.analyzer.batch import BatchAnalyzer
 from a2d.portfolio.analyzer import PortfolioAnalyzer
 from a2d.portfolio.report import to_dict
-from server.utils.package import materialize_uploads
+from server.utils.package import macro_files, materialize_uploads, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.portfolio")
 
@@ -30,8 +31,14 @@ def analyze_portfolio(files: list[tuple[str, bytes]]) -> dict:
     with tempfile.TemporaryDirectory() as tmpdir:
         # .yxzp packages are unzipped to their primary workflow; other files pass through.
         paths = materialize_uploads(files, Path(tmpdir))
-
-        report = PortfolioAnalyzer().analyze(paths)
+        if not paths:
+            raise ValueError("at least one workflow file is required (macros alone aren't an estate)")
+        # Same macro-expanding analyzer as Assess, so a workflow's coverage and
+        # tool counts are the same on every tab.
+        batch = BatchAnalyzer(
+            expand_macros=True, macro_search_paths=write_macro_library(macro_files(files), Path(tmpdir))
+        )
+        report = PortfolioAnalyzer(batch).analyze(paths)
         payload = to_dict(report)
 
     logger.info(

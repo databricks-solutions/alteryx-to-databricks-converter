@@ -17,6 +17,7 @@ from a2d.review.models import (
     ReviewEdge,
     ReviewNode,
     ReviewSession,
+    node_confidence,
     node_review_status,
 )
 
@@ -84,15 +85,16 @@ def build_review_session(
     for node in dag.topological_order():
         node_warnings = warnings_by_node.get(node.node_id, [])
         tool_type = node.original_tool_type or type(node).__name__.replace("Node", "")
+        code = code_by_node.get(node.node_id, "")
         session.nodes.append(
             ReviewNode(
                 node_id=node.node_id,
                 tool_type=tool_type,
                 annotation=node.annotation,
                 position=node.position,
-                status=node_review_status(node, node_warnings),
-                confidence=node.conversion_confidence,
-                generated_code=code_by_node.get(node.node_id, ""),
+                status=node_review_status(node, node_warnings, code),
+                confidence=node_confidence(node, code),
+                generated_code=code,
                 warnings=node_warnings,
                 conversion_method=node.conversion_method,
             )

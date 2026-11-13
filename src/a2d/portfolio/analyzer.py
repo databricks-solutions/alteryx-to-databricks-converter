@@ -31,9 +31,11 @@ logger = logging.getLogger("a2d.portfolio.analyzer")
 class PortfolioAnalyzer:
     """Analyze many Alteryx workflows as one connected estate."""
 
-    def __init__(self) -> None:
+    def __init__(self, batch: BatchAnalyzer | None = None) -> None:
+        """``batch`` builds and assesses each workflow; pass a macro-expanding one
+        (as the app does) so the portfolio's figures match Assess's."""
         self._parser = WorkflowParser()
-        self._batch = BatchAnalyzer()
+        self._batch = batch or BatchAnalyzer()
         self._planner = MigrationWavePlanner()
 
     def analyze(self, paths: list[Path]) -> PortfolioReport:

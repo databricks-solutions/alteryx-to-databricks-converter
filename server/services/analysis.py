@@ -8,6 +8,7 @@ from collections import Counter
 from pathlib import Path
 
 from a2d.analyzer.batch import BatchAnalyzer
+from a2d.analyzer.coverage import estate_coverage_percentage
 from server.utils.package import analyze_each, macro_files, materialize_uploads, upload_name_for, write_macro_library
 
 logger = logging.getLogger("a2d.server.services.analysis")
@@ -35,6 +36,7 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
             "total_workflows": 0,
             "total_nodes": 0,
             "avg_coverage": 0.0,
+            "unresolved_macros": [],
             "avg_complexity": 0.0,
             "workflows": [],
             "tool_frequency": {},
@@ -42,16 +44,21 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
             "skipped_files": skipped,
         }
 
-    avg_coverage = sum(a.coverage.coverage_percentage for a in analyses) / total
+    # Same definition as each workflow's figure and as Convert's: supported tools
+    # over all tools, across the estate.
+    avg_coverage = estate_coverage_percentage([a.coverage for a in analyses])
     avg_complexity = sum(a.complexity.total_score for a in analyses) / total
     total_nodes = sum(a.node_count for a in analyses)
 
     tool_counter: Counter = Counter()
     unsupported: set[str] = set()
+    macros: dict[str, str] = {}
     for a in analyses:
         for tool_type, count in a.coverage.per_tool_counts.items():
             tool_counter[tool_type] += count
         unsupported.update(a.coverage.unsupported_types)
+        for name, reason in a.coverage.unresolved_macros.items():
+            macros.setdefault(name, reason)
 
     workflows = [
         {
@@ -63,19 +70,23 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
             "node_count": a.node_count,
             "connection_count": a.connection_count,
             "coverage_percentage": a.coverage.coverage_percentage,
+            "type_coverage_percentage": a.coverage.type_coverage_percentage,
+            "tool_count": a.coverage.total_nodes,
+            "supported_tool_count": a.coverage.supported_nodes,
             "complexity_score": a.complexity.total_score,
             "complexity_level": a.complexity.level,
             "migration_priority": a.migration_priority,
             "estimated_effort": a.estimated_effort,
             "tool_types": sorted(a.tool_types_used),
             "unsupported_types": sorted(a.coverage.unsupported_types),
+            "unresolved_macros": [{"name": n, "reason": r} for n, r in a.coverage.unresolved_macros.items()],
             "warnings": a.warnings,
         }
         for a, source in zip(analyses, sources, strict=True)
     ]
 
     logger.info(
-        "Analysis complete: %d workflows, %d total nodes, %.1f%% avg coverage",
+        "Analysis complete: %d workflows, %d total nodes, %.1f%% coverage",
         total,
         total_nodes,
         avg_coverage,
@@ -89,6 +100,8 @@ def analyze_files(files: list[tuple[str, bytes]]) -> dict:
         "workflows": workflows,
         "tool_frequency": dict(tool_counter.most_common()),
         "unsupported_tools": sorted(unsupported),
+        # Macro calls that weren't expanded, named (not lumped in as a "Macro" tool type).
+        "unresolved_macros": [{"name": n, "reason": r} for n, r in sorted(macros.items())],
         # Uploaded names that couldn't be read or analyzed, so totals aren't
         # mistaken for the whole estate.
         "skipped_files": skipped,

@@ -124,7 +124,10 @@ async def convert_batch(
             raise HTTPException(status_code=422, detail="Select at least one workflow to convert.")
         only = set(parsed)
     inputs = await resolve_run_inputs(files, project_id, only=only, macros=macros)
-    file_data = inputs.files
+    # Macros are what the workflows call, not workflows to convert on their own.
+    file_data = inputs.workflows
+    if not file_data:
+        raise HTTPException(status_code=422, detail="There are no workflows to convert, only macros.")
 
     logger.info("Starting batch conversion: %d files (multi-format)", len(file_data))
     job_id = await batch_service.create_batch_job(

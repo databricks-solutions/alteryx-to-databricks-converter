@@ -269,7 +269,11 @@ export function ReviewPage({
                       </Badge>
                     )}
                     <span className="text-xs text-[var(--fg-muted)]">
-                      {(selectedNode.confidence * 100).toFixed(0)}% confidence
+                      {selectedNode.status === "cannot_convert"
+                        ? "Not converted"
+                        : selectedNode.unfinished
+                          ? "Not finished: the converter left a TODO in this step"
+                          : `${(selectedNode.confidence * 100).toFixed(0)}% mapping confidence`}
                     </span>
                   </div>
 

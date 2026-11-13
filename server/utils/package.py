@@ -112,9 +112,15 @@ def materialize_uploads(
     Pass ``skipped`` to receive the names of any dropped files so the caller can
     surface them (silently omitting files makes estate totals look complete when
     they are not).
+
+    Macros (``.yxmc``) are not workflows: they get no path here, so estate passes
+    don't count them. Callers pass them to :func:`write_macro_library` instead,
+    which is where the workflows that call them find them.
     """
     paths: list[Path] = []
     for index, (filename, content) in enumerate(files):
+        if is_macro(filename):
+            continue
         sub = base_dir / f"upload_{index}"
         sub.mkdir(parents=True, exist_ok=True)
         try:

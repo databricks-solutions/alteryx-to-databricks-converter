@@ -185,6 +185,13 @@ class ToolMatrixResponse(BaseModel):
     supported_tools: int
 
 
+class UnresolvedMacroResponse(BaseModel):
+    """A macro call that wasn't expanded, by macro file name, and why."""
+
+    name: str
+    reason: str
+
+
 class WorkflowAnalysisResponse(BaseModel):
     file_name: str
     # The name as uploaded — differs from file_name for a .yxzp package.
@@ -192,13 +199,19 @@ class WorkflowAnalysisResponse(BaseModel):
     workflow_name: str
     node_count: int
     connection_count: int
+    # Supported tools over all tools (canvas comments excluded); Convert's figure too.
     coverage_percentage: float
+    # Share of distinct tool types supported (a different question).
+    type_coverage_percentage: float
+    tool_count: int
+    supported_tool_count: int
     complexity_score: float
     complexity_level: str
     migration_priority: str
     estimated_effort: str
     tool_types: list[str]
     unsupported_types: list[str]
+    unresolved_macros: list[UnresolvedMacroResponse] = []
     warnings: list[str]
 
 
@@ -210,5 +223,6 @@ class AnalysisResponse(BaseModel):
     workflows: list[WorkflowAnalysisResponse]
     tool_frequency: dict[str, int]
     unsupported_tools: list[str]
+    unresolved_macros: list[UnresolvedMacroResponse] = []
     # Uploaded names that couldn't be read or analyzed.
     skipped_files: list[str] = []

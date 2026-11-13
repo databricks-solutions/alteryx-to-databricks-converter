@@ -254,15 +254,15 @@ function CompletionResult({ result }: { result: AICompletion }) {
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               <div>
                 <p className="mb-1 text-xs font-medium text-[var(--fg-muted)]">As converted (deterministic)</p>
-                <CodeBlock code={cell.before} language="python" />
+                <CodeBlock code={cell.before} language="python" wrap />
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-[var(--fg-muted)]">AI-completed (unverified)</p>
-                <CodeBlock code={cell.after} language="python" />
+                <CodeBlock code={cell.after} language="python" wrap />
               </div>
             </div>
           ) : (
-            <CodeBlock code={cell.before} language="python" />
+            <CodeBlock code={cell.before} language="python" wrap />
           )}
         </Card>
       ))}

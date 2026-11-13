@@ -7,13 +7,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MetricCard } from "@/components/shared/metric-card";
 import { FileDropzone } from "@/components/shared/file-dropzone";
 import { useStats } from "@/hooks/use-tools";
-import { useProjects, useCreateProject, isProjectsNotConfigured } from "@/hooks/use-project";
+import { useProjects, useCreateProject, useServerStatus, isProjectsNotConfigured } from "@/hooks/use-project";
 import { useProjectStore } from "@/stores/project";
 import { useLocalProjectStore } from "@/stores/local-project";
 import { useBatchStore } from "@/stores/batch";
 import { STEPS, stepPath } from "@/lib/steps";
 import { STAGE_ORDER, isAtOrPast } from "@/lib/stages";
-import type { ProjectSummary, WorkflowStage } from "@/lib/api";
+import { isMacroFile, type ProjectSummary, type WorkflowStage } from "@/lib/api";
 import { Boxes, Code, Database, Zap, FolderPlus, Loader2, X, ArrowRight, Info } from "lucide-react";
 
 /** How far a project is: workflows converted and reviewed, out of the total. */
@@ -33,12 +33,13 @@ function ProjectProgress({ project }: { project: ProjectSummary }) {
 
 export function HomePage() {
   const { data: stats, isLoading, error } = useStats();
+  const status = useServerStatus();
   const projects = useProjects();
   const create = useCreateProject();
   const createLocal = useLocalProjectStore((s) => s.create);
   const localId = useLocalProjectStore((s) => s.id);
   const localName = useLocalProjectStore((s) => s.name);
-  const localCount = useLocalProjectStore((s) => s.workflows.length);
+  const localCount = useLocalProjectStore((s) => s.workflows.filter((w) => !isMacroFile(w.file_name)).length);
   const resetBatch = useBatchStore((s) => s.reset);
   const lastProjectId = useProjectStore((s) => s.lastProjectId);
   const navigate = useNavigate();
@@ -48,8 +49,8 @@ export function HomePage() {
 
   // No database on this server: projects can still be used, just not saved.
   // (A database that's configured but not responding is an error, not this.)
-  const unavailable = isProjectsNotConfigured(projects.error);
-  const storeDown = projects.isError && !unavailable;
+  const unavailable = isProjectsNotConfigured(status.data);
+  const storeDown = (projects.isError || status.isError) && !unavailable;
   const list = projects.data?.projects ?? [];
   const resume = list.find((p) => p.id === lastProjectId);
 
@@ -170,7 +171,7 @@ export function HomePage() {
             <ArrowRight className="h-4 w-4 text-[var(--fg-muted)]" />
           </Link>
         )}
-        {projects.isLoading ? (
+        {status.isLoading || projects.isLoading ? (
           <Skeleton className="h-24 rounded-xl" />
         ) : list.length > 0 ? (
           <div className="rounded-xl border border-[var(--border)] overflow-hidden">
@@ -213,8 +214,8 @@ export function HomePage() {
         )}
         {storeDown && (
           <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-            Saved projects are unavailable right now: {projects.error?.message}{" "}
-            <button className="underline" onClick={() => projects.refetch()}>
+            Saved projects are unavailable right now: {(projects.error ?? status.error)?.message}{" "}
+            <button className="underline" onClick={() => (status.isError ? status.refetch() : projects.refetch())}>
               Try again
             </button>
           </p>

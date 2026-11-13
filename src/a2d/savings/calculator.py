@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from a2d.analyzer.coverage import estate_coverage_percentage
 from a2d.savings.model import (
     CostAssumptions,
     EstateFacts,
@@ -25,14 +26,12 @@ def estate_facts(analyses: list[WorkflowAnalysis], hour_anchors: dict[str, float
     """Roll a list of per-workflow analyses into estate-level effort facts.
 
     ``total_manual_hours`` sums each workflow's effort-tier anchor hours — the same
-    Low/Med/High/Very-High → hours model the profiler uses. Mean coverage is
-    node-instance-weighted so a 2-node and a 200-node workflow don't count equally.
+    Low/Med/High/Very-High → hours model the profiler uses. Mean coverage is the
+    estate coverage Assess shows (supported tools over all tools).
     """
     workflows_by_level: dict[str, int] = {}
     hours_by_level: dict[str, float] = {}
     total_hours = 0.0
-    weighted_cov = 0.0
-    total_nodes = 0
 
     for wf in analyses:
         level = wf.complexity.level
@@ -41,13 +40,8 @@ def estate_facts(analyses: list[WorkflowAnalysis], hour_anchors: dict[str, float
         hours_by_level[level] = hours_by_level.get(level, 0.0) + anchor
         total_hours += anchor
 
-        nodes = max(wf.node_count, 0)
-        # Prefer instance-weighted coverage; fall back to type coverage.
-        cov = getattr(wf.coverage, "instance_coverage_percentage", wf.coverage.coverage_percentage)
-        weighted_cov += cov * nodes
-        total_nodes += nodes
-
-    mean_cov = (weighted_cov / total_nodes) if total_nodes else 100.0
+    # The estate coverage Assess shows: supported tools over all tools.
+    mean_cov = estate_coverage_percentage([wf.coverage for wf in analyses])
 
     return EstateFacts(
         workflow_count=len(analyses),

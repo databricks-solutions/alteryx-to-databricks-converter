@@ -28,7 +28,7 @@ from starlette.concurrency import run_in_threadpool
 
 from server.services import project as project_service
 from server.settings import settings
-from server.utils.package import macro_files
+from server.utils.package import is_macro, macro_files
 from server.utils.validation import read_upload, validate_and_read_files, validate_yxmd_file
 
 PROJECTS_NOT_CONFIGURED = (
@@ -72,10 +72,19 @@ def _enforce_limits(files: list[tuple[str, bytes]]) -> None:
 
 @dataclass(frozen=True)
 class RunInputs:
-    """What a multi-file run processes, and the macros those workflows may call."""
+    """What a multi-file run processes, and the macros those workflows may call.
+
+    ``files`` keeps the macros among them, since the estate passes build their
+    macro library from it; ``workflows`` is just the workflows, what a run
+    converts or counts. A macro is a supporting file, not a workflow to migrate.
+    """
 
     files: list[tuple[str, bytes]]
     macros: list[tuple[str, bytes]]
+
+    @property
+    def workflows(self) -> list[tuple[str, bytes]]:
+        return [(name, content) for name, content in self.files if not is_macro(name)]
 
 
 @dataclass(frozen=True)
@@ -135,7 +144,7 @@ async def resolve_run_inputs(
         if unknown:
             raise HTTPException(status_code=422, detail=f"Not in this project: {', '.join(unknown)}")
         stored = [(name, content) for name, content in stored if name in only]
-    if not stored:
+    if not any(not is_macro(name) for name, _ in stored):
         raise HTTPException(status_code=422, detail="This project has no workflows to analyze yet.")
     _enforce_limits(stored)
     return RunInputs(files=stored, macros=library)
