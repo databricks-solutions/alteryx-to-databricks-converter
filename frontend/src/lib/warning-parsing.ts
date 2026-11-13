@@ -278,6 +278,11 @@ export interface CategorizedWarnings {
   /** Count of node ids that need any kind of manual attention
    *  (unsupported + missing_generator + expression_fallback). */
   manualReviewNodeCount: number;
+  /** Node ids that were converted but carry something to check (a fallback,
+   *  a missing generator in some format, a local path), i.e. review nodes that
+   *  aren't also unsupported. Disjoint from the unsupported nodes, so
+   *  "not converted" + "converted, worth checking" never double-count. */
+  checkNodeIds: Set<number>;
 }
 
 /** Group parsed warnings by user-facing bucket. */
@@ -289,12 +294,16 @@ export function categorizeWarnings(
   const graph: ParsedWarning[] = [];
   const other: ParsedWarning[] = [];
   const reviewNodeIds = new Set<number>();
+  const unsupportedNodeIds = new Set<number>();
 
   for (const w of parsed) {
     switch (w.kind) {
       case "unsupported_tool":
         unsupported.push(w);
-        if (w.nodeId !== undefined) reviewNodeIds.add(w.nodeId);
+        if (w.nodeId !== undefined) {
+          reviewNodeIds.add(w.nodeId);
+          unsupportedNodeIds.add(w.nodeId);
+        }
         break;
       case "missing_generator":
       case "expression_fallback":
@@ -319,6 +328,7 @@ export function categorizeWarnings(
     other,
     total: parsed.length,
     manualReviewNodeCount: reviewNodeIds.size,
+    checkNodeIds: new Set([...reviewNodeIds].filter((id) => !unsupportedNodeIds.has(id))),
   };
 }
 

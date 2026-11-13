@@ -34,6 +34,7 @@ import time
 import uuid
 
 from server.services import db
+from server.utils.package import is_macro
 
 logger = logging.getLogger("a2d.server.services.project")
 
@@ -141,6 +142,7 @@ def init_db() -> bool:
             conn.commit()
         _initialized = True
         logger.info("Migration-project tables initialized")
+        _refresh_stale_rollups()
         return True
     except Exception:
         logger.exception("Failed to initialize migration-project tables")
@@ -172,46 +174,84 @@ def _pool():
 # ── rollups ────────────────────────────────────────────────────────────────
 
 
+# Bump when what rollups count changes; init_db recomputes older ones.
+# 2: macros aren't workflows; coverage is supported tools over all tools.
+ROLLUPS_VERSION = 2
+
+
 def _rollups_from_workflows(workflows: list[dict]) -> dict:
     """Compute estate rollups from a project's workflows: counts by stage, plus
-    coverage averaged over the workflows that have an analysis summary (omitted,
-    not faked, when none do)."""
+    estate coverage from their analysis summaries (omitted, not faked, when they
+    don't all carry tool counts)."""
     counts = {stage: 0 for stage in STAGES}
-    coverages: list[float] = []
+    tools = supported = 0
+    complete = True  # every analyzed workflow has its tool counts
+    analyzed = 0
+    workflows = [wf for wf in workflows if not is_macro(str(wf.get("file_name") or ""))]  # macros aren't migrated
     for wf in workflows:
         stage = wf.get("stage", "uploaded")
         if stage in counts:
             counts[stage] += 1
         analysis = wf.get("analysis")
         if isinstance(analysis, dict):
-            cov = analysis.get("coverage_percentage")
-            if isinstance(cov, int | float):
-                coverages.append(float(cov))
-    rollups: dict = {"total_workflows": len(workflows), "stage_counts": counts}
-    if coverages:
-        rollups["mean_coverage_pct"] = round(sum(coverages) / len(coverages), 1)
+            analyzed += 1
+            n, ok = analysis.get("tool_count"), analysis.get("supported_tool_count")
+            if isinstance(n, int) and isinstance(ok, int):
+                tools += n
+                supported += ok
+            else:
+                complete = False  # stored before tool counts were kept
+    rollups: dict = {"version": ROLLUPS_VERSION, "total_workflows": len(workflows), "stage_counts": counts}
+    # Estate coverage as Assess shows it (supported tools over all tools); left
+    # out until every analyzed workflow has counts, rather than averaged wrongly.
+    if analyzed and complete:
+        rollups["mean_coverage_pct"] = round(supported / tools * 100.0, 1) if tools else 100.0
     return rollups
 
 
-def _refresh_rollups(project_id: str) -> None:
-    """Recompute and persist a project's rollups. Best-effort; never raises."""
+def _refresh_rollups(project_id: str, *, touch: bool = True) -> None:
+    """Recompute and persist a project's rollups. Best-effort; never raises.
+
+    ``touch=False`` leaves ``updated_at`` alone (a recompute isn't a user change)."""
     pool = _pool()
     if pool is None:
         return
     try:
         with pool.connection() as conn:
             wrows = conn.execute(
-                "SELECT stage, analysis FROM project_workflow WHERE project_id = %s",
+                "SELECT file_name, stage, analysis FROM project_workflow WHERE project_id = %s",
                 (project_id,),
             ).fetchall()
-            rollups = _rollups_from_workflows([{"stage": w[0], "analysis": w[1]} for w in wrows])
+            rollups = _rollups_from_workflows([{"file_name": w[0], "stage": w[1], "analysis": w[2]} for w in wrows])
+            stamp = ", updated_at = NOW()" if touch else ""
             conn.execute(
-                "UPDATE migration_project SET rollups = %s::jsonb, updated_at = NOW() WHERE id = %s",
+                f"UPDATE migration_project SET rollups = %s::jsonb{stamp} WHERE id = %s",
                 (json.dumps(rollups), project_id),
             )
             conn.commit()
     except _DatabaseError:
         logger.exception("Failed to refresh rollups for project %s", project_id)
+
+
+def _refresh_stale_rollups() -> None:
+    """Recompute rollups stored under an older definition (e.g. ones that counted
+    macros as workflows), so the project list is right without waiting for an edit."""
+    pool = _pool()
+    if pool is None:
+        return
+    try:
+        with pool.connection() as conn:
+            stale = conn.execute(
+                "SELECT id FROM migration_project WHERE (rollups->>'version') IS DISTINCT FROM %s",
+                (str(ROLLUPS_VERSION),),
+            ).fetchall()
+    except _DatabaseError:
+        logger.exception("Failed to find projects with stale rollups")
+        return
+    for (project_id,) in stale:
+        _refresh_rollups(str(project_id), touch=False)
+    if stale:
+        logger.info("Recomputed rollups for %d project(s)", len(stale))
 
 
 # ── writing workflows ──────────────────────────────────────────────────────
@@ -565,7 +605,15 @@ def store_analysis(project_id: str, rows: list[dict], hashes: dict[str, str] | N
     pool = _pool()
     if pool is None or not rows:
         return 0
-    keep = ("coverage_percentage", "complexity_score", "complexity_level", "migration_priority", "estimated_effort")
+    keep = (
+        "coverage_percentage",
+        "tool_count",
+        "supported_tool_count",
+        "complexity_score",
+        "complexity_level",
+        "migration_priority",
+        "estimated_effort",
+    )
     stored = 0
     try:
         with pool.connection() as conn:

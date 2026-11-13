@@ -9,7 +9,6 @@ from a2d.analyzer.complexity import ComplexityAnalyzer
 from a2d.analyzer.coverage import CoverageAnalyzer
 from a2d.analyzer.readiness import ReadinessAssessor, WorkflowAnalysis
 from a2d.config import ConversionConfig
-from a2d.converters.registry import ConverterRegistry
 from a2d.exceptions import A2dError
 from a2d.ir.graph import WorkflowDAG
 from a2d.parser.schema import ParsedWorkflow
@@ -53,50 +52,23 @@ class BatchAnalyzer:
         return results
 
     def build_dag(self, parsed: ParsedWorkflow) -> WorkflowDAG:
-        """Build an IR DAG from a parsed workflow using default config.
+        """Build the IR DAG the conversion pipeline builds for this workflow.
 
-        Shared by single-file analysis and the portfolio pass so both walk the
-        same graph without re-parsing.
+        Same builder as Convert (disabled tools and visual-only containers
+        dropped, macros expanded when enabled), so an assessment counts the same
+        tools a conversion does. Shared by single-file analysis and the portfolio
+        pass so both walk the same graph without re-parsing.
         """
-        config = ConversionConfig()
-        dag = WorkflowDAG()
-        for node in parsed.nodes:
-            ir_node = ConverterRegistry.convert_node(node, config)
-            dag.add_node(ir_node)
-        node_ids = set(dag.all_node_ids())
-        for conn in parsed.connections:
-            src, dst = conn.origin.tool_id, conn.destination.tool_id
-            if src not in node_ids or dst not in node_ids:
-                missing = [nid for nid in (src, dst) if nid not in node_ids]
-                logger.warning(
-                    "Skipping edge %d→%d: node(s) %s not in graph",
-                    src,
-                    dst,
-                    missing,
-                )
-                continue
-            dag.add_edge(
-                src,
-                dst,
-                conn.origin.anchor_name,
-                conn.destination.anchor_name,
-            )
+        from a2d.pipeline import ConversionPipeline
 
-        # Inline referenced macros (best-effort) when enabled, so a macro-call
-        # node analyzes as its real interior rather than an unsupported Unknown.
-        # Resolution is confined to the workflow's own directory (where a .yxzp's
-        # macros are extracted co-located) and the configured search paths.
-        # Unresolvable macros are left in place.
-        if self._expand_macros:
-            from a2d.macro.engine import MacroExpansionEngine
-
-            try:
-                result = MacroExpansionEngine(config, search_paths=self._macro_search_paths).expand(parsed, dag)
-                return result.dag
-            except Exception as exc:  # never let macro expansion break analysis
-                logger.warning("Macro expansion skipped for %s: %s", parsed.file_path, exc)
-
-        return dag
+        config = ConversionConfig(expand_macros=self._expand_macros, macro_search_paths=tuple(self._macro_search_paths))
+        try:
+            return ConversionPipeline(config).build_dag(parsed)
+        except Exception as exc:  # never let macro expansion break analysis
+            if not self._expand_macros:
+                raise
+            logger.warning("Macro expansion skipped for %s: %s", parsed.file_path, exc)
+            return ConversionPipeline(ConversionConfig()).build_dag(parsed)
 
     def analyze_workflow(self, parsed: ParsedWorkflow, dag: WorkflowDAG) -> WorkflowAnalysis:
         """Run complexity/coverage/readiness on an already-built DAG."""

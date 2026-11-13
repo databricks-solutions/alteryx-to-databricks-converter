@@ -19,8 +19,11 @@ from server.services import project as project_service
 
 def test_rollups_counts_stages_and_averages_coverage():
     workflows = [
-        {"stage": "converted", "analysis": {"coverage_percentage": 100.0}},
-        {"stage": "assessed", "analysis": {"coverage_percentage": 50.0}},
+        {
+            "stage": "converted",
+            "analysis": {"coverage_percentage": 100.0, "tool_count": 30, "supported_tool_count": 30},
+        },
+        {"stage": "assessed", "analysis": {"coverage_percentage": 50.0, "tool_count": 10, "supported_tool_count": 5}},
         {"stage": "uploaded", "analysis": None},
     ]
     r = project_service._rollups_from_workflows(workflows)
@@ -28,7 +31,17 @@ def test_rollups_counts_stages_and_averages_coverage():
     assert r["stage_counts"]["converted"] == 1
     assert r["stage_counts"]["assessed"] == 1
     assert r["stage_counts"]["uploaded"] == 1
-    assert r["mean_coverage_pct"] == 75.0
+    # Supported tools over all tools (35 of 40), the estate figure Assess shows.
+    assert r["mean_coverage_pct"] == 87.5
+
+
+def test_rollups_omits_coverage_when_counts_missing():
+    """A summary stored before tool counts were kept can't be weighted; omit, don't guess."""
+    workflows = [
+        {"stage": "assessed", "analysis": {"coverage_percentage": 100.0, "tool_count": 3, "supported_tool_count": 3}},
+        {"stage": "assessed", "analysis": {"coverage_percentage": 50.0}},
+    ]
+    assert "mean_coverage_pct" not in project_service._rollups_from_workflows(workflows)
 
 
 def test_rollups_omits_coverage_when_no_analysis():

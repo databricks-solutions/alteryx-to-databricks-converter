@@ -96,9 +96,49 @@ def test_a_run_on_old_bytes_does_not_mark_the_new_version(store, project):
 
 
 def test_analysis_is_stored_and_feeds_the_rollup(store, project):
-    rows = [{"source_file_name": "a.yxmd", "file_name": "primary.yxwz", "coverage_percentage": 80.0}]
-    assert store.store_analysis(project["id"], rows) == 1
-    assert store.get_project(project["id"])["rollups"]["mean_coverage_pct"] == 80.0
+    rows = [
+        {
+            "source_file_name": "a.yxmd",
+            "file_name": "primary.yxwz",
+            "coverage_percentage": 80.0,
+            "tool_count": 10,
+            "supported_tool_count": 8,
+        },
+        {"file_name": "b.yxmd", "coverage_percentage": 100.0, "tool_count": 30, "supported_tool_count": 30},
+    ]
+    assert store.store_analysis(project["id"], rows) == 2
+    # Supported tools over all tools: 38 of 40.
+    assert store.get_project(project["id"])["rollups"]["mean_coverage_pct"] == 95.0
+
+
+def test_macros_are_not_counted_as_workflows(store):
+    p = store.create_project("with a macro", [("a.yxmd", b"<A/>"), ("Cleanse.yxmc", b"<M/>")])
+    try:
+        rollups = store.get_project(p["id"])["rollups"]
+        assert rollups["total_workflows"] == 1
+        assert sum(rollups["stage_counts"].values()) == 1
+    finally:
+        store.delete_project(p["id"])
+
+
+def test_startup_recomputes_rollups_stored_under_an_older_definition(store):
+    from server.services import db
+
+    p = store.create_project("old rollups", [("a.yxmd", b"<A/>"), ("Cleanse.yxmc", b"<M/>")])
+    try:
+        with db.get_pool().connection() as conn:  # what an older version stored
+            conn.execute(
+                "UPDATE migration_project SET rollups = %s::jsonb, updated_at = '2026-01-01' WHERE id = %s",
+                ('{"total_workflows": 2, "stage_counts": {"uploaded": 2}}', p["id"]),
+            )
+            conn.commit()
+        assert store.init_db()
+        got = store.get_project(p["id"])
+        assert got["rollups"]["total_workflows"] == 1
+        assert got["rollups"]["version"] == store.ROLLUPS_VERSION
+        assert got["updated_at"].startswith("2026-01-01")  # a recompute isn't a user edit
+    finally:
+        store.delete_project(p["id"])
 
 
 def test_unique_names_are_enforced_by_the_database(store, project):

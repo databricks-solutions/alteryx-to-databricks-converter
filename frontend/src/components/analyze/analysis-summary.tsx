@@ -40,16 +40,26 @@ function buildSummary(data: AnalysisResult): string[] {
   const unsupCount = data.unsupported_tools.length;
   if (unsupCount === 0) {
     sentences.push(
-      `Every tool type in this project has a converter rule (${cov.toFixed(0)}% of tools are covered).`,
+      `Every tool type in this project has a converter rule (${cov.toFixed(0)}% of tools convert automatically).`,
     );
   } else {
     const shown = data.unsupported_tools.slice(0, 3);
     const more = unsupCount > 3 ? ` and ${unsupCount - 3} other type${unsupCount - 3 === 1 ? "" : "s"}` : "";
     sentences.push(
-      `${cov.toFixed(0)}% of tools have a converter rule. ${unsupCount} tool ${plural(
+      `${cov.toFixed(0)}% of tools convert automatically. ${unsupCount} tool ${plural(
         unsupCount,
         "type",
       )} (${listJoin(shown)}${more}) will need manual work.`,
+    );
+  }
+
+  // 2b. Macros that weren't expanded, by name
+  const macros = data.unresolved_macros ?? [];
+  if (macros.length > 0) {
+    sentences.push(
+      `${macros.length} ${plural(macros.length, "macro")} weren't expanded (${listJoin(
+        macros.slice(0, 3).map((m) => m.name),
+      )}${macros.length > 3 ? ` and ${macros.length - 3} more` : ""}); the tools that call them count as not converted.`,
     );
   }
 

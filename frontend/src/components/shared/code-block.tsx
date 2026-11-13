@@ -11,9 +11,13 @@ interface CodeBlockProps {
   language: string;
   filename?: string;
   highlightLine?: number;
+  /** Wrap long lines instead of scrolling sideways (for narrow, side-by-side
+   * panes). Line numbers then come from CSS counters on each line, so a wrapped
+   * line keeps one number and its continuation hangs under the code. */
+  wrap?: boolean;
 }
 
-export function CodeBlock({ code, language, filename, highlightLine }: CodeBlockProps) {
+export function CodeBlock({ code, language, filename, highlightLine, wrap = false }: CodeBlockProps) {
   const [html, setHtml] = useState("");
   const [copied, setCopied] = useState(false);
   const [showLines, setShowLines] = useState(true);
@@ -103,7 +107,14 @@ export function CodeBlock({ code, language, filename, highlightLine }: CodeBlock
         </div>
       </div>
       {/* Code */}
-      {showLines ? (
+      {wrap ? (
+        <div
+          ref={containerRef}
+          className={`a2d-code-wrap overflow-auto max-h-[60vh] text-sm ${showLines ? "a2d-code-numbered" : ""}`}
+          // Shiki puts a newline between line spans; drop it so each line is one block.
+          dangerouslySetInnerHTML={{ __html: html.replace(/<\/span>\n<span class="line">/g, '</span><span class="line">') }}
+        />
+      ) : showLines ? (
         <div ref={containerRef} className="overflow-auto max-h-[60vh] text-sm flex">
           <div className="select-none text-right pr-3 pl-3 py-4 text-[var(--fg-muted)]/40 font-mono text-xs leading-[1.7] border-r border-[var(--border)] bg-[var(--bg-sidebar)]/50 shrink-0">
             {code.split("\n").map((_, i) => (

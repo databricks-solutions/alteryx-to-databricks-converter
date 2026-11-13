@@ -178,9 +178,17 @@ class ConversionPipeline:
             logger.warning("No workflows were successfully converted from %s", directory)
         return results
 
-    def _build_dag(self, parsed: ParsedWorkflow) -> WorkflowDAG:
-        """Build an IR DAG from a parsed workflow."""
+    def build_dag(self, parsed: ParsedWorkflow) -> WorkflowDAG:
+        """Build the IR DAG exactly as conversion does: disabled tools and visual-only
+        nodes (containers, tabs) dropped, macros expanded when configured.
+
+        The one graph builder: Assess, Review and the portfolio pass use it too, so
+        every screen counts the same tools for the same workflow.
+        """
         return self._build_dag_with_notes(parsed)[0]
+
+    def _build_dag(self, parsed: ParsedWorkflow) -> WorkflowDAG:
+        return self.build_dag(parsed)
 
     def _build_dag_with_notes(self, parsed: ParsedWorkflow) -> tuple[WorkflowDAG, list[str]]:
         """Build the IR DAG, plus a warning for each macro that couldn't be expanded."""

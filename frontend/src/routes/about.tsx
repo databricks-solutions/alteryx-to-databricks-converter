@@ -65,8 +65,8 @@ export function AboutPage() {
                 <td className="py-2 text-[var(--fg)]">Migration readiness assessment with complexity scoring</td>
               </tr>
               <tr>
-                <td className="py-2 pr-4 font-medium text-[var(--fg-muted)]">Deploy Readiness</td>
-                <td className="py-2 text-[var(--fg)]">3-tier banner (Ready / Needs review / Cannot deploy) plus categorized warnings &mdash; CLI and UI use the same rules</td>
+                <td className="py-2 pr-4 font-medium text-[var(--fg-muted)]">Run readiness</td>
+                <td className="py-2 text-[var(--fg)]">3-tier banner (Ready to run / Check it before you run it / Won&apos;t run as-is) plus categorized warnings &mdash; CLI and UI use the same rules</td>
               </tr>
             </tbody>
           </table>

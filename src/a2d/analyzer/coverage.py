@@ -4,27 +4,50 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from a2d.converters.registry import ConverterRegistry
 from a2d.ir.graph import WorkflowDAG
-from a2d.ir.nodes import UnsupportedNode
+from a2d.ir.nodes import CommentNode, UnsupportedNode
+from a2d.macro.detect import macro_file_name, macro_path_for_ir_node
 
 
 @dataclass
 class CoverageReport:
-    """Coverage analysis showing supported vs unsupported tools."""
+    """Coverage analysis showing supported vs unsupported tools.
 
-    total_nodes: int
+    ``coverage_percentage`` is THE coverage figure everywhere in a2d: the share of
+    the workflow's tools (every node except canvas comments) that the converter
+    handles, i.e. that didn't fall back to an unsupported placeholder. It is the
+    same count every code generator reports as ``supported_nodes / total_nodes``,
+    so Assess (before converting) and Convert (after) show the same number for the
+    same workflow. It says nothing about semantic correctness: a supported tool
+    can still emit a caveated result.
+
+    ``type_coverage_percentage`` is the share of distinct tool *types* that are
+    supported. It is a different question (one unsupported type counts the same
+    whether it appears once or 1,000 times) and is labelled as such where shown.
+    """
+
+    total_nodes: int  # tools counted for coverage (canvas comments excluded)
     unique_tool_types: set[str]
     supported_types: set[str]
     unsupported_types: set[str]
     coverage_percentage: float
     per_tool_counts: dict[str, int] = field(default_factory=dict)
-    # Instance-weighted coverage: the share of tool INSTANCES (not distinct types)
-    # that are supported. The type-based `coverage_percentage` above treats one
-    # unsupported type the same whether it appears once or 1,000 times; this gives
-    # the complementary node-weighted view. Neither measures semantic correctness
-    # of the generated code — a supported type can still emit a caveated result.
-    instance_coverage_percentage: float = 100.0
+    type_coverage_percentage: float = 100.0
+    supported_nodes: int = 0
+    # Macro calls left unexpanded (file missing, batch/iterative, ...), by macro
+    # file name -> why. They count as unconverted tools in the percentage, but are
+    # named here instead of showing up as an unsupported "Macro" tool type.
+    unresolved_macros: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def instance_coverage_percentage(self) -> float:
+        """Alias kept for callers written before the two figures were unified."""
+        return self.coverage_percentage
+
+
+def tool_nodes(dag: WorkflowDAG) -> list:
+    """The nodes coverage counts: every node except canvas comments."""
+    return [n for n in dag.all_nodes() if not isinstance(n, CommentNode)]
 
 
 class CoverageAnalyzer:
@@ -32,38 +55,50 @@ class CoverageAnalyzer:
 
     def analyze_dag(self, dag: WorkflowDAG) -> CoverageReport:
         """Analyze which tools are supported and their frequency."""
-        total_nodes = dag.node_count
+        tools = tool_nodes(dag)
+        total_nodes = len(tools)
         unique_tool_types: set[str] = set()
         per_tool_counts: dict[str, int] = {}
+        unsupported_types: set[str] = set()
+        unresolved_macros: dict[str, str] = {}
+        supported_nodes = 0
 
-        for node in dag.all_nodes():
+        for node in tools:
             tool_type = node.original_tool_type or type(node).__name__.replace("Node", "")
-            unique_tool_types.add(tool_type)
             per_tool_counts[tool_type] = per_tool_counts.get(tool_type, 0) + 1
-
-        supported_registry = ConverterRegistry.supported_tools()
-        supported_types = unique_tool_types & supported_registry
-        unsupported_types = unique_tool_types - supported_registry
-
-        # Also count nodes that converted to UnsupportedNode
-        for node in dag.all_nodes():
+            macro_path = macro_path_for_ir_node(node) if isinstance(node, UnsupportedNode) else None
+            if macro_path:
+                unresolved_macros.setdefault(macro_file_name(macro_path), node.unsupported_reason or "")
+                continue
+            unique_tool_types.add(tool_type)
             if isinstance(node, UnsupportedNode):
-                tool_type = node.original_tool_type or "Unknown"
-                unsupported_types.add(tool_type)
-                supported_types.discard(tool_type)
+                unsupported_types.add(node.original_tool_type or "Unknown")
+            else:
+                supported_nodes += 1
 
-        coverage_percentage = len(supported_types) / len(unique_tool_types) * 100.0 if unique_tool_types else 100.0
+        # A type is supported when none of its instances fell back to an
+        # unsupported placeholder: what the converter actually did, so the type
+        # list and the percentage can't disagree.
+        supported_types = unique_tool_types - unsupported_types
 
-        # Instance-weighted: share of tool instances whose type is supported.
-        supported_instances = sum(c for t, c in per_tool_counts.items() if t in supported_types)
-        instance_coverage = supported_instances / total_nodes * 100.0 if total_nodes else 100.0
+        coverage = supported_nodes / total_nodes * 100.0 if total_nodes else 100.0
+        type_coverage = len(supported_types) / len(unique_tool_types) * 100.0 if unique_tool_types else 100.0
 
         return CoverageReport(
             total_nodes=total_nodes,
             unique_tool_types=unique_tool_types,
             supported_types=supported_types,
             unsupported_types=unsupported_types,
-            coverage_percentage=round(coverage_percentage, 1),
+            coverage_percentage=round(coverage, 1),
             per_tool_counts=per_tool_counts,
-            instance_coverage_percentage=round(instance_coverage, 1),
+            type_coverage_percentage=round(type_coverage, 1),
+            supported_nodes=supported_nodes,
+            unresolved_macros=dict(sorted(unresolved_macros.items())),
         )
+
+
+def estate_coverage_percentage(reports: list[CoverageReport]) -> float:
+    """Coverage across several workflows: supported tools over all tools, so a
+    2-tool and a 200-tool workflow don't count equally. 100.0 when there are none."""
+    total = sum(r.total_nodes for r in reports)
+    return round(sum(r.supported_nodes for r in reports) / total * 100.0, 1) if total else 100.0

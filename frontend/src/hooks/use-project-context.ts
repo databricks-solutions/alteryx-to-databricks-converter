@@ -31,7 +31,11 @@ export interface ProjectContext {
   /** A session-only project URL whose project no longer exists in this tab. */
   sessionGone: boolean;
   name: string;
+  /** The workflows to migrate. Macros (.yxmc) aren't among them: they're
+   * supporting files, resolved wherever a workflow calls them. */
   workflows: ProjectWorkflowView[];
+  /** The project's macros (.yxmc), listed on the Workflows step. */
+  macros: ProjectWorkflowView[];
   /** Changes only when the set of files (or their content) changes, so cached
    * results can tell whether they still describe the estate. */
   signature: string;
@@ -89,7 +93,7 @@ export function useProjectContext(): ProjectContext {
   // The URL's session project is the one in this tab only if the ids match.
   const localLive = isLocal && localId != null && localId === projectId;
 
-  const workflows = useMemo<ProjectWorkflowView[]>(() => {
+  const files = useMemo<ProjectWorkflowView[]>(() => {
     if (isLocal) {
       return localLive
         ? localWorkflows.map((w) => ({
@@ -111,6 +115,8 @@ export function useProjectContext(): ProjectContext {
       conversion: w.conversion ?? null,
     }));
   }, [isLocal, localLive, localWorkflows, query.data]);
+  const workflows = useMemo(() => files.filter((w) => !isMacroFile(w.file_name)), [files]);
+  const macros = useMemo(() => files.filter((w) => isMacroFile(w.file_name)), [files]);
 
   const signature = useMemo(() => {
     if (isLocal) {
@@ -228,6 +234,7 @@ export function useProjectContext(): ProjectContext {
       sessionGone: isLocal && !localLive,
       name,
       workflows,
+      macros,
       signature,
       isLoading,
       error,
@@ -248,6 +255,7 @@ export function useProjectContext(): ProjectContext {
       localLive,
       name,
       workflows,
+      macros,
       signature,
       isLoading,
       error,

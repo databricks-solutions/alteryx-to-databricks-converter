@@ -114,6 +114,7 @@ export function Sidebar() {
                   <span>
                     {ctx.saved ? "Saved" : "This session only"} · {ctx.workflows.length} workflow
                     {ctx.workflows.length === 1 ? "" : "s"}
+                    {ctx.macros.length > 0 && ` · ${ctx.macros.length} macro${ctx.macros.length === 1 ? "" : "s"}`}
                   </span>
                   <Link
                     to="/"

@@ -54,7 +54,7 @@ export function WorkflowsPage() {
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState("");
 
-  const empty = ctx.workflows.length === 0;
+  const empty = ctx.workflows.length === 0 && ctx.macros.length === 0;
   const showDropzone = adding || empty;
 
   const handleAdd = () => {
@@ -65,7 +65,8 @@ export function WorkflowsPage() {
       addToast(message, "success");
     };
     if (!ctx.saved) {
-      const replaced = files.filter((f) => ctx.workflows.some((w) => w.file_name === f.name)).length;
+      const existing = [...ctx.workflows, ...ctx.macros];
+      const replaced = files.filter((f) => existing.some((w) => w.file_name === f.name)).length;
       local.add(files);
       done(
         changeSummary({ added: Array(files.length - replaced).fill(""), replaced: Array(replaced).fill(""), unchanged: [] }, files.length),
@@ -209,7 +210,7 @@ export function WorkflowsPage() {
         )}
 
         {/* Workflows */}
-        {!empty && (
+        {ctx.workflows.length > 0 && (
           <Card className="overflow-x-auto p-0">
             <table className="w-full text-sm">
               <thead>
@@ -246,6 +247,43 @@ export function WorkflowsPage() {
                         variant="ghost"
                         aria-label={`Remove ${w.file_name}`}
                         onClick={() => handleRemove(w.id, w.file_name)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        )}
+
+        {/* Macros: supporting files, not workflows to migrate */}
+        {ctx.macros.length > 0 && (
+          <Card className="overflow-x-auto p-0">
+            <div className="border-b border-[var(--border)] px-4 py-3">
+              <h2 className="text-sm font-semibold text-[var(--fg)]">
+                Macros ({ctx.macros.length})
+              </h2>
+              <p className="mt-0.5 text-xs text-[var(--fg-muted)]">
+                Macros aren't migrated on their own, so they aren't counted as workflows. Any workflow in this
+                project that calls one uses it, in every step.
+              </p>
+            </div>
+            <table className="w-full text-sm">
+              <tbody>
+                {ctx.macros.map((m) => (
+                  <tr key={m.id} className="border-b border-[var(--border)] last:border-0">
+                    <td className="px-4 py-2.5 text-[var(--fg)]">{m.file_name}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-[var(--fg-muted)]">
+                      {formatSize(m.size_bytes)}
+                    </td>
+                    <td className="w-12 px-4 py-2.5 text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Remove ${m.file_name}`}
+                        onClick={() => handleRemove(m.id, m.file_name)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

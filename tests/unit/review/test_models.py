@@ -8,6 +8,7 @@ from a2d.ir.nodes import FilterNode, UnsupportedNode
 from a2d.review.models import (
     ReviewNode,
     ReviewSession,
+    node_confidence,
     node_review_status,
 )
 
@@ -28,6 +29,32 @@ class TestNodeReviewStatus:
     def test_high_confidence_no_warnings_auto_accepted(self):
         node = FilterNode(node_id=1, expression="[x]>0", conversion_confidence=0.95)
         assert node_review_status(node, []) == "auto_accepted"
+
+    def test_a_todo_left_in_the_code_needs_review_even_without_a_warning(self):
+        node = FilterNode(node_id=1, expression="[x]>0", conversion_confidence=1.0)
+        code = "# Step 1: Filter\n# TODO: replace F.lit(True) with the real condition\ndf_1 = df_0.filter(F.lit(True))"
+        assert node_review_status(node, [], code) == "needs_review"
+
+
+class TestNodeConfidence:
+    def test_finished_step_shows_mapping_confidence(self):
+        node = FilterNode(node_id=1, expression="[x]>0", conversion_confidence=0.9)
+        assert node_confidence(node, "df_1 = df_0.filter(F.col('x') > 0)") == 0.9
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "# TODO: Join node 25 has no join keys\ndf_25 = df_10.join(df_18, F.lit(True))",
+            "df_24 = None  # PLACEHOLDER - replace with Excel read",
+            "# CANNOT CONVERT: Join node 3 has no right input connected.",
+        ],
+    )
+    def test_unfinished_step_is_not_shown_as_confident(self, code):
+        node = FilterNode(node_id=1, expression="[x]>0", conversion_confidence=1.0)
+        assert node_confidence(node, code) == 0.0
+
+    def test_unsupported_tool_has_no_confidence(self):
+        assert node_confidence(UnsupportedNode(node_id=1, original_tool_type="Weird"), "") == 0.0
 
 
 def _node(node_id, status, **kw):
@@ -90,3 +117,26 @@ class TestReviewSession:
         assert d["output_format"] == "sql"
         assert d["summary"]["total"] == 1
         assert d["nodes"][0]["node_id"] == 1
+
+
+def test_real_unfinished_step_is_flagged_and_not_confident():
+    """Make_Columns step 24 is an Excel Input the converter leaves as a PLACEHOLDER."""
+    import logging
+    from pathlib import Path
+
+    from a2d.config import ConversionConfig
+    from a2d.parser.workflow_parser import WorkflowParser
+    from a2d.pipeline import ConversionPipeline
+    from a2d.review.builder import build_review_session
+
+    logging.disable(logging.WARNING)
+    try:
+        path = Path(__file__).parents[2] / "fixtures" / "packt" / "Make_Columns_Fix_for_Excel_data.yxmd"
+        dag = ConversionPipeline(ConversionConfig()).build_dag(WorkflowParser().parse(path))
+        node = next(n for n in build_review_session(dag, path.stem).nodes if n.node_id == 24)
+    finally:
+        logging.disable(logging.NOTSET)
+    assert "PLACEHOLDER" in node.generated_code
+    assert node.status == "needs_review"
+    assert node.confidence == 0.0
+    assert node.to_dict()["unfinished"] is True

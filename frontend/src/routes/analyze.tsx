@@ -22,6 +22,8 @@ export function AnalyzePage() {
       for (const w of data.workflows) {
         byName[w.source_file_name ?? w.file_name] = {
           coverage_percentage: w.coverage_percentage,
+          tool_count: w.tool_count,
+          supported_tool_count: w.supported_tool_count,
           complexity_score: w.complexity_score,
           complexity_level: w.complexity_level,
           migration_priority: w.migration_priority,
@@ -89,10 +91,11 @@ export function AnalyzePage() {
               icon={<Network className="h-5 w-5" />}
             />
             <MetricCard
-              label="Avg Coverage"
+              label="Coverage"
               value={displayData.avg_coverage}
               suffix="%"
               icon={<BarChart3 className="h-5 w-5" />}
+              hint="Tools the converter handles, out of all tools in the project. Convert shows the same figure per workflow."
             />
             <MetricCard
               label="Avg Complexity"
@@ -101,25 +104,50 @@ export function AnalyzePage() {
             />
           </div>
 
-          {/* Unsupported tools alert */}
-          {displayData.unsupported_tools.length > 0 && (
+          {/* Unsupported tools and macros that weren't expanded */}
+          {(displayData.unsupported_tools.length > 0 || (displayData.unresolved_macros?.length ?? 0) > 0) && (
             <Card className="border-warning/30 bg-warning/5">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-[var(--fg)]">
-                    {displayData.unsupported_tools.length} unsupported tool type{displayData.unsupported_tools.length > 1 ? "s" : ""} detected
-                  </p>
-                  <p className="text-xs text-[var(--fg-muted)] mt-1 mb-2">
-                    These tools require manual migration. Generated code will include placeholder scaffolding.
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {displayData.unsupported_tools.map((t) => (
-                      <Badge key={t} variant="destructive">
-                        {t}
-                      </Badge>
-                    ))}
-                  </div>
+                <div className="space-y-3">
+                  {displayData.unsupported_tools.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-[var(--fg)]">
+                        {displayData.unsupported_tools.length} unsupported tool type
+                        {displayData.unsupported_tools.length > 1 ? "s" : ""} detected
+                      </p>
+                      <p className="text-xs text-[var(--fg-muted)] mt-1 mb-2">
+                        These tools require manual migration. Generated code will include placeholder scaffolding.
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {displayData.unsupported_tools.map((t) => (
+                          <Badge key={t} variant="destructive">
+                            {t}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(displayData.unresolved_macros?.length ?? 0) > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-[var(--fg)]">
+                        {displayData.unresolved_macros!.length} macro
+                        {displayData.unresolved_macros!.length > 1 ? "s" : ""} weren't expanded
+                      </p>
+                      <p className="text-xs text-[var(--fg-muted)] mt-1 mb-2">
+                        A missing macro can be added on the Workflows step; batch and iterative macros are rewritten
+                        by hand.
+                      </p>
+                      <ul className="space-y-1 text-xs text-[var(--fg)]">
+                        {displayData.unresolved_macros!.map((m) => (
+                          <li key={m.name}>
+                            <span className="font-medium">{m.name}</span>
+                            {m.reason && <span className="text-[var(--fg-muted)]"> · {m.reason}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             </Card>

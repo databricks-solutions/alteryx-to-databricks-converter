@@ -7,15 +7,11 @@ import type {
 } from "@/lib/api";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CodeBlock } from "@/components/shared/code-block";
-import { MetricCard } from "@/components/shared/metric-card";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  GitBranch,
-  Network,
-  FileCode,
-  Percent,
   Download,
   Workflow,
   Zap,
@@ -121,16 +117,6 @@ export function ConversionResults({ result }: ConversionResultsProps) {
         : null;
   const bestConfidence = bestFormatResult?.confidence ?? null;
 
-  // Files = sum across formats deduped by filename
-  const totalFiles = useMemo(() => {
-    const seen = new Set<string>();
-    for (const fr of Object.values(result.formats)) {
-      if (fr.status !== "success") continue;
-      for (const f of fr.files) seen.add(f.filename);
-    }
-    return seen.size;
-  }, [result.formats]);
-
   const hasDag = !!(result.dag_data && result.dag_data.nodes.length > 0);
   const hasExprAudit =
     result.expression_audit && result.expression_audit.length > 0;
@@ -161,22 +147,18 @@ export function ConversionResults({ result }: ConversionResultsProps) {
   }, [result.warnings, result.formats]);
 
   // ── Counts row inputs ────────────────────────────────────────────────────
-  const totalNodes = result.node_count;
-  // Unique node ids with an unsupported tool (across all formats, deduped).
-  const unsupportedNodeIds = useMemo(
-    () =>
-      new Set(
-        aggregated.unsupported
-          .map((w) => w.nodeId)
-          .filter((id): id is number => id !== undefined),
-      ),
-    [aggregated.unsupported],
-  );
-  const unsupportedCount = unsupportedNodeIds.size;
-  const autoConvertedNodes = Math.max(0, totalNodes - unsupportedCount);
-  // Unique node ids that need any kind of review (unsupported, missing
-  // generator, expression fallback, local path), deduped across formats.
-  const reviewNodeCount = aggregated.manualReviewNodeCount;
+  // Converted / total come from the server's own count for the best format,
+  // the same numbers its coverage % is computed from (and that Assess shows),
+  // so the chips and the percentage can't disagree. Canvas comments aren't tools.
+  const statTotal = bestFormatResult?.stats?.total_nodes;
+  const statSupported = bestFormatResult?.stats?.supported_nodes;
+  const toolCounts =
+    typeof statTotal === "number" && typeof statSupported === "number"
+      ? { total: statTotal, converted: statSupported, notConverted: statTotal - statSupported }
+      : null;
+  // Converted tools that still carry something to check (a fallback, a format
+  // with no generator for it, a local path). Disjoint from "not converted".
+  const checkCount = aggregated.checkNodeIds.size;
 
   // ── 3-tier deploy status ─────────────────────────────────────────────────
   // Rule (single source of truth for the headline + counts):
@@ -235,17 +217,7 @@ export function ConversionResults({ result }: ConversionResultsProps) {
       <DeployStatusBanner status={deployStatus} />
 
       {/* ── Counts row (under headline) ─────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <CountChip
-          tone="success"
-          value={`${autoConvertedNodes} of ${totalNodes} tools`}
-          label="automatically converted"
-        />
-        <CountChip
-          tone={reviewNodeCount > 0 ? "warning" : "muted"}
-          value={`${reviewNodeCount} node${reviewNodeCount === 1 ? "" : "s"}`}
-          label="need manual review"
-        />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <CountChip
           tone={
             bestCoverage === null
@@ -257,11 +229,30 @@ export function ConversionResults({ result }: ConversionResultsProps) {
                   : "destructive"
           }
           value={
-            bestCoverage === null
-              ? "—"
-              : `${bestCoverage.toFixed(1)}% coverage`
+            toolCounts
+              ? `${toolCounts.converted} of ${toolCounts.total} tools`
+              : "—"
           }
-          label={`(best format: ${bestFormat ? formatLabel(bestFormat) : "n/a"})`}
+          label={
+            bestCoverage === null
+              ? "converted"
+              : `converted (${bestCoverage.toFixed(1)}% coverage, ${bestFormat ? formatLabel(bestFormat) : "n/a"})`
+          }
+        />
+        <CountChip
+          tone={toolCounts && toolCounts.notConverted > 0 ? "destructive" : "muted"}
+          value={toolCounts ? `${toolCounts.notConverted} tool${toolCounts.notConverted === 1 ? "" : "s"}` : "—"}
+          label="not converted, to write by hand"
+        />
+        <CountChip
+          tone={checkCount > 0 ? "warning" : "muted"}
+          value={`${checkCount} tool${checkCount === 1 ? "" : "s"}`}
+          label="converted, worth checking"
+        />
+        <CountChip
+          tone="muted"
+          value={bestConfidence ? `${Math.round(bestConfidence.overall)}/100` : "—"}
+          label="confidence (a heuristic, not a measurement)"
         />
       </div>
 
@@ -290,8 +281,8 @@ export function ConversionResults({ result }: ConversionResultsProps) {
         </div>
       )}
 
-      {/* ── Action bar ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-end">
+      {/* This workflow's files, every format; the run's ZIP lives on the list. */}
+      <HeaderActions>
         <Button
           variant="secondary"
           size="sm"
@@ -301,44 +292,9 @@ export function ConversionResults({ result }: ConversionResultsProps) {
           disabled={allFailed}
         >
           <Download className="h-4 w-4" />
-          Download all (zip)
+          Download this workflow (ZIP)
         </Button>
-      </div>
-
-      {/* ── Metrics — full width, even columns ──────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <MetricCard
-          label="Nodes"
-          value={result.node_count}
-          icon={<Network className="h-5 w-5" />}
-        />
-        <MetricCard
-          label="Edges"
-          value={result.edge_count}
-          icon={<GitBranch className="h-5 w-5" />}
-        />
-        <MetricCard
-          label="Files"
-          value={totalFiles}
-          icon={<FileCode className="h-5 w-5" />}
-        />
-        <MetricCard
-          label="Coverage"
-          value={bestCoverage ?? 0}
-          suffix={bestCoverage !== null ? "%" : ""}
-          icon={<Percent className="h-5 w-5" />}
-          hint="Nodes with a generated implementation — not proof the output is correct."
-        />
-        {bestConfidence && (
-          <MetricCard
-            label="Confidence"
-            value={Math.round(bestConfidence.overall)}
-            suffix={`/100`}
-            icon={<Shield className="h-5 w-5" />}
-            hint="Heuristic from mapping method, warnings and graph shape. Not a measurement."
-          />
-        )}
-      </div>
+      </HeaderActions>
 
       {/* ── Categorized workflow warnings ───────────────────────────── */}
       <CategorizedWarningsView categorized={categorized} />
@@ -644,7 +600,7 @@ function DeployStatusBanner({ status }: { status: DeployStatus }) {
       <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 px-4 py-3 text-sm text-green-800 dark:text-green-200">
         <CheckCircle className="mt-0.5 h-5 w-5 shrink-0" />
         <div>
-          <div className="font-semibold">Ready to deploy</div>
+          <div className="font-semibold">Ready to run</div>
           <div className="text-green-700/80 dark:text-green-300/80">
             Every Alteryx tool was converted, coverage is high, and confidence
             is strong. You can run the generated code as-is.
@@ -658,11 +614,11 @@ function DeployStatusBanner({ status }: { status: DeployStatus }) {
       <div className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-900 dark:bg-yellow-950/30 px-4 py-3 text-sm text-yellow-800 dark:text-yellow-200">
         <Info className="mt-0.5 h-5 w-5 shrink-0" />
         <div>
-          <div className="font-semibold">Needs review before deploy</div>
+          <div className="font-semibold">Check it before you run it</div>
           <div className="text-yellow-700/80 dark:text-yellow-300/80">
-            The conversion produced runnable code, but a2d emitted best-effort
-            translations or fallback comments for some nodes. Review the
-            warnings below — once you fix them you can deploy.
+            The code runs, but some tools were translated on a best-effort basis
+            or left with a fallback comment. Go through the warnings below, or
+            check each flagged step on the Review step.
           </div>
         </div>
       </div>
@@ -672,11 +628,11 @@ function DeployStatusBanner({ status }: { status: DeployStatus }) {
     <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30 px-4 py-3 text-sm text-red-800 dark:text-red-200">
       <Ban className="mt-0.5 h-5 w-5 shrink-0" />
       <div>
-        <div className="font-semibold">Cannot deploy as-is</div>
+        <div className="font-semibold">Won't run as-is</div>
         <div className="text-red-700/80 dark:text-red-300/80">
-          One or more tools couldn't be converted, or the generator failed
-          outright. The dataflow is incomplete — see the “Cannot convert”
-          warnings below for the nodes you'll need to rewrite by hand.
+          One or more tools couldn't be converted, or a generator failed, so the
+          dataflow is incomplete. The “Cannot convert” warnings below list the
+          tools to write by hand.
         </div>
       </div>
     </div>

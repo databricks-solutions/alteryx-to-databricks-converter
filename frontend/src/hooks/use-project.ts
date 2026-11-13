@@ -1,20 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError, type Project, type ProjectSummary } from "@/lib/api";
+import { api, type Project, type ProjectSummary, type ServerStatus } from "@/lib/api";
 import { projectQueryKey } from "@/hooks/use-project-context";
 
-/** Saved projects. A 503 (no database on this server) surfaces as the error. */
+/** What the server has turned on. Fixed for the server's lifetime. */
+export function useServerStatus() {
+  return useQuery<ServerStatus>({
+    queryKey: ["status"],
+    queryFn: () => api.status(),
+    staleTime: Infinity,
+    retry: 1,
+  });
+}
+
+/** Saved projects, asked for only when the server has a database. Without one,
+ * projects live in the browser and there's nothing to list. */
 export function useProjects() {
+  const status = useServerStatus();
   return useQuery<{ projects: ProjectSummary[]; total: number }>({
     queryKey: ["projects"],
     queryFn: () => api.listProjects(),
     retry: false,
+    enabled: status.data?.projects.configured === true,
   });
 }
 
 /** True when the server has no database configured (so projects live in the
  * browser), as opposed to a configured database that isn't responding. */
-export function isProjectsNotConfigured(error: Error | null): boolean {
-  return error instanceof ApiError && error.status === 503 && /doesn't have one configured/i.test(error.message);
+export function isProjectsNotConfigured(status: ServerStatus | undefined): boolean {
+  return status?.projects.configured === false;
 }
 
 function useInvalidateProject() {

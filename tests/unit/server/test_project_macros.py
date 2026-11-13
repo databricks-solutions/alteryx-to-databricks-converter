@@ -144,6 +144,18 @@ class TestBatch:
         assert resp.status_code == 200, resp.text
         assert started == {"names": ["main.yxmd"], "macros": ["Standard Cleanse.yxmc"]}
 
+    def test_converting_a_whole_project_skips_its_macros(self, client, saved, started):
+        """A macro is what workflows call, not a workflow to convert on its own."""
+        resp = client.post("/api/convert/batch", data={"project_id": PID})
+        assert resp.status_code == 200, resp.text
+        assert started == {"names": ["main.yxmd"], "macros": ["Standard Cleanse.yxmc"]}
+        assert resp.json()["total_files"] == 1
+
+    def test_an_upload_of_only_macros_has_nothing_to_convert(self, client, started):
+        resp = client.post("/api/convert/batch", files=[("files", MACRO)])
+        assert resp.status_code == 422
+        assert "only macros" in resp.json()["detail"]
+
     def test_the_run_expands_against_the_library(self, tmp_path):
         import asyncio
 
@@ -167,6 +179,29 @@ class TestEstate:
         resp = client.post("/api/analyze", data={"project_id": PID})
         assert resp.status_code == 200, resp.text
         assert "Unknown" not in resp.json()["unsupported_tools"]
+
+    @pytest.mark.parametrize("route", ["/api/analyze", "/api/assess", "/api/savings", "/api/portfolio"])
+    def test_macros_are_not_counted_as_workflows(self, client, saved, route):
+        resp = client.post(route, data={"project_id": PID})
+        assert resp.status_code == 200, resp.text
+        body = json.dumps(resp.json())
+        assert "Standard Cleanse" not in body.replace("standard cleanse", "")  # not a workflow row
+        counts = {
+            "/api/analyze": lambda b: b["total_workflows"],
+            "/api/assess": lambda b: b["totals"]["workflows"],
+            "/api/savings": lambda b: b["estate"]["workflow_count"],
+            "/api/portfolio": lambda b: b["summary"]["workflow_count"],
+        }
+        assert counts[route](resp.json()) == 1
+
+    def test_a_missing_macro_is_named_not_a_macro_tool_type(self, client, saved):
+        saved["macros"] = []
+        resp = client.post("/api/analyze", data={"project_id": PID})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "Macro" not in body["unsupported_tools"]
+        assert [m["name"] for m in body["unresolved_macros"]] == ["standard cleanse.yxmc"]
+        assert body["workflows"][0]["coverage_percentage"] < 100
 
 
 class TestLibraryNames:

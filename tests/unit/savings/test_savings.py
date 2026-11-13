@@ -13,7 +13,9 @@ def _wf(level: str, coverage: float = 100.0, nodes: int = 10, macros: bool = Fal
     """A minimal WorkflowAnalysis-shaped stub the calculator can read."""
     return SimpleNamespace(
         complexity=SimpleNamespace(level=level, has_macro_refs=macros, spatial_tool_count=0),
-        coverage=SimpleNamespace(coverage_percentage=coverage, instance_coverage_percentage=coverage),
+        coverage=SimpleNamespace(
+            coverage_percentage=coverage, total_nodes=nodes, supported_nodes=round(nodes * coverage / 100)
+        ),
         node_count=nodes,
         tool_types_used={"Filter"},
     )
@@ -28,13 +30,13 @@ def test_estate_facts_sums_hours_by_tier():
     assert facts.hours_by_level == {"Low": 4.0, "High": 16.0}
 
 
-def test_mean_coverage_is_node_weighted():
-    # 100-node @ 90% vs 10-node @ 50% → weighted toward the big one.
+def test_mean_coverage_is_supported_tools_over_all_tools():
+    # 90 of 100 tools + 5 of 10 tools: the estate figure Assess shows, not a mean of percentages.
     facts = estate_facts(
         [_wf("Low", coverage=90.0, nodes=100), _wf("Low", coverage=50.0, nodes=10)],
         {"Low": 2.0},
     )
-    assert facts.mean_coverage_pct == pytest.approx((90 * 100 + 50 * 10) / 110)
+    assert facts.mean_coverage_pct == round((90 + 5) / 110 * 100, 1)
 
 
 def test_compute_headline_with_explicit_automation():
