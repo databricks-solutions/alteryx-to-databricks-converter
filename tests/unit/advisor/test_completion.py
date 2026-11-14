@@ -277,6 +277,86 @@ class TestRejectsBadReplies:
         assert out.cells[0].after.count("# Step 2:") == 1
 
 
+class ScriptedClient:
+    """Replies in turn from ``replies`` and keeps every conversation it was sent."""
+
+    def __init__(self, *replies: str) -> None:
+        self.replies = list(replies)
+        self.conversations: list[list[ChatMessage]] = []
+
+    def chat(self, messages: list[ChatMessage], *, max_tokens: int = 4000) -> str:
+        self.conversations.append(list(messages))
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+def _run_scripted(client, **kw):
+    notebook, cell_nodes = _notebook(*CHAIN)
+    dag = _chain_with_message()
+    ctx = build_migration_context(dag, workflow_name="wf", output_format="pyspark", generated_code=notebook)
+    return complete_notebook(notebook, ctx, client, dag, cell_nodes, **kw)
+
+
+class TestRetryOnAFailedCheck:
+    def test_a_good_first_reply_is_one_call(self):
+        client = ScriptedClient("df_1 = df_1.limit(1)")
+        out = _run_scripted(client)
+        assert out.cells[0].status == "completed" and out.cells[0].attempts == 1
+        assert len(client.conversations) == 1
+
+    def test_a_failed_check_is_sent_back_once_with_the_reason(self):
+        client = ScriptedClient("df_1 = df_9.limit(1)", "df_1 = df_1.limit(1)")
+        out = _run_scripted(client)
+        cell = out.cells[0]
+        assert (cell.status, cell.attempts, cell.reason) == ("completed", 2, "")
+        assert "df_1 = df_1.limit(1)" in cell.after and "df_9" not in cell.after
+        retry = client.conversations[1]
+        assert [m.role for m in retry] == ["system", "user", "assistant", "user"]
+        assert retry[1].content == client.conversations[0][1].content  # same step prompt
+        assert retry[2].content == "df_1 = df_9.limit(1)"
+        assert "your code reads df_9, which isn't defined at this point" in retry[3].content
+
+    def test_two_failed_replies_keep_the_converted_step(self):
+        client = ScriptedClient("df_1 = = broken(", "import os\ndf_1 = df_1")
+        out = _run_scripted(client)
+        cell = out.cells[0]
+        assert (cell.status, cell.attempts) == ("failed", 2)
+        assert "imports os" in cell.reason and "also on the second try" in cell.reason
+        assert cell.after == cell.before and AI_BEGIN not in out.content
+        assert len(client.conversations) == 2  # never a third call
+
+    def test_an_endpoint_error_is_not_retried(self):
+        client = ScriptedClient(ConnectionResetError("connection reset by peer"))
+        out = _run_scripted(client)
+        assert out.cells[0].status == "failed" and "connection reset" in out.cells[0].reason
+        assert len(client.conversations) == 1
+
+    def test_an_endpoint_error_on_the_retry_keeps_the_first_reason(self):
+        client = ScriptedClient("df_other = spark.range(1)", TimeoutError("read timed out"))
+        out = _run_scripted(client)
+        cell = out.cells[0]
+        assert cell.status == "failed" and cell.attempts == 2
+        assert "doesn't assign df_1" in cell.reason and "read timed out" in cell.reason
+
+    def test_no_retry_past_the_deadline(self, monkeypatch):
+        from a2d.advisor import completion
+
+        clock = iter([0.0, 0.0, 0.0, 100.0, 100.0, 100.0])
+        monkeypatch.setattr(completion.time, "monotonic", lambda: next(clock, 100.0))
+        client = ScriptedClient("df_1 = df_9.limit(1)", "df_1 = df_1.limit(1)")
+        out = _run_scripted(client, deadline=50.0)
+        cell = out.cells[0]
+        assert cell.status == "failed" and cell.attempts == 1
+        assert "reads df_9" in cell.reason and "ran out of time before a second try" in cell.reason
+        assert len(client.conversations) == 1
+
+    def test_attempts_are_in_the_report(self):
+        out = _run_scripted(ScriptedClient("df_1 = df_9", "df_1 = df_1"))
+        assert out.to_dict()["cells"][0]["attempts"] == 2
+
+
 class TestFailuresAreReportedNotRaised:
     def test_transport_error_marks_the_step_failed(self):
         notebook, cell_nodes = _notebook(*CHAIN)
@@ -298,7 +378,8 @@ class TestFailuresAreReportedNotRaised:
             dag.add_node(UnsupportedNode(node_id=i, original_tool_type="Message", unsupported_reason="x"))
             cells.append((i, f"# Step {i}: Message\n# Message: manual conversion required"))
         out, client, _ = _complete(dag, cells, "print('n/a')")
-        assert len(client.prompts) == MAX_CELLS
+        sent = {p for p in client.prompts if p.startswith("Workflow:")}  # first prompts, not retries
+        assert len(sent) == MAX_CELLS
         assert [c.status for c in out.cells].count("skipped") == 1
         assert "limit" in out.cells[-1].reason
 

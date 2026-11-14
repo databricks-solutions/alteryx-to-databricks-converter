@@ -20,7 +20,8 @@ in:
   DataFrame or read one that doesn't exist yet, must keep a sink's write
   destination, must not forge markers or cell boundaries, and must not import
   outside a small allow-list, shell out, delete files, or run destructive SQL.
-  A reply that fails keeps the deterministic cell and is reported with why.
+  A reply that fails is sent back once with the reason; if the second reply
+  fails too, the step keeps its deterministic cell and is reported with why.
 
 The deterministic notebook is never modified. Callers save this output under a
 different name (``<workflow>.ai-completed.py``). No model output is executed.
@@ -60,6 +61,8 @@ MAX_CELLS = 25
 MAX_WORKERS = 4
 MAX_CONFIG_CHARS = 2000
 MAX_HINT_CHARS = 1000
+# Model calls per step: the first reply, plus one retry told why the reply failed the checks.
+MAX_ATTEMPTS = 2
 # Process-wide cap on concurrent model calls, across every request, so several
 # users completing large workflows can't fan out without limit.
 MODEL_CALL_SLOTS = threading.BoundedSemaphore(4)
@@ -135,6 +138,7 @@ class CellCompletion:
     reason: str
     before: str
     after: str  # the cell as it appears in the copy (equals ``before`` unless completed)
+    attempts: int = 0  # model calls made for this step (2 when the first reply failed the checks)
 
     def to_dict(self) -> dict:
         return {
@@ -144,6 +148,7 @@ class CellCompletion:
             "reason": self.reason,
             "before": self.before,
             "after": self.after,
+            "attempts": self.attempts,
         }
 
 
@@ -475,6 +480,15 @@ def _cell_prompt(
     return "\n".join(parts)
 
 
+def _retry_prompt(problem: str) -> str:
+    why = problem.replace("the model's code", "your code").replace("the model returned nothing", "the reply was empty")
+    return (
+        f"That code can't be used: {why}.\n"
+        "Reply with corrected code for the same step only, following the same rules. "
+        "Python code only, no explanation outside comments."
+    )
+
+
 def _clean_reply(reply: str, node_id: int) -> str:
     text = (reply or "").strip()
     m = _FENCE_RE.match(text)
@@ -501,8 +515,13 @@ def _check_reply(
     """Why ``code`` can't replace the step's code, or None if it can."""
     if not code:
         return "the model returned nothing"
-    if "AI-GENERATED" in code or "COMMAND ----------" in code or _STEP_LINE_RE.search(code):
-        return "the model's code contains notebook markers or another step's header"
+    if "AI-GENERATED" in code:
+        return "the model's code contains notebook markers (an AI-GENERATED line), which only the converter writes"
+    if "COMMAND ----------" in code:
+        return "the model's code contains notebook markers (a COMMAND cell boundary), which would split the step"
+    header = _STEP_LINE_RE.search(code)
+    if header:
+        return f"the model's code contains another step's header ({header.group(0).strip()!r}); leave headers out"
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:
@@ -668,8 +687,10 @@ def complete_notebook(
         node = _node(dag, cell.node_id)
         tool = next((g.tool_type for g in gaps if g.tool_type), None) or (node.original_tool_type if node else None)
 
-        def outcome(status: str, reason: str, after: str = cell.text) -> tuple[int, CellCompletion]:
-            return cell.index, CellCompletion(cell.node_id, tool, status, reason, cell.text, after)
+        def outcome(
+            status: str, reason: str, after: str = cell.text, *, attempts: int = 0
+        ) -> tuple[int, CellCompletion]:
+            return cell.index, CellCompletion(cell.node_id, tool, status, reason, cell.text, after, attempts)
 
         if cell.node_id in skip:  # only reachable through ``only``
             why = getattr(node, "unsupported_reason", "") or "it calls a macro the converter couldn't find"
@@ -698,43 +719,59 @@ def complete_notebook(
         wiring = _wiring(cell, dag, (node_io or {}).get(cell.node_id), required, before)
         prompt = _cell_prompt(cell, gaps, ctx, wiring=wiring, rebind=rebind, hint=hint)
         messages = [ChatMessage(role="system", content=SYSTEM_PROMPT), ChatMessage(role="user", content=prompt)]
-        span = root.child(
-            f"step {cell.node_id} {tool or ''}".strip(),
-            span_type="LLM",
-            inputs={"messages": [m.to_dict() for m in messages]},
-            attributes={"node_id": cell.node_id, "tool_type": tool, "model": model},
-        )
-        try:
-            reply, usage, seconds = _call_model(client, messages, deadline)
-        except _OutOfTimeError:
-            span.end(attributes={"status": "skipped"})
-            return outcome("skipped", "ran out of time before this step was sent to the model")
-        except Exception as exc:  # one step's failure must not lose the others
-            logger.warning("Completion failed for node %s: %s", cell.node_id, exc)
-            span.end(attributes={"status": "failed"}, error=str(exc))
-            return outcome("failed", f"the model endpoint failed: {exc}")
-        code = _clean_reply(reply, cell.node_id)
-        # A rebind reads the variable it rebinds, so it counts as defined here.
-        problem = _check_reply(
-            code,
-            cell,
-            required=required,
-            defined_before=before | ({rebind} if rebind else set()),
-            owned_elsewhere=elsewhere - required,
-        )
-        span.end(
-            outputs={"reply": reply},
-            attributes={
-                "status": "failed" if problem else "completed",
-                "check": problem or "passed",
-                "seconds": round(seconds, 2),
-                "prompt_tokens": usage.get("prompt_tokens"),
-                "completion_tokens": usage.get("completion_tokens"),
-            },
-        )
-        if problem:
-            return outcome("failed", problem)
-        return outcome("completed", "", _wrap(cell, code))
+        name = f"step {cell.node_id} {tool or ''}".strip()
+        problem: str | None = None
+        attempts = 0
+        # A reply that fails the checks gets one more try, with the reason, in the
+        # same conversation. Endpoint errors and time limits aren't retried here.
+        while attempts < MAX_ATTEMPTS:
+            attempts += 1
+            span = root.child(
+                name if attempts == 1 else f"{name} retry",
+                span_type="LLM",
+                inputs={"messages": [m.to_dict() for m in messages]},
+                attributes={"node_id": cell.node_id, "tool_type": tool, "model": model, "attempt": attempts},
+            )
+            try:
+                reply, usage, seconds = _call_model(client, messages, deadline)
+            except _OutOfTimeError:
+                span.end(attributes={"status": "skipped"})
+                if problem:
+                    return outcome("failed", f"{problem} (ran out of time before a second try)", attempts=attempts - 1)
+                return outcome("skipped", "ran out of time before this step was sent to the model")
+            except Exception as exc:  # one step's failure must not lose the others
+                logger.warning("Completion failed for node %s: %s", cell.node_id, exc)
+                span.end(attributes={"status": "failed"}, error=str(exc))
+                if problem:
+                    return outcome("failed", f"{problem} (the second try failed: {exc})", attempts=attempts)
+                return outcome("failed", f"the model endpoint failed: {exc}", attempts=attempts)
+            code = _clean_reply(reply, cell.node_id)
+            # A rebind reads the variable it rebinds, so it counts as defined here.
+            problem = _check_reply(
+                code,
+                cell,
+                required=required,
+                defined_before=before | ({rebind} if rebind else set()),
+                owned_elsewhere=elsewhere - required,
+            )
+            span.end(
+                outputs={"reply": reply},
+                attributes={
+                    "status": "failed" if problem else "completed",
+                    "check": problem or "passed",
+                    "seconds": round(seconds, 2),
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": usage.get("completion_tokens"),
+                },
+            )
+            if not problem:
+                return outcome("completed", "", _wrap(cell, code), attempts=attempts)
+            messages = [
+                *messages,
+                ChatMessage(role="assistant", content=reply or ""),
+                ChatMessage(role="user", content=_retry_prompt(problem)),
+            ]
+        return outcome("failed", f"{problem} (also on the second try)", attempts=attempts)
 
     to_run, over_limit = targets[:MAX_CELLS], targets[MAX_CELLS:]
     model = getattr(client, "model_name", None) or type(client).__name__

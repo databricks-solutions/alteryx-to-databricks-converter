@@ -32,6 +32,27 @@ def test_records_status_time_and_tokens_per_step():
     assert s["model"] == "fake-model" and s["completed_rate"] == 1.0 and s["prompt_tokens"] == 100
 
 
+class RetryClient(UsageClient):
+    """First reply fails the checks (reads a DataFrame that doesn't exist), the retry passes."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat_with_usage(self, messages, *, max_tokens: int = 4000):
+        self.calls += 1
+        reply = "df_2 = df_99" if self.calls == 1 else "df_2 = df_1"
+        return reply, {"prompt_tokens": 100, "completion_tokens": 7}
+
+
+def test_a_retried_step_adds_up_both_calls():
+    report = run_eval([WF], RetryClient())
+    (step,) = report.steps
+    assert (step.status, step.attempts) == ("completed", 2)
+    assert step.prompt_tokens == 200 and step.completion_tokens == 14
+    s = report.summary()
+    assert (s["retried"], s["completed_on_retry"]) == (1, 1)
+
+
 def test_summary_counts_reasons_and_tools():
     r = EvalReport(model="m")
     r.steps = [
