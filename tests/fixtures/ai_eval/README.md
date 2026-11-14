@@ -1,6 +1,6 @@
 # AI completion eval baseline
 
-`baseline.json` is a run of `a2d eval-ai` (via `make eval-ai`) on the 13 Packt workflows in `a2d.advisor.ai_eval.DEFAULT_FIXTURES`, with `databricks-claude-opus-5-5` on 2026-11-13. It holds each step's outcome, check reason, time and tokens, but not the model's code.
+`baseline.json` is a run of `a2d eval-ai` (via `make eval-ai`) on the 13 Packt workflows in `a2d.advisor.ai_eval.DEFAULT_FIXTURES`, with `databricks-claude-opus-5-5` on 2026-11-14. It holds each step's outcome, check reason, how many model calls it took (2 when the first reply failed the checks and was retried), time and tokens, but not the model's code.
 
 Rerun before changing the model or the prompt, and compare:
 

@@ -969,6 +969,8 @@ export interface CellCompletion {
   reason: string;
   before: string;
   after: string;
+  /** Model calls for this step: 2 when the first reply failed the checks and was retried. */
+  attempts: number;
 }
 
 export interface AICompletion {

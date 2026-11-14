@@ -64,6 +64,7 @@ class StepResult:
     seconds: float | None = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
+    attempts: int = 0
 
 
 @dataclass
@@ -77,6 +78,7 @@ class EvalReport:
         total = len(self.steps)
         times = sorted(s.seconds for s in self.steps if s.seconds is not None)
         reasons = Counter(s.reason for s in self.steps if s.status != "completed")
+        retried = [s for s in self.steps if s.attempts > 1]
         per_tool: dict[str, Counter] = {}
         for s in self.steps:
             per_tool.setdefault(s.tool_type or "?", Counter())[s.status] += 1
@@ -88,6 +90,9 @@ class EvalReport:
             "failed": status["failed"],
             "skipped": status["skipped"],
             "completed_rate": round(status["completed"] / total, 3) if total else 0.0,
+            # Steps whose first reply failed the checks, and how many of those the retry fixed.
+            "retried": len(retried),
+            "completed_on_retry": sum(1 for s in retried if s.status == "completed"),
             "median_seconds": round(statistics.median(times), 2) if times else None,
             "p90_seconds": round(times[int(len(times) * 0.9)], 2) if times else None,
             "prompt_tokens": sum(s.prompt_tokens or 0 for s in self.steps),
@@ -102,7 +107,8 @@ class EvalReport:
 
 
 class _Recorder:
-    """Wraps a client and keeps each call's time and tokens by the step it was for."""
+    """Wraps a client and adds up each step's time and tokens over its calls
+    (two when the first reply failed the checks)."""
 
     def __init__(self, inner: AdvisoryClient) -> None:
         self.inner = inner
@@ -120,10 +126,15 @@ class _Recorder:
             text, usage = with_usage(messages, max_tokens=max_tokens)
         else:
             text, usage = self.inner.chat(messages, max_tokens=max_tokens), {}
-        node_id = _node_id(messages[-1].content)
+        seconds = time.monotonic() - started
+        # The step's own prompt is the first user message; a retry adds more after it.
+        node_id = next((n for m in messages if m.role == "user" for n in [_node_id(m.content)] if n is not None), None)
         if node_id is not None:
             with self._lock:
-                self.calls[node_id] = (time.monotonic() - started, usage)
+                prev_seconds, prev = self.calls.get(node_id, (0.0, {}))
+                keys = ("prompt_tokens", "completion_tokens")
+                total = {k: (prev.get(k) or 0) + (usage.get(k) or 0) for k in keys if k in prev or k in usage}
+                self.calls[node_id] = (prev_seconds + seconds, total)
         return text, usage
 
     def chat(self, messages: list[ChatMessage], *, max_tokens: int = 4000) -> str:
@@ -177,6 +188,7 @@ def run_eval(paths: list[Path], client: AdvisoryClient) -> EvalReport:
                     seconds=round(seconds, 2) if seconds is not None else None,
                     prompt_tokens=usage.get("prompt_tokens"),
                     completion_tokens=usage.get("completion_tokens"),
+                    attempts=cell.attempts,
                 )
             )
         logger.info("%s: %s", path.name, completion.to_dict()["summary"])
@@ -187,7 +199,17 @@ def run_eval(paths: list[Path], client: AdvisoryClient) -> EvalReport:
 def compare(summary: dict, baseline: dict) -> list[str]:
     """Plain lines on how ``summary`` differs from ``baseline`` (both from ``EvalReport.summary``)."""
     lines = []
-    for key in ("steps", "completed", "failed", "skipped", "completed_rate", "median_seconds", "p90_seconds"):
+    for key in (
+        "steps",
+        "completed",
+        "failed",
+        "skipped",
+        "completed_rate",
+        "retried",
+        "completed_on_retry",
+        "median_seconds",
+        "p90_seconds",
+    ):
         new, old = summary.get(key), baseline.get(key)
         if new != old:
             lines.append(f"{key}: {old} -> {new}")
