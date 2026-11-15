@@ -139,7 +139,6 @@ Some Alteryx features cannot be automatically converted. The tool will always fl
 | **Reporting / Layout tools** | Use Databricks AI/BI dashboards |
 | **Email / Publish tools** | Use Lakeflow Jobs notification actions |
 | **R Tool** | Rewrite R code in Python/PySpark |
-| **Iterative macros** | Require manual rewrite as Lakeflow Jobs |
 | **Custom third-party Alteryx tools** | Require bespoke conversion |
 
 > **Tip:** After converting, search the output file for `# TODO` and `# WARNING` — every item that needs attention is marked there.
@@ -151,7 +150,14 @@ A tool that runs a macro converts by inlining the macro's own steps, including m
 - **In the app**, add the macro files to the project on the Workflows step, next to the workflows that use them. Every workflow in the project finds its macros by file name, wherever they were saved on the author's machine. A `.yxzp` package works too, because it carries its macros.
 - **On the CLI**, keep the macros next to the workflow (or in its folder tree) and pass `--expand-macros`. It's on by default for a `.yxzp`.
 
-Batch and iterative macros aren't inlined, because one pass can't reproduce their loop; they're flagged to rewrite by hand. A macro that takes settings from the tool that calls it is inlined with the values saved in the macro, and the result says to check them. Any macro that isn't expanded shows up as a warning saying why, and its tool is left as a `# TODO`.
+Batch and iterative macros can't be inlined, because one pass doesn't reproduce their loop. In the PySpark output, the macro's steps become a function and the tool becomes a loop around it:
+
+- **Batch macro:** one run per record of the Control input, and each output is the union of the runs. A value the macro takes from the control record (through an Action, or as `[#1]` in a tool) becomes a parameter of the function. With a group-by, each run gets only the input rows that match its control record.
+- **Iterative macro:** the function runs on the input, and the records on the iteration output go back in until there are none left or the iteration limit is hit (it stops, warns or passes on what's left, as the macro is set to). `[Engine.IterationNumber]` is the loop counter.
+
+Values the calling tool sets on the macro's questions are written in, except anything that looks like a credential. What can't be wired in safely stays a `# TODO` next to the step with the reason: a conditional Action, a formula or raw-XML Action, or a control value that would land in an expression outside a string. AI completion can pick those up. SQL and Lakeflow outputs can't loop, so they mark the step and point to the PySpark output.
+
+A standard macro that takes settings from the tool that calls it is inlined with the values saved in the macro, and the result says to check them. Any macro that isn't expanded shows up as a warning saying why, and its tool is left as a `# TODO`.
 
 ---
 

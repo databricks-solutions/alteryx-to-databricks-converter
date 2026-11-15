@@ -109,12 +109,14 @@ class TestAiGaps:
         assert "standard cleanse.yxmc wasn't available" in macro_gaps[0]["summary"]
         assert body["completable"] == []
 
-    def test_a_batch_macro_gap_says_why_and_is_not_sent_to_the_model(self, client, saved):
+    def test_a_batch_macro_with_unfinished_parts_goes_to_the_model(self, client, saved):
+        # The test workflow doesn't wire a Control input, so the loop can't be finished deterministically.
         saved["macros"] = [(MACRO[0], formula_macro(runtime=BATCH).encode())]
         body = client.post("/api/ai/gaps", data={"project_id": PID, "workflow_id": WID}).json()
-        (gap,) = [g for g in body["gaps"] if g.get("tool_type") == "Macro"]
-        assert "batch macro" in gap["summary"]
-        assert body["completable"] == []
+        (gap,) = [g for g in body["gaps"] if g.get("tool_type") == "Batch macro"]
+        assert "converted to a function and a loop" in gap["summary"]
+        assert "no Control input" in gap["detail"]
+        assert [s["node_id"] for s in body["completable"]] == [gap["node_id"]]
 
     def test_with_the_macro_there_is_no_macro_gap(self, client, saved):
         body = client.post("/api/ai/gaps", data={"project_id": PID, "workflow_id": WID}).json()

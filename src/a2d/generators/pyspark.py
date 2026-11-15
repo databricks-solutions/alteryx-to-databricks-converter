@@ -17,10 +17,11 @@ _IMPLICIT_FIELD_RE = re.compile(r'((?:ELSE)?IF)\s+"([^"]*)"(\s+THEN)')
 from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.translator import PySparkTranslator
-from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, NodeCodeResult
+from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, NodeCodeResult, looping_macro_adjustment
 from a2d.generators.find_replace_code import find_replace_lines
 from a2d.generators.find_replace_code import problem as find_replace_problem
 from a2d.generators.join_code import join_output_lines
+from a2d.generators.looping_macro_code import looping_macro_lines
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
     AggAction,
@@ -57,6 +58,7 @@ from a2d.ir.nodes import (
     JoinNode,
     JsonParseNode,
     LiteralDataNode,
+    LoopingMacroNode,
     MacroIONode,
     MakeGridNode,
     MultiFieldFormulaNode,
@@ -94,6 +96,15 @@ logger = logging.getLogger("a2d.generators.pyspark")
 
 # Matches ISO date strings used as DynamicInput SQL placeholders, e.g. "2023-01-01"
 _ISO_DATE_PLACEHOLDER_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _comment(head: str, text: str | None = None) -> list[str]:
+    """Comment lines for ``head`` and an optional quoted block (an expression),
+    every line commented: a multi-line Alteryx expression must not spill into code."""
+    lines = [f"# {line}" if line else "#" for line in head.splitlines() or [""]]
+    if text is not None:
+        lines += [f"#     {line}" if line else "#" for line in text.splitlines() or [""]]
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +255,10 @@ class PySparkGenerator(CodeGenerator):
 
         # Build notebook content
         # Update metadata with stats for header generation
+        # Batch and iterative macros count as the tools inside them.
+        _extra_total, _extra_unsupported = looping_macro_adjustment(dag)
+        node_count += _extra_total
+        unsupported_count += _extra_unsupported
         self.metadata["stats"] = {
             "total_nodes": node_count,
             "supported_nodes": node_count - unsupported_count,
@@ -606,12 +621,11 @@ class PySparkGenerator(CodeGenerator):
             except BaseTranslationError as exc:
                 # Expression could not be parsed — emit a placeholder so the notebook
                 # at least loads cleanly, with a clear TODO for manual conversion.
-                raw_escaped = node.expression.replace("\\", "\\\\").replace('"', '\\"')
                 expr = "F.lit(True)  # PLACEHOLDER — see TODO below"
                 warnings.append(f"Filter expression fallback for node {node.node_id}: {exc}")
                 manual_lines = [
-                    f"# TODO: manual conversion required — filter expression parse failed: {exc}",
-                    f'# Original Alteryx expression: "{raw_escaped}"',
+                    *_comment(f"TODO: manual conversion required — filter expression parse failed: {exc}"),
+                    *_comment("Original Alteryx expression:", node.expression),
                     "# Replace the F.lit(True) placeholder below with the correct PySpark condition.",
                 ]
                 lines = manual_lines  # will be extended below
@@ -678,11 +692,13 @@ class PySparkGenerator(CodeGenerator):
                 if _NUMERIC_LITERAL_RE.match(expr.strip()):
                     expr = f"F.lit({expr})"
             except BaseTranslationError as exc:
-                raw_escaped = formula.expression.replace("\\", "\\\\").replace('"', '\\"')
-                expr = "F.lit(None)  # PLACEHOLDER"
+                # The note is a line of its own: inside the expression, the comment
+                # would swallow the comma or parenthesis that follows it.
+                expr = "F.lit(None)"
+                todo_lines.append(f"# PLACEHOLDER: {formula.output_field} is null until its expression is converted")
                 warnings.append(f"Formula expression fallback for '{formula.output_field}': {exc}")
-                todo_lines.append(f"# TODO: manual conversion required — expression parse failed: {exc}")
-                todo_lines.append(f'# Original Alteryx expression: "{raw_escaped}"')
+                todo_lines += _comment(f"TODO: manual conversion required — expression parse failed: {exc}")
+                todo_lines += _comment("Original Alteryx expression:", formula.expression)
             translated.append((formula.output_field, expr))
 
         lines: list[str] = todo_lines[:]
@@ -1204,14 +1220,17 @@ class PySparkGenerator(CodeGenerator):
         out_var = f"df_{node.node_id}"
 
         warnings: list[str] = []
-        lines = [
-            "# AppendFields: cross join with broadcast (source should be a single-row lookup)",
-            f"{out_var} = {target}.crossJoin(F.broadcast({source}.limit(1)))",
-        ]
-        warnings.append(
-            f"AppendFields node {node.node_id}: source limited to 1 row via .limit(1). "
-            "Remove .limit(1) if source intentionally has multiple rows."
-        )
+        lines = ["# AppendFields: every Source record is appended to every Targets record (a cross join), like Alteryx"]
+        if node.cartesian_mode in ("error", "warn"):
+            # The tool's guard: more than 16 Source records stops the run, or warns.
+            why = f"Append Fields (step {node.node_id}) got more than 16 Source records"
+            act = (
+                f"    raise ValueError({why + ', which it is set to stop on, as in Alteryx'!r})"
+                if node.cartesian_mode == "error"
+                else f"    print({'WARNING: ' + why!r})"
+            )
+            lines += [f"if {source}.limit(17).count() > 16:", act]
+        lines.append(f"{out_var} = {target}.crossJoin(F.broadcast({source}))")
         return NodeCodeResult(
             code_lines=lines,
             output_vars={"Output": out_var},
@@ -1282,22 +1301,23 @@ class PySparkGenerator(CodeGenerator):
         inp = self._get_single_input(input_vars)
         out_var = f"df_{node.node_id}"
 
+        # Every value goes through _lit: a pattern is full of quotes and backslashes.
+        fld, pattern = self._lit(node.field_name), self._lit(node.expression)
         if node.mode == "replace":
             lines = [
-                f'{out_var} = {inp}.withColumn("{node.field_name}", '
-                f'F.regexp_replace(F.col("{node.field_name}"), "{node.expression}", "{node.replacement}"))'
+                f"{out_var} = {inp}.withColumn({fld}, "
+                f"F.regexp_replace(F.col({fld}), {pattern}, {self._lit(node.replacement)}))"
             ]
         elif node.mode == "parse":
             lines = [f"{out_var} = {inp}"]
             for idx, out_field in enumerate(node.output_fields):
                 lines.append(
-                    f'{out_var} = {out_var}.withColumn("{out_field}", '
-                    f'F.regexp_extract(F.col("{node.field_name}"), "{node.expression}", {idx + 1}))'
+                    f"{out_var} = {out_var}.withColumn({self._lit(out_field)}, "
+                    f"F.regexp_extract(F.col({fld}), {pattern}, {idx + 1}))"
                 )
         elif node.mode == "match":
             lines = [
-                f'{out_var} = {inp}.withColumn("_regex_match_{node.node_id}", '
-                f'F.col("{node.field_name}").rlike("{node.expression}"))',
+                f"{out_var} = {inp}.withColumn({self._lit(f'_regex_match_{node.node_id}')}, F.col({fld}).rlike({pattern}))",
             ]
         else:
             lines = [
@@ -2167,6 +2187,9 @@ class PySparkGenerator(CodeGenerator):
             output_vars={"Output": out_var},
             warnings=[f"Unsupported node {node.node_id} ({tool}): {reason}"],
         )
+
+    def _generate_LoopingMacroNode(self, node: LoopingMacroNode, input_vars: dict[str, str]) -> NodeCodeResult:
+        return looping_macro_lines(self, node, input_vars)
 
     def _generate_UnsupportedNode(self, node: UnsupportedNode, input_vars: dict[str, str]) -> NodeCodeResult:
         return self._unsupported_passthrough(node, input_vars)

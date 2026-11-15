@@ -15,7 +15,7 @@ import json
 import logging
 
 from a2d.expressions.base_translator import BaseTranslationError
-from a2d.generators.base import GeneratedFile, GeneratedOutput
+from a2d.generators.base import GeneratedFile, GeneratedOutput, looping_macro_adjustment
 from a2d.generators.sql import SQLGenerator, _cte_name
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
@@ -102,6 +102,10 @@ class LakeflowGenerator(SQLGenerator):
                 unsupported_count += 1
 
         # Build full output
+        # Batch and iterative macros count as the tools inside them.
+        _extra_total, _extra_unsupported = looping_macro_adjustment(dag)
+        node_count += _extra_total
+        unsupported_count += _extra_unsupported
         self.metadata["stats"] = {
             "total_nodes": node_count,
             "supported_nodes": node_count - unsupported_count,

@@ -452,7 +452,7 @@ dbutils.fs.cp(
 # MAGIC %md
 # MAGIC ## Section 9 — Iterative Macros → Python Loops
 # MAGIC
-# MAGIC **Converter flag:** Iterative macros are unsupported — no code is generated.
+# MAGIC **Converter note:** The PySpark output converts an iterative macro to a function and a loop like this one, when its `.yxmc` is available. Check the stop condition and the iteration limit.
 # MAGIC Implement the loop logic manually using a Python `for`/`while` loop.
 # MAGIC The pattern is identical between UC and non-UC workspaces.
 

@@ -17,7 +17,7 @@ import re
 from dataclasses import dataclass, field
 
 from a2d.ir.graph import WorkflowDAG
-from a2d.ir.nodes import IRNode, UnsupportedNode
+from a2d.ir.nodes import IRNode, LoopingMacroNode, UnsupportedNode, counted_tools
 from a2d.macro.detect import macro_file_name, macro_path_for_ir_node
 from a2d.observability.deploy_status import derive_deploy_status
 from a2d.observability.warning_categorization import (
@@ -242,6 +242,29 @@ def build_migration_context(
                 detail=node.unsupported_reason,
                 original_configuration=dict(node.original_configuration),
                 unsupported_reason=node.unsupported_reason,
+            )
+        )
+
+    # A batch or iterative macro converted to a loop, with steps or settings
+    # inside it the converter couldn't finish: the step goes to the model with
+    # those tools' own configuration.
+    for node in sorted((n for n in dag.all_nodes() if isinstance(n, LoopingMacroNode)), key=lambda n: n.node_id):
+        inner = [t for t in counted_tools(node) if isinstance(t, UnsupportedNode)]
+        if not inner and not node.issues:
+            continue
+        unfinished = [f"tool {t.node_id % 1_000_000} ({t.original_tool_type}) has no converter" for t in inner]
+        gaps.append(
+            Gap(
+                kind="unsupported_tool",
+                summary=f"{node.kind.capitalize()} macro {node.macro_name} is converted to a function and a loop, "
+                "but parts of it aren't converted",
+                node_id=node.node_id,
+                tool_type=f"{node.kind.capitalize()} macro",
+                detail="; ".join([*unfinished, *node.issues]),
+                original_configuration={
+                    f"macro tool {t.node_id % 1_000_000} ({t.original_tool_type})": dict(t.original_configuration)
+                    for t in inner
+                },
             )
         )
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from a2d.config import ConversionConfig
-from a2d.ir.nodes import UnsupportedNode
+from a2d.ir.nodes import LoopingMacroNode, UnsupportedNode
 from a2d.macro.engine import MAX_NESTING_DEPTH, MacroExpansionEngine
 from a2d.parser.workflow_parser import WorkflowParser
 from a2d.pipeline import ConversionPipeline
@@ -159,28 +159,31 @@ class TestLookup:
 
 
 class TestMacroTypes:
-    """Only standard macros are inlined: one pass can't reproduce a loop."""
+    """Standard macros are inlined; a batch or iterative macro becomes a loop."""
 
-    def test_a_batch_macro_is_left_unconverted_and_says_why(self, tmp_path):
+    def test_a_batch_macro_becomes_a_loop(self, tmp_path):
         _write(tmp_path / "PerGroup.yxmc", formula_macro(runtime=BATCH))
         wf = _write(tmp_path / "main.yxmd", workflow_calling("PerGroup.yxmc"))
 
         result = _expand(wf)
 
-        assert result.expanded_calls == 0
-        (u,) = result.unresolved
-        assert u.kind == "batch" and "batch macro" in u.reason
-        (node,) = _unsupported(result)
-        assert node.unsupported_reason.startswith("Macro PerGroup.yxmc wasn't expanded: it's a batch macro")
+        assert (result.expanded_calls, result.looping_calls, result.unresolved) == (0, 1, [])
+        node = result.dag.get_node(10)
+        assert isinstance(node, LoopingMacroNode) and node.kind == "batch"
+        assert [type(n).__name__ for n in node.body.all_nodes()].count("FormulaNode") == 1
+        (note,) = result.notes
+        assert "PerGroup.yxmc (tool 10) is a batch macro" in note
 
-    def test_an_iterative_macro_is_left_unconverted(self, tmp_path):
+    def test_an_iterative_macro_becomes_a_loop(self, tmp_path):
         _write(tmp_path / "Loop.yxmc", formula_macro(runtime=ITERATIVE))
         wf = _write(tmp_path / "main.yxmd", workflow_calling("Loop.yxmc"))
 
         result = _expand(wf)
 
-        assert result.expanded_calls == 0
-        assert [u.kind for u in result.unresolved] == ["iterative"]
+        node = result.dag.get_node(10)
+        assert isinstance(node, LoopingMacroNode) and node.kind == "iterative"
+        assert (node.iteration_input, node.iteration_output, node.iteration_limit) == ("In", "Out", 100)
+        assert result.unresolved == []
 
     def test_the_callers_dag_keeps_its_original_reason(self, tmp_path):
         # Expansion works on a clone that shares node objects with the input DAG.
@@ -205,14 +208,14 @@ class TestMacroTypes:
         (note,) = result.notes
         assert "Param.yxmc (tool 10)" in note and "takes settings from the tool that calls it" in note
 
-    def test_batch_warning_in_a_conversion(self, tmp_path):
+    def test_batch_note_in_a_conversion(self, tmp_path):
         _write(tmp_path / "PerGroup.yxmc", formula_macro(runtime=BATCH))
         wf = _write(tmp_path / "main.yxmd", workflow_calling("PerGroup.yxmc"))
 
         result = ConversionPipeline(ConversionConfig(expand_macros=True)).convert_all_formats(wf)
 
         (warning,) = [w for w in result.warnings if "PerGroup.yxmc" in w]
-        assert "batch macro" in warning and "rewrite by hand" in warning
+        assert "batch macro" in warning and "runs once per control record" in warning
         assert "supply the .yxmc" not in warning
 
 

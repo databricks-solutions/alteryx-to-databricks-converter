@@ -44,7 +44,13 @@ def macro_path_for_ir_node(node: object) -> str | None:
 
     An unexpanded call converts to an ``UnsupportedNode`` that keeps the tool's
     original configuration (``MacroPath``) and plugin name (``macro:<file>``).
+    Any other node (a batch or iterative macro converted to a loop keeps the
+    call's plugin name too) isn't an unexpanded call.
     """
+    from a2d.ir.nodes import UnsupportedNode
+
+    if not isinstance(node, UnsupportedNode):
+        return None
     config = getattr(node, "original_configuration", None) or {}
     macro_path = config.get("MacroPath", "") if isinstance(config, dict) else ""
     if isinstance(macro_path, dict):

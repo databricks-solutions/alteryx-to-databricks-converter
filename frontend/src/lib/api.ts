@@ -501,7 +501,7 @@ export interface WorkflowAnalysis {
   warnings: string[];
 }
 
-/** A macro call that wasn't expanded (file missing, batch or iterative, ...). */
+/** A macro call that wasn't expanded (file missing, nested too deep, calls itself, ...). */
 export interface UnresolvedMacro {
   name: string;
   reason: string;

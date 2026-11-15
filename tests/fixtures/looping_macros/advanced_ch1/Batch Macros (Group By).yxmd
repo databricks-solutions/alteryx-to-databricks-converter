@@ -1,0 +1,232 @@
+<?xml version="1.0"?>
+<AlteryxDocument yxmdVer="2019.4">
+  <Nodes>
+    <Node ToolID="1">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.TextInput.TextInput">
+        <Position x="66" y="246" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <NumRows value="6" />
+          <Fields>
+            <Field name="field1" />
+            <Field name="field2" />
+            <Field name="field3" />
+            <Field name="field4" />
+          </Fields>
+          <Data>
+            <r>
+              <c>a</c>
+              <c>c</c>
+              <c>10</c>
+              <c>type1</c>
+            </r>
+            <r>
+              <c>a</c>
+              <c>d</c>
+              <c>20</c>
+              <c>type2</c>
+            </r>
+            <r>
+              <c>b</c>
+              <c>e</c>
+              <c>30</c>
+              <c>type2</c>
+            </r>
+            <r>
+              <c>b</c>
+              <c>f</c>
+              <c>40</c>
+              <c>type2</c>
+            </r>
+            <r>
+              <c>a</c>
+              <c>g</c>
+              <c>50</c>
+              <c>type1</c>
+            </r>
+            <r>
+              <c>b</c>
+              <c>h</c>
+              <c>60</c>
+              <c>type2</c>
+            </r>
+          </Data>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name />
+          <DefaultAnnotationText />
+          <Left value="False" />
+        </Annotation>
+      </Properties>
+      <EngineSettings EngineDll="AlteryxBasePluginsEngine.dll" EngineDllEntryPoint="AlteryxTextInput" />
+    </Node>
+    <Node ToolID="2">
+      <GuiSettings Plugin="AlteryxSpatialPluginsGui.Summarize.Summarize">
+        <Position x="138" y="210" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <SummarizeFields>
+            <SummarizeField field="field1" action="GroupBy" rename="field1" />
+          </SummarizeFields>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name />
+          <DefaultAnnotationText />
+          <Left value="False" />
+        </Annotation>
+      </Properties>
+      <EngineSettings EngineDll="AlteryxSpatialPluginsEngine.dll" EngineDllEntryPoint="AlteryxSummarize" />
+    </Node>
+    <Node ToolID="9">
+      <GuiSettings>
+        <Position x="210" y="234" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Value name="BatchMacroGroupBy"><![CDATA[Control=field1
+Input8=field1
+]]></Value>
+          <Value name="ControlParams" />
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name>batch_groupby_macro (3)</Name>
+          <DefaultAnnotationText />
+          <Left value="False" />
+        </Annotation>
+        <MetaInfo connection="Output13">
+          <RecordInfo>
+            <Field name="sum_field3" source="Summarize: Sum - field3 (BatchMacro) (BatchMacro) (BatchMacro)" type="Int64" />
+            <Field name="field1" size="1" source="TextInput: (BatchMacro) (BatchMacro) (BatchMacro)" type="String" />
+            <Field name="field2" size="1" source="TextInput: (BatchMacro) (BatchMacro) (BatchMacro)" type="String" />
+            <Field name="field3" source="TextInput: (BatchMacro) (BatchMacro) (BatchMacro)" type="Byte" />
+            <Field name="field4" size="5" source="TextInput: (BatchMacro) (BatchMacro) (BatchMacro)" type="String" />
+            <Field name="calculation" source="Formula: [sum_field3]/[field3] (BatchMacro) (BatchMacro) (BatchMacro)" type="Double" />
+          </RecordInfo>
+        </MetaInfo>
+      </Properties>
+      <EngineSettings Macro="C:\Users\rolber1\Desktop\AA\Chapters\Part 1 - Mightly Toolset\Chapter 1\Assets\batch_groupby_macro.yxmc" />
+    </Node>
+    <Node ToolID="4">
+      <GuiSettings Plugin="AlteryxBasePluginsGui.BrowseV2.BrowseV2">
+        <Position x="282" y="234" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <TempFile>C:\Users\rolber1\AppData\Local\Temp\Engine_18600_30e59a318a3f4a4e9fc4eef4aad908d4_\Engine_14612_91ccf9e887ff447bbf92349b5db6ee6d_.yxdb</TempFile>
+          <TempFileDataProfiling />
+          <Layout>
+            <View1>
+              <Hints>
+                <Table />
+              </Hints>
+            </View1>
+          </Layout>
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name />
+          <DefaultAnnotationText />
+          <Left value="False" />
+        </Annotation>
+      </Properties>
+      <EngineSettings EngineDll="AlteryxBasePluginsEngine.dll" EngineDllEntryPoint="AlteryxBrowseV2" />
+    </Node>
+    <Node ToolID="6">
+      <GuiSettings Plugin="AlteryxGuiToolkit.TextBox.TextBox">
+        <Position x="54" y="54" width="936" height="72" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Text>Alteryx Advanced</Text>
+          <Font name="Calibri" size="36" style="0" />
+          <TextColor name="White" />
+          <FillColor r="13" g="35" b="69" />
+          <Shape shape="0" />
+          <Justification Justification="0" />
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name />
+          <DefaultAnnotationText />
+          <Left value="False" />
+        </Annotation>
+      </Properties>
+    </Node>
+    <Node ToolID="7">
+      <GuiSettings Plugin="AlteryxGuiToolkit.TextBox.TextBox">
+        <Position x="54" y="138" width="936" height="36" />
+      </GuiSettings>
+      <Properties>
+        <Configuration>
+          <Text>Chapter 1: Batch Macros (Group By)</Text>
+          <Font name="Calibri" size="21.75" style="0" />
+          <TextColor name="White" />
+          <FillColor r="13" g="35" b="69" />
+          <Shape shape="0" />
+          <Justification Justification="0" />
+        </Configuration>
+        <Annotation DisplayMode="0">
+          <Name />
+          <DefaultAnnotationText />
+          <Left value="False" />
+        </Annotation>
+      </Properties>
+    </Node>
+  </Nodes>
+  <Connections>
+    <Connection>
+      <Origin ToolID="1" Connection="Output" />
+      <Destination ToolID="2" Connection="Input" />
+    </Connection>
+    <Connection>
+      <Origin ToolID="1" Connection="Output" />
+      <Destination ToolID="9" Connection="Input8" />
+    </Connection>
+    <Connection>
+      <Origin ToolID="2" Connection="Output" />
+      <Destination ToolID="9" Connection="Control" />
+    </Connection>
+    <Connection>
+      <Origin ToolID="9" Connection="Output13" />
+      <Destination ToolID="4" Connection="Input" />
+    </Connection>
+  </Connections>
+  <Properties>
+    <Memory default="True" />
+    <GlobalRecordLimit value="0" />
+    <TempFiles default="True" />
+    <Annotation on="True" includeToolName="False" />
+    <ConvErrorLimit value="10" />
+    <ConvErrorLimit_Stop value="False" />
+    <CancelOnError value="False" />
+    <DisableBrowse value="False" />
+    <EnablePerformanceProfiling value="False" />
+    <DisableAllOutput value="False" />
+    <ShowAllMacroMessages value="False" />
+    <ShowConnectionStatusIsOn value="True" />
+    <ShowConnectionStatusOnlyWhenRunning value="True" />
+    <ZoomLevel value="0" />
+    <LayoutType>Horizontal</LayoutType>
+    <MetaInfo>
+      <NameIsFileName value="True" />
+      <Name>Batch Macros (Group By)</Name>
+      <Description />
+      <RootToolName />
+      <ToolVersion />
+      <ToolInDb value="False" />
+      <CategoryName />
+      <SearchTags />
+      <Author>Rafal Olbert (Alteryx Advanced)</Author>
+      <Company />
+      <Copyright />
+      <DescriptionLink actual="" displayed="" />
+      <Example>
+        <Description />
+        <File />
+      </Example>
+    </MetaInfo>
+    <Events>
+      <Enabled value="True" />
+    </Events>
+  </Properties>
+</AlteryxDocument>
