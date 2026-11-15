@@ -95,3 +95,10 @@ def test_cli_writes_the_report_compares_and_gates(tmp_path, monkeypatch):
 def test_baseline_in_the_repo_is_a_report():
     summary = ai_eval.load_summary(Path(__file__).parent.parent.parent / "fixtures" / "ai_eval" / "baseline.json")
     assert summary["steps"] > 0 and summary["model"]
+
+
+def test_the_time_estimate_matches_the_baseline():
+    from a2d.advisor.completion import TYPICAL_STEP_SECONDS
+
+    summary = ai_eval.load_summary(Path(__file__).parent.parent.parent / "fixtures" / "ai_eval" / "baseline.json")
+    assert {"median": summary["median_seconds"], "p90": summary["p90_seconds"]} == TYPICAL_STEP_SECONDS

@@ -65,13 +65,27 @@ class StepResult:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     attempts: int = 0
+    helper: str | None = None  # the shared helper the step's code calls
+
+
+@dataclass
+class HelperResult:
+    workflow: str
+    tool_type: str
+    steps: int
+    status: str
+    reason: str
+    attempts: int = 0
 
 
 @dataclass
 class EvalReport:
     model: str
     steps: list[StepResult] = field(default_factory=list)
+    helpers: list[HelperResult] = field(default_factory=list)
     seconds: float = 0.0
+    helper_prompt_tokens: int = 0
+    helper_completion_tokens: int = 0
 
     def summary(self) -> dict:
         status = Counter(s.status for s in self.steps)
@@ -93,17 +107,25 @@ class EvalReport:
             # Steps whose first reply failed the checks, and how many of those the retry fixed.
             "retried": len(retried),
             "completed_on_retry": sum(1 for s in retried if s.status == "completed"),
+            # One shared function per tool that several steps of a workflow use.
+            "helpers": sum(1 for h in self.helpers if h.status == "completed"),
+            "helpers_failed": sum(1 for h in self.helpers if h.status != "completed"),
+            "steps_calling_a_helper": sum(1 for s in self.steps if s.helper),
             "median_seconds": round(statistics.median(times), 2) if times else None,
             "p90_seconds": round(times[int(len(times) * 0.9)], 2) if times else None,
-            "prompt_tokens": sum(s.prompt_tokens or 0 for s in self.steps),
-            "completion_tokens": sum(s.completion_tokens or 0 for s in self.steps),
+            "prompt_tokens": sum(s.prompt_tokens or 0 for s in self.steps) + self.helper_prompt_tokens,
+            "completion_tokens": sum(s.completion_tokens or 0 for s in self.steps) + self.helper_completion_tokens,
             "wall_seconds": round(self.seconds, 1),
             "reasons": dict(reasons.most_common()),
             "per_tool": {t: dict(c) for t, c in sorted(per_tool.items())},
         }
 
     def to_dict(self) -> dict:
-        return {"summary": self.summary(), "steps": [asdict(s) for s in self.steps]}
+        return {
+            "summary": self.summary(),
+            "steps": [asdict(s) for s in self.steps],
+            "helpers": [asdict(h) for h in self.helpers],
+        }
 
 
 class _Recorder:
@@ -113,6 +135,7 @@ class _Recorder:
     def __init__(self, inner: AdvisoryClient) -> None:
         self.inner = inner
         self.calls: dict[int, tuple[float, dict]] = {}
+        self.helper_usage: list[dict] = []  # calls with no step: shared helpers
         self._lock = threading.Lock()
 
     @property
@@ -129,6 +152,9 @@ class _Recorder:
         seconds = time.monotonic() - started
         # The step's own prompt is the first user message; a retry adds more after it.
         node_id = next((n for m in messages if m.role == "user" for n in [_node_id(m.content)] if n is not None), None)
+        if node_id is None:
+            with self._lock:
+                self.helper_usage.append(usage)
         if node_id is not None:
             with self._lock:
                 prev_seconds, prev = self.calls.get(node_id, (0.0, {}))
@@ -189,8 +215,14 @@ def run_eval(paths: list[Path], client: AdvisoryClient) -> EvalReport:
                     prompt_tokens=usage.get("prompt_tokens"),
                     completion_tokens=usage.get("completion_tokens"),
                     attempts=cell.attempts,
+                    helper=cell.helper,
                 )
             )
+        for h in completion.helpers:
+            report.helpers.append(HelperResult(path.name, h.tool_type, len(h.node_ids), h.status, h.reason, h.attempts))
+        for usage in recorder.helper_usage:
+            report.helper_prompt_tokens += usage.get("prompt_tokens") or 0
+            report.helper_completion_tokens += usage.get("completion_tokens") or 0
         logger.info("%s: %s", path.name, completion.to_dict()["summary"])
     report.seconds = time.monotonic() - started
     return report
@@ -207,6 +239,8 @@ def compare(summary: dict, baseline: dict) -> list[str]:
         "completed_rate",
         "retried",
         "completed_on_retry",
+        "helpers",
+        "steps_calling_a_helper",
         "median_seconds",
         "p90_seconds",
     ):

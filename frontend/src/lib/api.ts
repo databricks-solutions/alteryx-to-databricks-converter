@@ -63,12 +63,6 @@ function appendOptions(fd: FormData, opts?: ConvertOptions) {
   if (opts?.generateDab !== undefined) fd.append("generate_dab", String(opts.generateDab));
 }
 
-async function requestText(path: string, init?: RequestInit): Promise<string> {
-  const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) throw await failure(res);
-  return res.text();
-}
-
 /** A failed API call, with the HTTP status so callers can tell cases apart
  * (e.g. 503 "no database configured" vs 503 "database not responding"). */
 export class ApiError extends Error {
@@ -282,7 +276,7 @@ export const api = {
 
   // ── AI completion (opt-in; the only calls that return model-written code) ──
 
-  aiStatus: () => request<{ enabled: boolean }>("/ai/status"),
+  aiStatus: () => request<AIStatus>("/ai/status"),
 
   aiGaps: (source: WorkflowSource, opts?: ConvertOptions) => {
     const fd = new FormData();
@@ -317,12 +311,6 @@ export const api = {
   },
 
   /** The Markdown suggestions notes, as text (the server sends an attachment). */
-  aiNotes: (source: WorkflowSource, opts?: ConvertOptions) => {
-    const fd = new FormData();
-    appendWorkflow(fd, source);
-    appendOptions(fd, opts);
-    return requestText("/ai/notes", { method: "POST", body: fd });
-  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -971,6 +959,30 @@ export interface CellCompletion {
   after: string;
   /** Model calls for this step: 2 when the first reply failed the checks and was retried. */
   attempts: number;
+  /** The shared helper the step's code calls, if any. */
+  helper: string | null;
+}
+
+/** From /api/ai/status: what the AI steps say before anything is sent. */
+export interface AIStatus {
+  enabled: boolean;
+  /** The serving endpoint's name, when AI is on. */
+  model: string | null;
+  /** How many steps go to the model at once. */
+  parallel: number;
+  /** How long one step usually takes, from the committed eval. */
+  step_seconds: { median: number; p90: number };
+}
+
+/** A shared function the model wrote for a tool several steps use. */
+export interface HelperCompletion {
+  tool_type: string;
+  name: string;
+  node_ids: number[];
+  status: "completed" | "failed" | "skipped";
+  reason: string;
+  code: string;
+  attempts: number;
 }
 
 export interface AICompletion {
@@ -979,5 +991,6 @@ export interface AICompletion {
   deterministic_filename: string;
   content: string;
   cells: CellCompletion[];
+  helpers: HelperCompletion[];
   summary: { cells_needing_work: number; completed: number; failed: number; skipped: number };
 }

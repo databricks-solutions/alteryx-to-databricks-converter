@@ -14,6 +14,7 @@ The rules these pin down:
 
 from __future__ import annotations
 
+import ast
 import time
 from pathlib import Path
 
@@ -378,7 +379,7 @@ class TestFailuresAreReportedNotRaised:
             dag.add_node(UnsupportedNode(node_id=i, original_tool_type="Message", unsupported_reason="x"))
             cells.append((i, f"# Step {i}: Message\n# Message: manual conversion required"))
         out, client, _ = _complete(dag, cells, "print('n/a')")
-        sent = {p for p in client.prompts if p.startswith("Workflow:")}  # first prompts, not retries
+        sent = {p for p in client.prompts if "Alteryx node id:" in p}  # step prompts, not retries or the helper
         assert len(sent) == MAX_CELLS
         assert [c.status for c in out.cells].count("skipped") == 1
         assert "limit" in out.cells[-1].reason
@@ -480,3 +481,88 @@ class TestRealInputsAndColumns:
         assert (
             "columns it should have (from the workflow's saved metadata): Year (Double), Month (Double), 7.50" in prompt
         )
+
+
+class TestSharedHelpers:
+    """A tool several steps use gets one shared function, which the steps call."""
+
+    @staticmethod
+    def _dag_and_cells(n: int = 3):
+        # 1 read -> 2 Message -> 3 Message -> ... -> write; every Message is unsupported.
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, original_tool_type="Input"))
+        cells = [(1, "# Step 1: Input\ndf_1 = spark.table('main.default.orders')")]
+        prev = 1
+        for i in range(2, 2 + n):
+            dag.add_node(
+                UnsupportedNode(node_id=i, original_tool_type="MakeColumns", unsupported_reason="no converter")
+            )
+            dag.add_edge(prev, i)
+            cells.append((i, f"# Step {i}: MakeColumns\ndf_{i} = df_{prev}  # passes its input through"))
+            prev = i
+        return dag, cells
+
+    @staticmethod
+    def _client(helper_reply: str):
+        def reply(prompt: str) -> str:
+            if "\nFunction name: " in prompt:
+                return helper_reply
+            node = int(prompt.split("Alteryx node id: ", 1)[1].split("\n", 1)[0])
+            prev = 1 if node == 2 else node - 1
+            return f"df_{node} = a2d_make_columns(df_{prev}, columns=3)"
+
+        return reply
+
+    def test_one_helper_then_each_step_calls_it(self):
+        dag, cells = self._dag_and_cells()
+        helper = 'def a2d_make_columns(df, columns):\n    """Spread rows over columns."""\n    return df'
+        out, client, _ = _complete(dag, cells, self._client(helper))
+        (h,) = out.helpers
+        assert (h.tool_type, h.name, h.node_ids, h.status) == (
+            "MakeColumns",
+            "a2d_make_columns",
+            [2, 3, 4],
+            "completed",
+        )
+        assert [c.helper for c in out.cells] == ["a2d_make_columns"] * 3
+        # The helper is shown to every step, and lives in its own cell after the imports.
+        assert all("Call a2d_make_columns for this step" in p for p in client.prompts if "Alteryx node id:" in p)
+        nb = split_cells(out.content)
+        assert nb[3] == "from pyspark.sql import functions as F"  # imports, unchanged
+        assert nb[4].startswith("# AI helpers:") and helper in nb[4] and nb[4].endswith(AI_END)
+        assert "1 shared helper function(s)" in nb[1]
+        ast.parse(out.content)
+
+    def test_a_helper_that_fails_its_checks_leaves_the_steps_on_their_own(self):
+        dag, cells = self._dag_and_cells()
+        out, client, notebook = _complete(
+            dag, cells, self._client("import os\ndef a2d_make_columns(df):\n    return df")
+        )
+        (h,) = out.helpers
+        assert h.status == "failed" and "imports os" in h.reason
+        assert len(split_cells(out.content)) == len(split_cells(notebook)) + 1  # no helpers cell
+        assert not any("Call a2d_make_columns" in p for p in client.prompts)
+
+    def test_a_helper_must_be_just_the_function(self):
+        dag, cells = self._dag_and_cells()
+        out, _, _ = _complete(
+            dag, cells, self._client("df_9 = spark.range(1)\ndef a2d_make_columns(df):\n    return df")
+        )
+        assert "exactly one function named a2d_make_columns" in out.helpers[0].reason
+
+    def test_one_step_of_a_tool_gets_no_helper(self):
+        dag, cells = self._dag_and_cells(n=1)
+        out, client, _ = _complete(dag, cells, self._client("def a2d_make_columns(df):\n    return df"))
+        assert out.helpers == [] and not any("\nFunction name: " in p for p in client.prompts)
+
+    def test_a_single_suggestion_gets_no_helper(self):
+        dag, cells = self._dag_and_cells()
+        out, _, _ = _complete(dag, cells, self._client("def a2d_make_columns(df):\n    return df"), only={3})
+        assert out.helpers == []
+
+    def test_helper_names(self):
+        from a2d.advisor.completion import helper_name
+
+        assert helper_name("MakeColumns") == "a2d_make_columns"
+        assert helper_name("DynamicSelect") == "a2d_dynamic_select"
+        assert helper_name("Batch macro") == "a2d_batch_macro"

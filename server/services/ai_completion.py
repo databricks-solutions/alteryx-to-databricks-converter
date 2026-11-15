@@ -22,10 +22,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from a2d.advisor import completion
 from a2d.advisor.completion import completable_steps, complete_notebook
 from a2d.advisor.context import MigrationContext, build_migration_context
 from a2d.advisor.llm_client import AdvisoryClient, resolve_client
-from a2d.advisor.report import render_report
 from a2d.config import ConversionConfig, OutputFormat
 from a2d.ir.graph import WorkflowDAG
 from a2d.pipeline import ConversionPipeline
@@ -55,6 +55,19 @@ def get_client(endpoint: str | None = None, token: str | None = None) -> Advisor
         endpoint or settings.fmapi_endpoint or None,
         token or settings.fmapi_token or None,
     )
+
+
+def status() -> dict:
+    """What the AI steps tell the user before anything is sent: whether AI is
+    on, the model endpoint, how many steps go to it at once, and how long one
+    step usually takes (from the committed eval, ``a2d eval-ai``)."""
+    client = get_client()
+    return {
+        "enabled": client is not None,
+        "model": getattr(client, "model_name", None) if client is not None else None,
+        "parallel": completion.MAX_WORKERS,
+        "step_seconds": dict(completion.TYPICAL_STEP_SECONDS),
+    }
 
 
 def is_enabled() -> bool:
@@ -233,16 +246,3 @@ def gap_summary(
     payload = converted.ctx.to_dict()
     payload["completable"] = completable_steps(converted.notebook, converted.ctx, converted.dag, converted.cell_nodes)
     return payload
-
-
-def suggestions_markdown(
-    filename: str,
-    content: bytes,
-    client: AdvisoryClient,
-    opts: ConversionOptions | None = None,
-    macros: list[tuple[str, bytes]] | None = None,
-) -> tuple[str, str]:
-    """Render the Markdown suggestions notes. Returns ``(filename, markdown)``."""
-    with tempfile.TemporaryDirectory() as tmp:
-        converted = _convert_pyspark(filename, content, opts, Path(tmp), macros)
-    return f"{converted.ctx.workflow_name}_suggestions.md", render_report(converted.ctx, client)

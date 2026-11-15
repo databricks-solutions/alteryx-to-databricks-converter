@@ -17,6 +17,8 @@ REPLY = "df_2 = df_1.limit(10)"
 
 
 class FakeClient:
+    model_name = "fake-endpoint"
+
     def chat(self, messages: list[ChatMessage], *, max_tokens: int = 4000) -> str:
         return REPLY
 
@@ -36,11 +38,11 @@ def _upload(name: str = "message_passthrough.yxmd"):
 
 
 def test_status_reflects_configuration(client, enabled):
-    assert client.get("/api/ai/status").json() == {"enabled": True}
+    assert client.get("/api/ai/status").json()["enabled"] is True
 
 
 def test_status_off_when_unconfigured(client, disabled):
-    assert client.get("/api/ai/status").json() == {"enabled": False}
+    assert client.get("/api/ai/status").json()["enabled"] is False
 
 
 def test_gaps_work_without_ai_and_list_completable_steps(client, disabled):
@@ -51,11 +53,21 @@ def test_gaps_work_without_ai_and_list_completable_steps(client, disabled):
     assert [s["node_id"] for s in body["completable"]] == [2]
 
 
-def test_complete_and_notes_are_opt_in(client, disabled):
-    for path in ("/api/ai/complete", "/api/ai/notes"):
-        resp = client.post(path, files=_upload())
-        assert resp.status_code == 422
-        assert "A2D_FMAPI_ENDPOINT" in resp.json()["detail"]
+def test_complete_is_opt_in(client, disabled):
+    resp = client.post("/api/ai/complete", files=_upload())
+    assert resp.status_code == 422
+    assert "A2D_FMAPI_ENDPOINT" in resp.json()["detail"]
+
+
+def test_status_says_which_model_and_how_long_a_step_takes(client, enabled):
+    body = client.get("/api/ai/status").json()
+    assert body["enabled"] is True and body["model"]
+    assert body["parallel"] >= 1 and set(body["step_seconds"]) == {"median", "p90"}
+
+
+def test_status_without_ai(client, disabled):
+    body = client.get("/api/ai/status").json()
+    assert (body["enabled"], body["model"]) == (False, None)
 
 
 def test_complete_returns_marked_copy(client, enabled):
@@ -75,15 +87,6 @@ def test_complete_is_429_when_the_concurrency_limit_is_reached(client, enabled, 
         assert client.post("/api/ai/complete", files=_upload()).status_code == 429
     finally:
         ai_completion._completion_slots.release()
-
-
-def test_notes_download_handles_non_ascii_names(client, enabled):
-    resp = client.post("/api/ai/notes", files=_upload("売上.yxmd"))
-    assert resp.status_code == 200
-    disposition = resp.headers["content-disposition"]
-    assert disposition.startswith("attachment;")
-    assert "filename*=UTF-8''" in disposition
-    assert "AI-generated advisory notes" in resp.text
 
 
 def test_malformed_workflow_is_422_not_500(client, enabled):

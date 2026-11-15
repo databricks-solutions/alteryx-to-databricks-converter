@@ -15,10 +15,10 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useProjectContext } from "@/hooks/use-project-context";
 import { useConvertOptions } from "@/hooks/use-convert-options";
-import { useToastStore } from "@/stores/toast";
 import { api, type AICompletion, type CellCompletion, type MigrationContext } from "@/lib/api";
 import { downloadText } from "@/lib/files";
-import { Sparkles, Download, Loader2, FileText, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { whatWillHappen } from "@/lib/ai-estimate";
+import { Sparkles, Download, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 const GAP_LABEL: Record<string, string> = {
   unsupported_tool: "Unsupported tool",
@@ -45,7 +45,6 @@ const CELL_BADGE: Record<CellCompletion["status"], { variant: "warning" | "secon
 export function AiCompletionPage() {
   const ctx = useProjectContext();
   const opts = useConvertOptions(ctx.projectId);
-  const addToast = useToastStore((s) => s.add);
   const status = useQuery({ queryKey: ["ai-status"], queryFn: api.aiStatus, staleTime: 60_000 });
   const enabled = status.data?.enabled ?? false;
   const [workflowId, setWorkflowId] = useState<string | null>(() => defaultWorkflowId(ctx.workflows, "deployed"));
@@ -65,14 +64,6 @@ export function AiCompletionPage() {
   });
 
   const complete = useMutation<AICompletion, Error>({ mutationFn: () => api.aiComplete(source!, opts) });
-  const notes = useMutation<string, Error>({
-    mutationFn: () => api.aiNotes(source!, opts),
-    onSuccess: (markdown) => {
-      downloadText(`${gaps.data?.workflow_name ?? "workflow"}_ai_suggestions.md`, markdown, "text/markdown;charset=utf-8");
-      addToast("AI suggestions downloaded", "success");
-    },
-    onError: (e) => addToast(e.message, "error"),
-  });
 
   // A new pick starts clean.
   const { reset: resetComplete } = complete;
@@ -123,11 +114,9 @@ export function AiCompletionPage() {
               <summary className="cursor-pointer">For the app's administrator</summary>
               Set{" "}
               <code className="rounded bg-[var(--bg-sidebar)] px-1 py-0.5 font-mono">A2D_FMAPI_ENDPOINT</code> to a
-              Databricks Foundation Model API serving endpoint (and{" "}
-              <code className="rounded bg-[var(--bg-sidebar)] px-1 py-0.5 font-mono">A2D_FMAPI_TOKEN</code> if it
-              needs a token), then restart the app. In a Databricks Apps deployment, pass{" "}
-              <code className="rounded bg-[var(--bg-sidebar)] px-1 py-0.5 font-mono">--var fmapi_endpoint=…</code> at
-              deploy time.
+              Databricks Foundation Model API serving endpoint in the app's environment (its{" "}
+              <code className="rounded bg-[var(--bg-sidebar)] px-1 py-0.5 font-mono">app.yaml</code>), then redeploy.
+              A serving endpoint in the same workspace needs no token: the app's service principal is used.
             </details>
           </div>
         )}
@@ -191,20 +180,18 @@ export function AiCompletionPage() {
                   <Sparkles className="h-4 w-4 text-[var(--ring)]" />
                   <h2 className="text-sm font-semibold text-[var(--fg)]">Generate with AI (not deterministic)</h2>
                 </div>
+                {status.data && (
+                  <p className="text-sm text-[var(--fg-muted)]">{whatWillHappen(completable, status.data)}</p>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <Button onClick={() => complete.mutate()} disabled={complete.isPending}>
                     {complete.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     Generate AI-completed notebook
                   </Button>
-                  <Button variant="secondary" onClick={() => notes.mutate()} disabled={notes.isPending}>
-                    {notes.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                    Download AI suggestions (.md, unverified)
-                  </Button>
                 </div>
                 {complete.isPending && (
                   <p className="text-xs text-[var(--fg-muted)]" role="status" aria-live="polite">
-                    Asking the model for each step that needs work. This can take a minute or two for a large
-                    workflow.
+                    Asking the model for each step that needs work. Stay on this page until it's done.
                   </p>
                 )}
                 {complete.error && <p className="text-sm text-destructive">{complete.error.message}</p>}
@@ -235,6 +222,34 @@ function CompletionResult({ result }: { result: AICompletion }) {
         </span>
       </Card>
 
+      {(result.helpers ?? []).map((h) => (
+        <Card key={h.name} className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-[var(--fg)]">
+              Shared helper · {h.tool_type} · <code className="font-mono">{h.name}</code>
+            </span>
+            <Badge variant={h.status === "completed" ? "warning" : "secondary"}>
+              {h.status === "completed" ? "AI-written, review it" : "Not written"}
+            </Badge>
+            <span className="text-xs text-[var(--fg-muted)]">for steps {h.node_ids.join(", ")}</span>
+          </div>
+          {h.status === "completed" ? (
+            <>
+              <p className="text-xs text-[var(--fg-muted)]">
+                The steps below that call it use this one function, so check it once here. It's in its own cell
+                after the imports.
+              </p>
+              <CodeBlock code={h.code} language="python" wrap />
+            </>
+          ) : (
+            <p className="flex items-start gap-1.5 text-xs text-[var(--fg-muted)]">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+              {h.reason}. Those steps were each written on their own.
+            </p>
+          )}
+        </Card>
+      ))}
+
       {result.cells.map((cell, i) => (
         <Card key={i} className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -243,6 +258,11 @@ function CompletionResult({ result }: { result: AICompletion }) {
               {cell.tool_type ? ` · ${cell.tool_type}` : ""}
             </span>
             <Badge variant={CELL_BADGE[cell.status].variant}>{CELL_BADGE[cell.status].label}</Badge>
+            {cell.helper && (
+              <span className="text-xs text-[var(--fg-muted)]">
+                calls <code className="font-mono">{cell.helper}</code>
+              </span>
+            )}
           </div>
           {cell.reason && (
             <p className="flex items-start gap-1.5 text-xs text-[var(--fg-muted)]">
