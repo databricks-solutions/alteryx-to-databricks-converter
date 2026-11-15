@@ -15,7 +15,7 @@ import json
 import logging
 
 from a2d.expressions.base_translator import BaseTranslationError
-from a2d.generators.base import GeneratedFile, GeneratedOutput, looping_macro_adjustment
+from a2d.generators.base import GeneratedFile, GeneratedOutput, free_anchor, looping_macro_adjustment
 from a2d.generators.sql import SQLGenerator, _cte_name
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
@@ -236,7 +236,8 @@ class LakeflowGenerator(SQLGenerator):
         preds = dag.get_predecessors(node_id)
         for pred in preds:
             edge_info = dag.get_edge_info(pred.node_id, node_id)
-            dest_anchor = edge_info.destination_anchor
+            # Numbered when several connections share an anchor (Union, Join Multiple).
+            dest_anchor = free_anchor(result, edge_info.destination_anchor)
             origin_anchor = edge_info.origin_anchor
 
             # Check for filter fan-out mapping (False branch)

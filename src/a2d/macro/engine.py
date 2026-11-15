@@ -415,7 +415,7 @@ class MacroExpansionEngine:
         for conn in parsed.connections:
             src, dst = conn.origin.tool_id, conn.destination.tool_id
             if src in node_ids and dst in node_ids:
-                dag.add_edge(src, dst, conn.origin.anchor_name, conn.destination.anchor_name)
+                dag.add_edge(src, dst, conn.origin.anchor_name, conn.destination.anchor_name, input_name=conn.name)
         return dag
 
     # ── Inlining ───────────────────────────────────────────────────────────
@@ -434,7 +434,14 @@ class MacroExpansionEngine:
         for src, dst, info in definition.dag.all_edges():
             if src in boundary_ids or dst in boundary_ids:
                 continue
-            dag.add_edge(src + offset, dst + offset, info.origin_anchor, info.destination_anchor, info.is_wireless)
+            dag.add_edge(
+                src + offset,
+                dst + offset,
+                info.origin_anchor,
+                info.destination_anchor,
+                info.is_wireless,
+                info.input_name,
+            )
 
         # 3. Rewire the parent's upstream (feeding the call) into the macro's
         #    input-boundary successors.
@@ -442,7 +449,13 @@ class MacroExpansionEngine:
         input_targets = _boundary_neighbors(definition, definition.inputs, downstream=True)
         for up_src, up_info in upstream:
             for tgt, tgt_info in input_targets:
-                dag.add_edge(up_src, tgt + offset, up_info.origin_anchor, tgt_info.destination_anchor)
+                dag.add_edge(
+                    up_src,
+                    tgt + offset,
+                    up_info.origin_anchor,
+                    tgt_info.destination_anchor,
+                    input_name=tgt_info.input_name,
+                )
 
         # 4. Rewire the macro's output-boundary predecessors into the parent's
         #    downstream (fed by the call).
@@ -450,7 +463,13 @@ class MacroExpansionEngine:
         output_sources = _boundary_neighbors(definition, definition.outputs, downstream=False)
         for src, src_info in output_sources:
             for down_dst, down_info in downstream:
-                dag.add_edge(src + offset, down_dst, src_info.origin_anchor, down_info.destination_anchor)
+                dag.add_edge(
+                    src + offset,
+                    down_dst,
+                    src_info.origin_anchor,
+                    down_info.destination_anchor,
+                    input_name=down_info.input_name,
+                )
 
         # 5. Remove the original call node (and its now-dangling edges).
         dag.remove_node(call_node_id)
@@ -483,7 +502,7 @@ def _clone_dag(dag: WorkflowDAG) -> WorkflowDAG:
     for node in dag.all_nodes():
         clone.add_node(node)
     for src, dst, info in dag.all_edges():
-        clone.add_edge(src, dst, info.origin_anchor, info.destination_anchor, info.is_wireless)
+        clone.add_edge(src, dst, info.origin_anchor, info.destination_anchor, info.is_wireless, info.input_name)
     return clone
 
 
@@ -493,7 +512,9 @@ def _rebased_dag(dag: WorkflowDAG, offset: int) -> WorkflowDAG:
     for node in dag.all_nodes():
         out.add_node(_rebased_copy(node, offset))
     for src, dst, info in dag.all_edges():
-        out.add_edge(src + offset, dst + offset, info.origin_anchor, info.destination_anchor, info.is_wireless)
+        out.add_edge(
+            src + offset, dst + offset, info.origin_anchor, info.destination_anchor, info.is_wireless, info.input_name
+        )
     return out
 
 

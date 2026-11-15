@@ -39,6 +39,7 @@ class ConnectionParser:
             origin=origin,
             destination=destination,
             is_wireless=is_wireless,
+            name=conn_element.get("name", "") or "",
         )
 
     def parse_all(self, connections_element: etree._Element) -> list[ParsedConnection]:

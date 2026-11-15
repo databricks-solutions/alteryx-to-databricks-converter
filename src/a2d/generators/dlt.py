@@ -12,7 +12,8 @@ import re
 from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.translator import PySparkTranslator
-from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, looping_macro_adjustment
+from a2d.generators import join_multiple_code
+from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, free_anchor, looping_macro_adjustment
 from a2d.generators.find_replace_code import find_replace_lines
 from a2d.generators.find_replace_code import problem as find_replace_problem
 from a2d.generators.join_code import join_output_lines
@@ -113,7 +114,10 @@ class DLTGenerator(CodeGenerator):
         """
         return repr(value)
 
+    _dag: WorkflowDAG | None = None
+
     def generate(self, dag: WorkflowDAG, workflow_name: str = "workflow") -> GeneratedOutput:
+        self._dag = dag  # for steps whose inputs are ordered (Join Multiple, Union)
         ordered_nodes = dag.topological_order()
         warnings: list[str] = []
         table_name_map: dict[int, str] = {}  # node_id -> dlt table name
@@ -211,9 +215,9 @@ class DLTGenerator(CodeGenerator):
         preds = dag.get_predecessors(node_id)
         for pred in preds:
             edge_info = dag.get_edge_info(pred.node_id, node_id)
-            dest_anchor = edge_info.destination_anchor
             tbl = table_name_map.get(pred.node_id, f"step_{pred.node_id}_unknown")
-            result[dest_anchor] = tbl
+            # Numbered when several connections share an anchor (Union, Join Multiple).
+            result[free_anchor(result, edge_info.destination_anchor)] = tbl
         return result
 
     def _generate_dlt_function(
@@ -434,7 +438,7 @@ class DLTGenerator(CodeGenerator):
             return lines, warnings
 
         if isinstance(node, UnionNode):
-            tables = list(input_tables.values())
+            tables = join_multiple_code.ordered(self._dag, node.node_id, input_tables)  # input order: #1, #2, ...
             if not tables:
                 return ["return spark.createDataFrame([], schema=[])"], warnings
             lines = [f'df = dlt.read("{tables[0]}")']
@@ -600,22 +604,13 @@ class DLTGenerator(CodeGenerator):
             return lines, warnings
 
         if isinstance(node, JoinMultipleNode):
-            tables = list(input_tables.values())
-            if len(tables) < 2:
-                inp = self._get_single_input_read(input_tables)
-                return [f"return {inp}"], warnings
-            join_type = node.join_type or "inner"
-            lines = [f'df = dlt.read("{tables[0]}")']
-            for tbl in tables[1:]:
-                if node.join_keys:
-                    key_parts = [f'df["{jk.left_field}"] == right["{jk.right_field}"]' for jk in node.join_keys]
-                    cond = " & ".join(f"({kp})" for kp in key_parts)
-                    lines.append(f'right = dlt.read("{tbl}")')
-                    lines.append(f'df = df.join(right, {cond}, "{join_type}")')
-                else:
-                    lines.append(f'df = df.join(dlt.read("{tbl}"), "{join_type}")')
-            lines.append("return df")
-            return lines, warnings
+            tables = join_multiple_code.ordered(self._dag, node.node_id, input_tables)
+            reads = [f"dlt.read({self._lit(t)})" for t in tables]
+            lines = join_multiple_code.python_lines(node, reads, "df", self._lit)
+            why = join_multiple_code.problem(node, len(tables))
+            if why:
+                warnings.append(f"JoinMultiple node {node.node_id}: {why}; it isn't converted")
+            return [*lines, "return df"], warnings
 
         if isinstance(node, RegExNode):
             inp = self._get_single_input_read(input_tables)

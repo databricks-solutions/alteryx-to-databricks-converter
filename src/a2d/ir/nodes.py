@@ -351,11 +351,25 @@ class AppendFieldsNode(IRNode):
 
 @dataclass
 class JoinMultipleNode(IRNode):
-    """Join more than two inputs simultaneously."""
+    """Join more than two inputs at once, as Alteryx's Join Multiple does.
 
-    join_keys: list[JoinKey] = field(default_factory=list)
+    Inputs are numbered (#1, #2, ...; the edge's ``input_name``). They join on
+    each input's key fields, matched by position in ``keys_by_input``, or, with
+    ``by_position``, record 1 with record 1 and so on. ``join_type`` is "inner"
+    (only records that join from all inputs) or "full" (all records). A column
+    name already taken by an earlier input comes out as ``Input_#k_<name>``;
+    ``select_fields`` then applies the tool's own select list, which names every
+    field ``Input_#k_<name>``.
+    """
+
+    join_keys: list[JoinKey] = field(default_factory=list)  # older two-sided form
     join_type: str = "inner"
     input_count: int = 2
+    by_position: bool = False
+    keys_by_input: dict[int, list[str]] = field(default_factory=dict)
+    # (field as "Input_#k_<name>", selected, rename or None), in the tool's order.
+    select_fields: list[tuple[str, bool, str | None]] = field(default_factory=list)
+    keep_unlisted: bool = True  # the select list's *Unknown
 
 
 # ═══════════════════════════════════════════════════════════════════════════
