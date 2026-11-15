@@ -8,7 +8,6 @@ brings the project's macros), and the same conversion options as Convert:
   which steps AI completion would work on. No model call, so it works without AI.
 * ``POST /api/ai/complete``: a separate, clearly marked copy of the PySpark
   notebook with only those steps filled in by the model.
-* ``POST /api/ai/notes``: the Markdown suggestions notes, as a download.
 
 AI is opt-in: without a configured FMAPI endpoint, ``complete`` and ``notes``
 answer 422 with what to set. The deterministic output is never modified.
@@ -20,7 +19,6 @@ import logging
 import re
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import PlainTextResponse
 from lxml.etree import XMLSyntaxError
 from starlette.concurrency import run_in_threadpool
 
@@ -30,7 +28,6 @@ from a2d.exceptions import A2dError
 from server.models.requests import ConversionOptions, conversion_options
 from server.services import ai_completion
 from server.utils.deadline import run_with_timeout
-from server.utils.headers import content_disposition
 from server.utils.project_input import resolve_one_workflow
 
 logger = logging.getLogger("a2d.server.routers.ai")
@@ -60,8 +57,9 @@ def _bad_workflow(name: str, exc: Exception) -> HTTPException:
 
 @router.get("/status")
 async def ai_status() -> dict:
-    """Whether a model endpoint is configured, so the UI can show the opt-in note."""
-    return {"enabled": ai_completion.is_enabled()}
+    """Whether a model endpoint is configured, which one, and how long a step
+    usually takes, so the UI can say what will happen before anything is sent."""
+    return ai_completion.status()
 
 
 @router.post("/gaps")
@@ -169,28 +167,3 @@ async def feedback(payload: dict = Body(...)) -> dict:
 async def tracing_status() -> dict:
     """Whether AI calls are traced to MLflow."""
     return {"enabled": await run_in_threadpool(tracing.enabled)}
-
-
-@router.post("/notes", response_class=PlainTextResponse)
-async def notes(
-    file: UploadFile | None = File(None),
-    project_id: str | None = Form(None),
-    workflow_id: str | None = Form(None),
-    macros: list[UploadFile] = File(default=[]),
-    opts: ConversionOptions = Depends(conversion_options),
-) -> PlainTextResponse:
-    """Return the AI suggestions notes (Markdown) for one workflow, as a download."""
-    client = _require_client()
-    wf = await resolve_one_workflow(file, project_id, workflow_id, macros)
-    name, content = wf.name, wf.content
-    try:
-        filename, markdown = await run_with_timeout(
-            ai_completion.suggestions_markdown, name, content, client, opts, wf.macros, label=f"Notes for {name}"
-        )
-    except (ValueError, XMLSyntaxError, A2dError) as e:
-        raise _bad_workflow(name, e) from None
-    return PlainTextResponse(
-        content=markdown,
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": content_disposition(filename)},
-    )

@@ -23,6 +23,9 @@ class EchoClient:
 
     def chat(self, messages, *, max_tokens: int = 4000) -> str:
         prompt = messages[-1].content
+        if prompt.startswith("Workflow:") and "\nFunction name: " in prompt:  # a shared helper
+            name = prompt.split("\nFunction name: ", 1)[1].split("\n", 1)[0]
+            return f'def {name}(df, **settings):\n    """Stub."""\n    return df'
         body = prompt.split("The step's code as generated:\n", 1)[1]
         return body.split("\n\nThe reviewer's note", 1)[0].split("\n\nReply with the code", 1)[0]
 
@@ -40,3 +43,5 @@ def test_every_step_reaches_the_model_and_a_well_formed_reply_passes():
     bad = [(s.workflow, s.node_id, s.tool_type, s.status, s.reason) for s in report.steps if s.status != "completed"]
     assert bad == []
     assert summary["steps"] >= 150 and summary["workflows"] >= 35, summary
+    # Tools that several steps use in one workflow each got a helper that passed the checks.
+    assert summary["helpers"] > 0 and summary["helpers_failed"] == 0, summary

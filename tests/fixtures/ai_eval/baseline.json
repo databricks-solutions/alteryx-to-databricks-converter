@@ -7,13 +7,16 @@
   "failed": 0,
   "skipped": 0,
   "completed_rate": 1.0,
-  "retried": 1,
-  "completed_on_retry": 1,
-  "median_seconds": 8.23,
-  "p90_seconds": 12.32,
-  "prompt_tokens": 67455,
-  "completion_tokens": 46746,
-  "wall_seconds": 212.1,
+  "retried": 0,
+  "completed_on_retry": 0,
+  "helpers": 14,
+  "helpers_failed": 0,
+  "steps_calling_a_helper": 46,
+  "median_seconds": 4.21,
+  "p90_seconds": 10.91,
+  "prompt_tokens": 178979,
+  "completion_tokens": 65580,
+  "wall_seconds": 369.5,
   "reasons": {},
   "per_tool": {
    "BasicDataProfile": {
@@ -94,10 +97,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 11.58,
-   "prompt_tokens": 1583,
-   "completion_tokens": 782,
-   "attempts": 1
+   "seconds": 6.61,
+   "prompt_tokens": 4569,
+   "completion_tokens": 598,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -105,10 +109,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 19.21,
-   "prompt_tokens": 2378,
-   "completion_tokens": 1544,
-   "attempts": 1
+   "seconds": 4.96,
+   "prompt_tokens": 5364,
+   "completion_tokens": 258,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -116,10 +121,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 9.96,
-   "prompt_tokens": 832,
-   "completion_tokens": 567,
-   "attempts": 1
+   "seconds": 4.82,
+   "prompt_tokens": 3818,
+   "completion_tokens": 268,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -127,10 +133,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 10.31,
-   "prompt_tokens": 1546,
-   "completion_tokens": 653,
-   "attempts": 1
+   "seconds": 6.23,
+   "prompt_tokens": 4532,
+   "completion_tokens": 544,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -138,10 +145,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 6.11,
-   "prompt_tokens": 971,
-   "completion_tokens": 466,
-   "attempts": 1
+   "seconds": 3.81,
+   "prompt_tokens": 3957,
+   "completion_tokens": 325,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -149,10 +157,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 7.22,
-   "prompt_tokens": 1320,
-   "completion_tokens": 657,
-   "attempts": 1
+   "seconds": 5.29,
+   "prompt_tokens": 4306,
+   "completion_tokens": 461,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -160,10 +169,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 6.11,
-   "prompt_tokens": 1053,
-   "completion_tokens": 538,
-   "attempts": 1
+   "seconds": 4.54,
+   "prompt_tokens": 4039,
+   "completion_tokens": 394,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -171,10 +181,11 @@
    "tool_type": "MongoInput",
    "status": "completed",
    "reason": "",
-   "seconds": 12.42,
-   "prompt_tokens": 1093,
-   "completion_tokens": 1291,
-   "attempts": 1
+   "seconds": 10.32,
+   "prompt_tokens": 4079,
+   "completion_tokens": 878,
+   "attempts": 1,
+   "helper": "a2d_mongo_input"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -182,10 +193,11 @@
    "tool_type": "DynamicSelect",
    "status": "completed",
    "reason": "",
-   "seconds": 3.47,
-   "prompt_tokens": 757,
-   "completion_tokens": 130,
-   "attempts": 1
+   "seconds": 2.32,
+   "prompt_tokens": 4124,
+   "completion_tokens": 69,
+   "attempts": 1,
+   "helper": "a2d_dynamic_select"
   },
   {
    "workflow": "Server_Usage_Testing.yxmd",
@@ -193,10 +205,11 @@
    "tool_type": "DynamicSelect",
    "status": "completed",
    "reason": "",
-   "seconds": 4.02,
-   "prompt_tokens": 753,
-   "completion_tokens": 125,
-   "attempts": 1
+   "seconds": 5.01,
+   "prompt_tokens": 4120,
+   "completion_tokens": 57,
+   "attempts": 1,
+   "helper": "a2d_dynamic_select"
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -204,10 +217,11 @@
    "tool_type": "Download",
    "status": "completed",
    "reason": "",
-   "seconds": 9.14,
-   "prompt_tokens": 684,
-   "completion_tokens": 786,
-   "attempts": 1
+   "seconds": 11.36,
+   "prompt_tokens": 725,
+   "completion_tokens": 1050,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -215,10 +229,11 @@
    "tool_type": "Test",
    "status": "completed",
    "reason": "",
-   "seconds": 8.33,
-   "prompt_tokens": 809,
-   "completion_tokens": 537,
-   "attempts": 1
+   "seconds": 3.83,
+   "prompt_tokens": 850,
+   "completion_tokens": 262,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -226,10 +241,11 @@
    "tool_type": "DynamicSelect",
    "status": "completed",
    "reason": "",
-   "seconds": 4.72,
-   "prompt_tokens": 884,
-   "completion_tokens": 313,
-   "attempts": 1
+   "seconds": 2.67,
+   "prompt_tokens": 4199,
+   "completion_tokens": 95,
+   "attempts": 1,
+   "helper": "a2d_dynamic_select"
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -237,10 +253,11 @@
    "tool_type": "Message",
    "status": "completed",
    "reason": "",
-   "seconds": 5.61,
-   "prompt_tokens": 895,
-   "completion_tokens": 429,
-   "attempts": 1
+   "seconds": 4.08,
+   "prompt_tokens": 2064,
+   "completion_tokens": 330,
+   "attempts": 1,
+   "helper": "a2d_message"
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -248,10 +265,11 @@
    "tool_type": "DynamicSelect",
    "status": "completed",
    "reason": "",
-   "seconds": 3.17,
-   "prompt_tokens": 803,
-   "completion_tokens": 125,
-   "attempts": 1
+   "seconds": 2.04,
+   "prompt_tokens": 4118,
+   "completion_tokens": 63,
+   "attempts": 1,
+   "helper": "a2d_dynamic_select"
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -259,10 +277,11 @@
    "tool_type": "BasicDataProfile",
    "status": "completed",
    "reason": "",
-   "seconds": 14.07,
-   "prompt_tokens": 778,
-   "completion_tokens": 1462,
-   "attempts": 1
+   "seconds": 13.48,
+   "prompt_tokens": 819,
+   "completion_tokens": 1425,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -270,10 +289,11 @@
    "tool_type": "Message",
    "status": "completed",
    "reason": "",
-   "seconds": 3.78,
-   "prompt_tokens": 1363,
-   "completion_tokens": 209,
-   "attempts": 1
+   "seconds": 2.95,
+   "prompt_tokens": 2532,
+   "completion_tokens": 206,
+   "attempts": 1,
+   "helper": "a2d_message"
   },
   {
    "workflow": "Transforming_and_Profiling_Places.yxmd",
@@ -281,10 +301,11 @@
    "tool_type": "Message",
    "status": "completed",
    "reason": "",
-   "seconds": 5.76,
-   "prompt_tokens": 1330,
-   "completion_tokens": 420,
-   "attempts": 1
+   "seconds": 2.52,
+   "prompt_tokens": 2499,
+   "completion_tokens": 159,
+   "attempts": 1,
+   "helper": "a2d_message"
   },
   {
    "workflow": "Public_Dataset_Download.yxmd",
@@ -292,10 +313,11 @@
    "tool_type": "FieldInfo",
    "status": "completed",
    "reason": "",
-   "seconds": 6.24,
-   "prompt_tokens": 3010,
-   "completion_tokens": 519,
-   "attempts": 1
+   "seconds": 1.86,
+   "prompt_tokens": 3991,
+   "completion_tokens": 45,
+   "attempts": 1,
+   "helper": "a2d_field_info"
   },
   {
    "workflow": "Public_Dataset_Download.yxmd",
@@ -303,10 +325,11 @@
    "tool_type": "Download",
    "status": "completed",
    "reason": "",
-   "seconds": 27.11,
-   "prompt_tokens": 1813,
-   "completion_tokens": 2380,
-   "attempts": 2
+   "seconds": 8.95,
+   "prompt_tokens": 690,
+   "completion_tokens": 757,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Public_Dataset_Download.yxmd",
@@ -314,10 +337,11 @@
    "tool_type": "DynamicInput",
    "status": "completed",
    "reason": "",
-   "seconds": 8.91,
-   "prompt_tokens": 701,
-   "completion_tokens": 650,
-   "attempts": 1
+   "seconds": 6.3,
+   "prompt_tokens": 742,
+   "completion_tokens": 509,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Public_Dataset_Download.yxmd",
@@ -325,10 +349,11 @@
    "tool_type": "FieldInfo",
    "status": "completed",
    "reason": "",
-   "seconds": 11.61,
-   "prompt_tokens": 685,
-   "completion_tokens": 1016,
-   "attempts": 1
+   "seconds": 1.83,
+   "prompt_tokens": 1666,
+   "completion_tokens": 53,
+   "attempts": 1,
+   "helper": "a2d_field_info"
   },
   {
    "workflow": "Public_Dataset_Download.yxmd",
@@ -336,10 +361,11 @@
    "tool_type": "DynamicSelect",
    "status": "completed",
    "reason": "",
-   "seconds": 3.69,
-   "prompt_tokens": 762,
-   "completion_tokens": 167,
-   "attempts": 1
+   "seconds": 3.33,
+   "prompt_tokens": 803,
+   "completion_tokens": 139,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Public_Dataset_Download.yxmd",
@@ -347,10 +373,11 @@
    "tool_type": "DynamicRename",
    "status": "completed",
    "reason": "",
-   "seconds": 12.32,
-   "prompt_tokens": 2187,
-   "completion_tokens": 1050,
-   "attempts": 1
+   "seconds": 11.23,
+   "prompt_tokens": 2228,
+   "completion_tokens": 939,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Public_Dataset_Download.yxmd",
@@ -358,10 +385,11 @@
    "tool_type": "Test",
    "status": "completed",
    "reason": "",
-   "seconds": 7.55,
-   "prompt_tokens": 858,
-   "completion_tokens": 577,
-   "attempts": 1
+   "seconds": 6.78,
+   "prompt_tokens": 899,
+   "completion_tokens": 542,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Make_Columns_Fix_for_Excel_data.yxmd",
@@ -369,10 +397,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 5.7,
-   "prompt_tokens": 803,
-   "completion_tokens": 447,
-   "attempts": 1
+   "seconds": 5.16,
+   "prompt_tokens": 844,
+   "completion_tokens": 464,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Make_Columns_Fix_for_Excel_data.yxmd",
@@ -380,10 +409,11 @@
    "tool_type": "MakeColumns",
    "status": "completed",
    "reason": "",
-   "seconds": 9.15,
-   "prompt_tokens": 782,
-   "completion_tokens": 724,
-   "attempts": 1
+   "seconds": 2.05,
+   "prompt_tokens": 2135,
+   "completion_tokens": 75,
+   "attempts": 1,
+   "helper": "a2d_make_columns"
   },
   {
    "workflow": "Make_Columns_Fix_for_Excel_data.yxmd",
@@ -391,10 +421,11 @@
    "tool_type": "MakeColumns",
    "status": "completed",
    "reason": "",
-   "seconds": 9.03,
-   "prompt_tokens": 782,
-   "completion_tokens": 798,
-   "attempts": 1
+   "seconds": 2.23,
+   "prompt_tokens": 2135,
+   "completion_tokens": 84,
+   "attempts": 1,
+   "helper": "a2d_make_columns"
   },
   {
    "workflow": "Make_Columns_Fix_for_Excel_data.yxmd",
@@ -402,10 +433,11 @@
    "tool_type": "MakeColumns",
    "status": "completed",
    "reason": "",
-   "seconds": 8.58,
-   "prompt_tokens": 782,
-   "completion_tokens": 735,
-   "attempts": 1
+   "seconds": 3.91,
+   "prompt_tokens": 2135,
+   "completion_tokens": 75,
+   "attempts": 1,
+   "helper": "a2d_make_columns"
   },
   {
    "workflow": "Make_Columns_Fix_for_Excel_data.yxmd",
@@ -413,10 +445,11 @@
    "tool_type": "MakeColumns",
    "status": "completed",
    "reason": "",
-   "seconds": 8.36,
-   "prompt_tokens": 782,
-   "completion_tokens": 715,
-   "attempts": 1
+   "seconds": 2.07,
+   "prompt_tokens": 2135,
+   "completion_tokens": 77,
+   "attempts": 1,
+   "helper": "a2d_make_columns"
   },
   {
    "workflow": "CH09-R03-Dynamically_Replacing_values.yxmd",
@@ -424,10 +457,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 7.37,
-   "prompt_tokens": 855,
-   "completion_tokens": 704,
-   "attempts": 1
+   "seconds": 5.51,
+   "prompt_tokens": 2154,
+   "completion_tokens": 366,
+   "attempts": 1,
+   "helper": "a2d_input"
   },
   {
    "workflow": "CH09-R03-Dynamically_Replacing_values.yxmd",
@@ -435,10 +469,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 5.4,
-   "prompt_tokens": 805,
-   "completion_tokens": 425,
-   "attempts": 1
+   "seconds": 3.44,
+   "prompt_tokens": 2104,
+   "completion_tokens": 227,
+   "attempts": 1,
+   "helper": "a2d_input"
   },
   {
    "workflow": "CH09-R03-Dynamically_Replacing_values.yxmd",
@@ -446,10 +481,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 7.2,
-   "prompt_tokens": 814,
-   "completion_tokens": 550,
-   "attempts": 1
+   "seconds": 4.24,
+   "prompt_tokens": 2113,
+   "completion_tokens": 328,
+   "attempts": 1,
+   "helper": "a2d_input"
   },
   {
    "workflow": "CH09-R03-Dynamically_Replacing_values.yxmd",
@@ -457,10 +493,11 @@
    "tool_type": "DynamicReplace",
    "status": "completed",
    "reason": "",
-   "seconds": 16.44,
-   "prompt_tokens": 1264,
-   "completion_tokens": 1579,
-   "attempts": 1
+   "seconds": 15.51,
+   "prompt_tokens": 1305,
+   "completion_tokens": 1485,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "CH09-R03-Dynamically_Replacing_values.yxmd",
@@ -468,10 +505,11 @@
    "tool_type": "DynamicRename",
    "status": "completed",
    "reason": "",
-   "seconds": 10.19,
-   "prompt_tokens": 1126,
-   "completion_tokens": 898,
-   "attempts": 1
+   "seconds": 8.09,
+   "prompt_tokens": 1167,
+   "completion_tokens": 823,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "CH04-R02-Fixing_CrossTabRenames.yxmd",
@@ -479,10 +517,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 6.01,
-   "prompt_tokens": 899,
-   "completion_tokens": 535,
-   "attempts": 1
+   "seconds": 5.97,
+   "prompt_tokens": 940,
+   "completion_tokens": 649,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "CH04-R02-Fixing_CrossTabRenames.yxmd",
@@ -490,10 +529,11 @@
    "tool_type": "FieldInfo",
    "status": "completed",
    "reason": "",
-   "seconds": 8.42,
-   "prompt_tokens": 850,
-   "completion_tokens": 593,
-   "attempts": 1
+   "seconds": 2.33,
+   "prompt_tokens": 2001,
+   "completion_tokens": 51,
+   "attempts": 1,
+   "helper": "a2d_field_info"
   },
   {
    "workflow": "CH04-R02-Fixing_CrossTabRenames.yxmd",
@@ -501,10 +541,11 @@
    "tool_type": "FieldInfo",
    "status": "completed",
    "reason": "",
-   "seconds": 7.85,
-   "prompt_tokens": 719,
-   "completion_tokens": 683,
-   "attempts": 1
+   "seconds": 1.99,
+   "prompt_tokens": 1870,
+   "completion_tokens": 55,
+   "attempts": 1,
+   "helper": "a2d_field_info"
   },
   {
    "workflow": "CH04-R02-Fixing_CrossTabRenames.yxmd",
@@ -512,10 +553,11 @@
    "tool_type": "DynamicRename",
    "status": "completed",
    "reason": "",
-   "seconds": 8.3,
-   "prompt_tokens": 984,
-   "completion_tokens": 683,
-   "attempts": 1
+   "seconds": 2.91,
+   "prompt_tokens": 2691,
+   "completion_tokens": 200,
+   "attempts": 1,
+   "helper": "a2d_dynamic_rename"
   },
   {
    "workflow": "CH04-R02-Fixing_CrossTabRenames.yxmd",
@@ -523,10 +565,11 @@
    "tool_type": "DynamicRename",
    "status": "completed",
    "reason": "",
-   "seconds": 8.15,
-   "prompt_tokens": 720,
-   "completion_tokens": 713,
-   "attempts": 1
+   "seconds": 4.6,
+   "prompt_tokens": 2427,
+   "completion_tokens": 107,
+   "attempts": 1,
+   "helper": "a2d_dynamic_rename"
   },
   {
    "workflow": "CH06-R03-MakeGroups.yxmd",
@@ -534,10 +577,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 5.05,
-   "prompt_tokens": 797,
-   "completion_tokens": 396,
-   "attempts": 1
+   "seconds": 3.12,
+   "prompt_tokens": 1747,
+   "completion_tokens": 241,
+   "attempts": 1,
+   "helper": "a2d_input"
   },
   {
    "workflow": "CH06-R03-MakeGroups.yxmd",
@@ -545,10 +589,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 4.75,
-   "prompt_tokens": 810,
-   "completion_tokens": 335,
-   "attempts": 1
+   "seconds": 3.88,
+   "prompt_tokens": 1760,
+   "completion_tokens": 227,
+   "attempts": 1,
+   "helper": "a2d_input"
   },
   {
    "workflow": "CH06-R03-MakeGroups.yxmd",
@@ -556,10 +601,11 @@
    "tool_type": "MakeGroup",
    "status": "completed",
    "reason": "",
-   "seconds": 11.1,
-   "prompt_tokens": 767,
-   "completion_tokens": 1044,
-   "attempts": 1
+   "seconds": 13.24,
+   "prompt_tokens": 808,
+   "completion_tokens": 1247,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "CH12-R03-_Blob_Input_-_Using_Web_Python.yxmd",
@@ -567,10 +613,11 @@
    "tool_type": "BlobInput",
    "status": "completed",
    "reason": "",
-   "seconds": 13.67,
-   "prompt_tokens": 824,
-   "completion_tokens": 1206,
-   "attempts": 1
+   "seconds": 10.59,
+   "prompt_tokens": 865,
+   "completion_tokens": 1002,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "CH12-R03-_Blob_Input_-_Using_Web_Python.yxmd",
@@ -578,10 +625,11 @@
    "tool_type": "JupyterCode",
    "status": "completed",
    "reason": "",
-   "seconds": 6.42,
-   "prompt_tokens": 1806,
-   "completion_tokens": 460,
-   "attempts": 1
+   "seconds": 6.65,
+   "prompt_tokens": 1847,
+   "completion_tokens": 497,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "CH12-R03-_Blob_Input_-_Using_Web_Python.yxmd",
@@ -589,10 +637,11 @@
    "tool_type": "BlobConvert",
    "status": "completed",
    "reason": "",
-   "seconds": 6.68,
-   "prompt_tokens": 794,
-   "completion_tokens": 467,
-   "attempts": 1
+   "seconds": 6.83,
+   "prompt_tokens": 835,
+   "completion_tokens": 505,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Spatial_Analytics.yxmd",
@@ -600,10 +649,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 9.57,
-   "prompt_tokens": 877,
-   "completion_tokens": 551,
-   "attempts": 1
+   "seconds": 6.08,
+   "prompt_tokens": 918,
+   "completion_tokens": 512,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Spatial_Analytics.yxmd",
@@ -611,10 +661,11 @@
    "tool_type": "SpatialInfo",
    "status": "completed",
    "reason": "",
-   "seconds": 7.75,
-   "prompt_tokens": 745,
-   "completion_tokens": 459,
-   "attempts": 1
+   "seconds": 6.4,
+   "prompt_tokens": 786,
+   "completion_tokens": 261,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Spatial_Analytics.yxmd",
@@ -622,10 +673,11 @@
    "tool_type": "DynamicSelect",
    "status": "completed",
    "reason": "",
-   "seconds": 6.17,
-   "prompt_tokens": 803,
-   "completion_tokens": 445,
-   "attempts": 1
+   "seconds": 5.8,
+   "prompt_tokens": 844,
+   "completion_tokens": 507,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "CH02R03_-_3_-_CalgaryJoin.yxmd",
@@ -633,10 +685,11 @@
    "tool_type": "CalgaryJoin",
    "status": "completed",
    "reason": "",
-   "seconds": 9.17,
-   "prompt_tokens": 958,
-   "completion_tokens": 654,
-   "attempts": 1
+   "seconds": 13.12,
+   "prompt_tokens": 999,
+   "completion_tokens": 893,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "GenerateFlat.yxmd",
@@ -644,10 +697,11 @@
    "tool_type": "Input",
    "status": "completed",
    "reason": "",
-   "seconds": 5.09,
-   "prompt_tokens": 821,
-   "completion_tokens": 432,
-   "attempts": 1
+   "seconds": 4.66,
+   "prompt_tokens": 862,
+   "completion_tokens": 419,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "GenerateFlat.yxmd",
@@ -655,10 +709,11 @@
    "tool_type": "DynamicRename",
    "status": "completed",
    "reason": "",
-   "seconds": 10.45,
-   "prompt_tokens": 904,
-   "completion_tokens": 875,
-   "attempts": 1
+   "seconds": 10.91,
+   "prompt_tokens": 945,
+   "completion_tokens": 964,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -666,10 +721,11 @@
    "tool_type": "Predict",
    "status": "completed",
    "reason": "",
-   "seconds": 5.54,
-   "prompt_tokens": 653,
-   "completion_tokens": 393,
-   "attempts": 1
+   "seconds": 3.88,
+   "prompt_tokens": 2143,
+   "completion_tokens": 297,
+   "attempts": 1,
+   "helper": "a2d_predict"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -677,10 +733,11 @@
    "tool_type": "Predict",
    "status": "completed",
    "reason": "",
-   "seconds": 5.04,
-   "prompt_tokens": 653,
-   "completion_tokens": 295,
-   "attempts": 1
+   "seconds": 4.21,
+   "prompt_tokens": 2143,
+   "completion_tokens": 230,
+   "attempts": 1,
+   "helper": "a2d_predict"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -688,10 +745,11 @@
    "tool_type": "Modeling",
    "status": "completed",
    "reason": "",
-   "seconds": 8.73,
-   "prompt_tokens": 859,
-   "completion_tokens": 767,
-   "attempts": 1
+   "seconds": 9.09,
+   "prompt_tokens": 900,
+   "completion_tokens": 760,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -699,10 +757,11 @@
    "tool_type": "JupyterCode",
    "status": "completed",
    "reason": "",
-   "seconds": 11.3,
-   "prompt_tokens": 2162,
-   "completion_tokens": 1069,
-   "attempts": 1
+   "seconds": 8.93,
+   "prompt_tokens": 2203,
+   "completion_tokens": 558,
+   "attempts": 1,
+   "helper": null
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -710,10 +769,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 5.55,
-   "prompt_tokens": 659,
-   "completion_tokens": 379,
-   "attempts": 1
+   "seconds": 2.55,
+   "prompt_tokens": 2397,
+   "completion_tokens": 137,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -721,10 +781,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 8.67,
-   "prompt_tokens": 659,
-   "completion_tokens": 671,
-   "attempts": 1
+   "seconds": 3.34,
+   "prompt_tokens": 2397,
+   "completion_tokens": 157,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -732,10 +793,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 3.77,
-   "prompt_tokens": 659,
-   "completion_tokens": 194,
-   "attempts": 1
+   "seconds": 2.62,
+   "prompt_tokens": 2397,
+   "completion_tokens": 148,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -743,10 +805,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 4.4,
-   "prompt_tokens": 659,
-   "completion_tokens": 219,
-   "attempts": 1
+   "seconds": 2.45,
+   "prompt_tokens": 2397,
+   "completion_tokens": 116,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -754,10 +817,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 6.72,
-   "prompt_tokens": 659,
-   "completion_tokens": 468,
-   "attempts": 1
+   "seconds": 2.75,
+   "prompt_tokens": 2397,
+   "completion_tokens": 122,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -765,10 +829,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 7.59,
-   "prompt_tokens": 659,
-   "completion_tokens": 658,
-   "attempts": 1
+   "seconds": 3.01,
+   "prompt_tokens": 2397,
+   "completion_tokens": 108,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -776,10 +841,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 8.61,
-   "prompt_tokens": 659,
-   "completion_tokens": 789,
-   "attempts": 1
+   "seconds": 2.14,
+   "prompt_tokens": 2397,
+   "completion_tokens": 103,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -787,10 +853,11 @@
    "tool_type": "Transformation",
    "status": "completed",
    "reason": "",
-   "seconds": 6.87,
-   "prompt_tokens": 659,
-   "completion_tokens": 539,
-   "attempts": 1
+   "seconds": 3.18,
+   "prompt_tokens": 2397,
+   "completion_tokens": 110,
+   "attempts": 1,
+   "helper": "a2d_transformation"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -798,10 +865,11 @@
    "tool_type": "Regression",
    "status": "completed",
    "reason": "",
-   "seconds": 8.91,
-   "prompt_tokens": 657,
-   "completion_tokens": 756,
-   "attempts": 1
+   "seconds": 3.17,
+   "prompt_tokens": 2674,
+   "completion_tokens": 203,
+   "attempts": 1,
+   "helper": "a2d_regression"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -809,10 +877,11 @@
    "tool_type": "Regression",
    "status": "completed",
    "reason": "",
-   "seconds": 8.6,
-   "prompt_tokens": 657,
-   "completion_tokens": 722,
-   "attempts": 1
+   "seconds": 4.2,
+   "prompt_tokens": 2674,
+   "completion_tokens": 141,
+   "attempts": 1,
+   "helper": "a2d_regression"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -820,10 +889,11 @@
    "tool_type": "Fit",
    "status": "completed",
    "reason": "",
-   "seconds": 9.79,
-   "prompt_tokens": 657,
-   "completion_tokens": 793,
-   "attempts": 1
+   "seconds": 3.77,
+   "prompt_tokens": 2504,
+   "completion_tokens": 278,
+   "attempts": 1,
+   "helper": "a2d_fit"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -831,10 +901,11 @@
    "tool_type": "Fit",
    "status": "completed",
    "reason": "",
-   "seconds": 11.04,
-   "prompt_tokens": 657,
-   "completion_tokens": 981,
-   "attempts": 1
+   "seconds": 3.87,
+   "prompt_tokens": 2504,
+   "completion_tokens": 225,
+   "attempts": 1,
+   "helper": "a2d_fit"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -842,10 +913,11 @@
    "tool_type": "Predict",
    "status": "completed",
    "reason": "",
-   "seconds": 9.73,
-   "prompt_tokens": 850,
-   "completion_tokens": 840,
-   "attempts": 1
+   "seconds": 3.84,
+   "prompt_tokens": 2340,
+   "completion_tokens": 283,
+   "attempts": 1,
+   "helper": "a2d_predict"
   },
   {
    "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
@@ -853,9 +925,124 @@
    "tool_type": "Predict",
    "status": "completed",
    "reason": "",
-   "seconds": 9.25,
-   "prompt_tokens": 657,
-   "completion_tokens": 714,
+   "seconds": 7.47,
+   "prompt_tokens": 2147,
+   "completion_tokens": 634,
+   "attempts": 1,
+   "helper": "a2d_predict"
+  }
+ ],
+ "helpers": [
+  {
+   "workflow": "Server_Usage_Testing.yxmd",
+   "tool_type": "MongoInput",
+   "steps": 8,
+   "status": "completed",
+   "reason": "",
+   "attempts": 2
+  },
+  {
+   "workflow": "Server_Usage_Testing.yxmd",
+   "tool_type": "DynamicSelect",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "Transforming_and_Profiling_Places.yxmd",
+   "tool_type": "DynamicSelect",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
+   "attempts": 2
+  },
+  {
+   "workflow": "Transforming_and_Profiling_Places.yxmd",
+   "tool_type": "Message",
+   "steps": 3,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "Public_Dataset_Download.yxmd",
+   "tool_type": "FieldInfo",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "Make_Columns_Fix_for_Excel_data.yxmd",
+   "tool_type": "MakeColumns",
+   "steps": 4,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "CH09-R03-Dynamically_Replacing_values.yxmd",
+   "tool_type": "Input",
+   "steps": 3,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "CH04-R02-Fixing_CrossTabRenames.yxmd",
+   "tool_type": "FieldInfo",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "CH04-R02-Fixing_CrossTabRenames.yxmd",
+   "tool_type": "DynamicRename",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "CH06-R03-MakeGroups.yxmd",
+   "tool_type": "Input",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
+   "tool_type": "Predict",
+   "steps": 4,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
+   "tool_type": "Transformation",
+   "steps": 8,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
+   "tool_type": "Regression",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
+   "attempts": 1
+  },
+  {
+   "workflow": "Machine_Learning_-_Intelligence_Suite.yxmd",
+   "tool_type": "Fit",
+   "steps": 2,
+   "status": "completed",
+   "reason": "",
    "attempts": 1
   }
  ]
