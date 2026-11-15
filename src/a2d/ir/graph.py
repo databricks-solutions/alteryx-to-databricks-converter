@@ -25,6 +25,7 @@ class EdgeInfo:
     origin_anchor: str = "Output"
     destination_anchor: str = "Input"
     is_wireless: bool = False
+    input_name: str = ""  # "#1", "#2", ... on a tool whose inputs are ordered
 
 
 class WorkflowDAG:
@@ -86,6 +87,7 @@ class WorkflowDAG:
         origin_anchor: str = "Output",
         destination_anchor: str = "Input",
         is_wireless: bool = False,
+        input_name: str = "",
     ) -> None:
         """Add a directed edge between two nodes.
 
@@ -100,6 +102,7 @@ class WorkflowDAG:
             origin_anchor=origin_anchor,
             destination_anchor=destination_anchor,
             is_wireless=is_wireless,
+            input_name=input_name,
         )
         self._graph.add_edge(source_id, target_id, info=info)
 

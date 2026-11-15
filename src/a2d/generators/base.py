@@ -191,3 +191,25 @@ def looping_macro_adjustment(dag) -> tuple[int, int]:
             extra_total += len(tools) - 1
             extra_unsupported += sum(isinstance(t, UnsupportedNode) for t in tools)
     return extra_total, extra_unsupported
+
+
+def free_anchor(taken: dict[str, str], anchor: str) -> str:
+    """``anchor``, or ``anchor_2``, ``anchor_3``... when it's taken: several
+    connections can arrive on one anchor (every input of a Union is "Input")."""
+    if anchor not in taken:
+        return anchor
+    n = 2
+    while f"{anchor}_{n}" in taken:
+        n += 1
+    return f"{anchor}_{n}"
+
+
+def sql_string(value: str) -> str:
+    """``value`` as a Spark SQL string literal. Spark reads backslash escapes in
+    '...' (``'\\d'`` is just ``d``), so backslashes are doubled and quotes escaped."""
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def sql_ident(name: str) -> str:
+    """``name`` as a quoted Spark SQL identifier."""
+    return "`" + name.replace("`", "``") + "`"

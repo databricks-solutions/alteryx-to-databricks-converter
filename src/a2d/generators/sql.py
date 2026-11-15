@@ -13,7 +13,16 @@ from dataclasses import dataclass
 from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.sql_translator import SparkSQLTranslator
-from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, looping_macro_adjustment
+from a2d.generators import join_multiple_code
+from a2d.generators.base import (
+    CodeGenerator,
+    GeneratedFile,
+    GeneratedOutput,
+    free_anchor,
+    looping_macro_adjustment,
+    sql_ident,
+    sql_string,
+)
 from a2d.generators.find_replace_code import problem as find_replace_problem
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
@@ -205,8 +214,12 @@ class SQLGenerator(CodeGenerator):
         preds = dag.get_predecessors(node_id)
         for pred in preds:
             edge_info = dag.get_edge_info(pred.node_id, node_id)
-            dest_anchor = edge_info.destination_anchor
-            result[dest_anchor] = cte_map.get(pred.node_id, f"step_{pred.node_id}_unknown")
+            # Several connections on one anchor (Union, Join Multiple: all "Input")
+            # are numbered, as in the PySpark generator; keying by anchor alone
+            # kept only the last one.
+            result[free_anchor(result, edge_info.destination_anchor)] = cte_map.get(
+                pred.node_id, f"step_{pred.node_id}_unknown"
+            )
         return result
 
     def _generate_cte_body(
@@ -397,7 +410,7 @@ class SQLGenerator(CodeGenerator):
             return f"SELECT {select} FROM {left} l {jtype} JOIN {right} r ON {on_clause}", warnings
 
         if isinstance(node, UnionNode):
-            tables = list(input_ctes.values())
+            tables = join_multiple_code.ordered(dag, node.node_id, input_ctes)  # input order: #1, #2, ...
             if not tables:
                 return "SELECT 1 WHERE FALSE", warnings
             parts = [f"SELECT * FROM {t}" for t in tables]
@@ -579,37 +592,27 @@ class SQLGenerator(CodeGenerator):
             return _find_replace_sql(node, input_ctes, warnings), warnings
 
         if isinstance(node, JoinMultipleNode):
-            tables = list(input_ctes.values())
-            if len(tables) < 2:
-                return f"SELECT * FROM {tables[0] if tables else 'MISSING'}", warnings
-            join_type = (node.join_type or "inner").upper()
-            sql = f"SELECT * FROM {tables[0]}"
-            for tbl in tables[1:]:
-                if node.join_keys:
-                    on_parts = [f"{tables[0]}.`{jk.left_field}` = {tbl}.`{jk.right_field}`" for jk in node.join_keys]
-                    on_clause = " AND ".join(on_parts)
-                    sql += f" {join_type} JOIN {tbl} ON {on_clause}"
-                else:
-                    sql += f" NATURAL {join_type} JOIN {tbl}"
-            return sql, warnings
+            tables = join_multiple_code.ordered(dag, node.node_id, input_ctes)
+            body, jm_warnings = join_multiple_code.sql_body(node, tables, dag)
+            return body, warnings + jm_warnings
 
         if isinstance(node, RegExNode):
             inp = self._get_single_input(input_ctes)
+            # A pattern is full of backslashes and quotes: quote it for Spark SQL.
+            fld, pattern = sql_ident(node.field_name), sql_string(node.expression)
             if node.mode == "replace":
                 return (
-                    f"SELECT *, REGEXP_REPLACE(`{node.field_name}`, '{node.expression}', '{node.replacement}') AS `{node.field_name}` FROM {inp}",
+                    f"SELECT *, REGEXP_REPLACE({fld}, {pattern}, {sql_string(node.replacement)}) AS {fld} FROM {inp}",
                     warnings,
                 )
             elif node.mode == "parse":
                 extras = []
                 for idx, out_field in enumerate(node.output_fields):
-                    extras.append(
-                        f"REGEXP_EXTRACT(`{node.field_name}`, '{node.expression}', {idx + 1}) AS `{out_field}`"
-                    )
+                    extras.append(f"REGEXP_EXTRACT({fld}, {pattern}, {idx + 1}) AS {sql_ident(out_field)}")
                 extra_str = ", ".join(extras)
                 return f"SELECT *, {extra_str} FROM {inp}", warnings
             elif node.mode == "match":
-                return f"SELECT *, `{node.field_name}` RLIKE '{node.expression}' AS `_regex_match` FROM {inp}", warnings
+                return f"SELECT *, {fld} RLIKE {pattern} AS `_regex_match` FROM {inp}", warnings
             return f"SELECT * FROM {inp} /* RegEx mode '{node.mode}' - manual conversion */", warnings
 
         if isinstance(node, TextToColumnsNode):

@@ -17,6 +17,7 @@ _IMPLICIT_FIELD_RE = re.compile(r'((?:ELSE)?IF)\s+"([^"]*)"(\s+THEN)')
 from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.translator import PySparkTranslator
+from a2d.generators import join_multiple_code
 from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, NodeCodeResult, looping_macro_adjustment
 from a2d.generators.find_replace_code import find_replace_lines
 from a2d.generators.find_replace_code import problem as find_replace_problem
@@ -358,7 +359,7 @@ class PySparkGenerator(CodeGenerator):
         method = getattr(self, method_name, None)
         if method is not None:
             # Pass dag to methods that support dead-branch pruning
-            if type_name in ("FilterNode", "JoinNode") and dag is not None:
+            if type_name in ("FilterNode", "JoinNode", "JoinMultipleNode", "UnionNode") and dag is not None:
                 return method(node, input_vars, dag=dag)
             return method(node, input_vars)
         # Fallback for unknown node types
@@ -1194,9 +1195,12 @@ class PySparkGenerator(CodeGenerator):
             warnings=warnings,
         )
 
-    def _generate_UnionNode(self, node: UnionNode, input_vars: dict[str, str]) -> NodeCodeResult:
+    def _generate_UnionNode(
+        self, node: UnionNode, input_vars: dict[str, str], dag: WorkflowDAG | None = None
+    ) -> NodeCodeResult:
         out_var = f"df_{node.node_id}"
-        sorted_vars = list(input_vars.values())
+        # In input order (#1, #2, ...), which sets the output's column order.
+        sorted_vars = join_multiple_code.ordered(dag, node.node_id, input_vars)
 
         if len(sorted_vars) == 0:
             lines = [f"{out_var} = spark.createDataFrame([], schema=[])  # empty union"]
@@ -1264,36 +1268,17 @@ class PySparkGenerator(CodeGenerator):
             output_vars={"Output": out_var},
         )
 
-    def _generate_JoinMultipleNode(self, node: JoinMultipleNode, input_vars: dict[str, str]) -> NodeCodeResult:
+    def _generate_JoinMultipleNode(
+        self, node: JoinMultipleNode, input_vars: dict[str, str], dag: WorkflowDAG | None = None
+    ) -> NodeCodeResult:
         out_var = f"df_{node.node_id}"
-        sorted_inputs = list(input_vars.items())
-
-        if len(sorted_inputs) < 2:
-            var = sorted_inputs[0][1] if sorted_inputs else "MISSING_INPUT"
-            lines = [f"{out_var} = {var}"]
-        else:
-            join_type = node.join_type or "inner"
-            lines = [f"{out_var} = {sorted_inputs[0][1]}"]
-
-            for i, (_anchor, var_name) in enumerate(sorted_inputs[1:], start=1):
-                if node.join_keys:
-                    # Use key fields - handle potential column name conflicts with aliases
-                    key_parts = [
-                        f'{out_var}["{jk.left_field}"] == {var_name}["{jk.right_field}"]' for jk in node.join_keys
-                    ]
-                    condition = " & ".join(f"({kp})" for kp in key_parts)
-                    if len(key_parts) == 1:
-                        condition = key_parts[0]
-                    lines.append(f'{out_var} = {out_var}.join({var_name}, {condition}, "{join_type}")')
-                else:
-                    # No explicit keys - join on common column names
-                    lines.append(f"# Join input #{i + 1} (no explicit keys - joining on common columns)")
-                    lines.append(f'{out_var} = {out_var}.join({var_name}, "{join_type}")')
-
-        return NodeCodeResult(
-            code_lines=lines,
-            output_vars={"Output": out_var},
-        )
+        inputs = join_multiple_code.ordered(dag, node.node_id, input_vars)
+        lines = join_multiple_code.python_lines(node, inputs, out_var, self._lit)
+        warnings = []
+        why = join_multiple_code.problem(node, len(inputs))
+        if why:
+            warnings.append(f"JoinMultiple node {node.node_id}: {why}; it isn't converted")
+        return NodeCodeResult(code_lines=lines, output_vars={"Output": out_var}, warnings=warnings)
 
     # -- Parse nodes --------------------------------------------------------
 

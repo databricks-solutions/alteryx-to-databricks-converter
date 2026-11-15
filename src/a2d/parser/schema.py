@@ -70,6 +70,9 @@ class ParsedConnection:
     origin: ConnectionAnchor
     destination: ConnectionAnchor
     is_wireless: bool = False
+    # Which numbered input this is ("#1", "#2", ...) on a tool whose inputs are
+    # ordered, like Join Multiple and Union; empty otherwise.
+    name: str = ""
 
 
 # ---------------------------------------------------------------------------

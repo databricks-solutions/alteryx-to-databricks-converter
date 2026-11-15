@@ -225,6 +225,7 @@ class ConversionPipeline:
                 dst,
                 conn.origin.anchor_name,
                 conn.destination.anchor_name,
+                input_name=conn.name,
             )
 
         if self.config.expand_macros:
