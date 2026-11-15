@@ -9,10 +9,11 @@ they are Alteryx plumbing with no data transformation.
 Macros that call other macros are expanded too, to a fixed depth, and a macro
 that ends up calling itself is reported rather than looped on.
 
-Only standard macros are inlined. A batch macro runs once per value of its
-control parameter and an iterative macro re-runs on its own output; one inlined
-pass reproduces neither, so those calls are left unconverted and reported. A
-standard macro that rewrites its tools from the calling tool's settings is
+Standard macros are inlined. A batch macro runs once per record of its
+Control input and an iterative macro re-runs on its own output; one inlined
+pass reproduces neither, so those calls become a :class:`LoopingMacroNode`
+(the macro's steps as a function, run in a loop; see :mod:`a2d.macro.looping`).
+A standard macro that rewrites its tools from the calling tool's settings is
 inlined with the values saved in the macro, and a note says to check them.
 
 Every inlined macro instance gets its own band of node ids (see ``_ID_BAND``),
@@ -32,6 +33,7 @@ from a2d.exceptions import A2dError
 from a2d.ir.graph import EdgeInfo, WorkflowDAG
 from a2d.ir.nodes import IRNode, MacroIONode
 from a2d.macro.detect import MacroCall, find_macro_calls, function_name_for
+from a2d.macro.looping import build_looping_node
 from a2d.macro.models import (
     ExpansionResult,
     MacroBoundary,
@@ -51,7 +53,7 @@ _ID_BAND = 1_000_000
 MAX_NESTING_DEPTH = 8
 
 # Visual-only tool types carried over from the pipeline's DAG builder.
-_SKIP_TYPES = frozenset({"ToolContainer", "Tab"})
+_SKIP_TYPES = frozenset({"ToolContainer", "Tab", "Label"})
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -137,6 +139,7 @@ class _Expansion:
     unresolved: list[UnresolvedMacro] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     expanded: int = 0
+    looping_calls: int = 0
     bands_used: int = 0
 
 
@@ -180,6 +183,7 @@ class MacroExpansionEngine:
             expanded_calls=state.expanded,
             unresolved=state.unresolved,
             notes=state.notes,
+            looping_calls=state.looping_calls,
         )
 
     def _expand_call(
@@ -215,7 +219,7 @@ class MacroExpansionEngine:
             unresolved("the macro calls itself (directly or through another macro)", "self_call")
             return
         if definition.kind in _LOOPING_REASON:
-            unresolved(_LOOPING_REASON[definition.kind], definition.kind)
+            self._loop_call(dag, call, node_id, definition, dirs, chain, state, unresolved)
             return
 
         state.bands_used += 1
@@ -236,6 +240,57 @@ class MacroExpansionEngine:
         inner_dirs = [Path(definition.source_path).parent, *dirs]
         for inner in definition.calls:
             self._expand_call(dag, inner, inner.node_id + offset, inner_dirs, (*chain, definition.source_path), state)
+
+    def _loop_call(self, dag, call, node_id, definition, dirs, chain, state, unresolved) -> None:
+        """Replace a batch or iterative macro call with a :class:`LoopingMacroNode`."""
+        try:
+            call_node = dag.get_node(node_id)
+        except KeyError:
+            return
+        if definition.parsed is None:
+            unresolved(_LOOPING_REASON[definition.kind], definition.kind)
+            return
+        state.bands_used += 1
+        offset = state.bands_used * _ID_BAND
+
+        def build(parsed: ParsedWorkflow) -> WorkflowDAG:
+            return _rebased_dag(self._build_macro_dag(parsed), offset)
+
+        node = build_looping_node(
+            call_node,
+            kind=definition.kind,
+            macro_name=_macro_name(call.macro_path),
+            function_name=f"{definition.function_name}_{node_id}",
+            parsed=definition.parsed,
+            build_dag=build,
+        )
+        # What the call wires in: a batch macro needs its Control input, and
+        # each macro input is matched to the call's anchor of the same name.
+        wired = {info.destination_anchor for _, info in _predecessor_edges(dag, node_id)}
+        if definition.kind == "batch" and "Control" not in wired:
+            node.issues.append("the call has no Control input")
+        missing = [name for name, _ in node.inputs if name not in wired]
+        if missing:
+            node.issues.append(f"the call doesn't connect the macro's input {', '.join(missing)}")
+        node.conversion_notes = list(node.issues)
+        # Macros the looping macro calls are expanded inside its body, the same way.
+        inner_dirs = [Path(definition.source_path).parent, *dirs]
+        for inner in definition.calls:
+            if inner.node_id + offset in node.body.all_node_ids():
+                self._expand_call(
+                    node.body, inner, inner.node_id + offset, inner_dirs, (*chain, definition.source_path), state
+                )
+        dag.replace_node(node)
+        state.looping_calls += 1
+        where = _where(node_id)
+        runs = "once per control record" if definition.kind == "batch" else "until its iteration output is empty"
+        note = (
+            f"Macro {_macro_name(call.macro_path)} ({where}) is a {definition.kind} macro: its steps are a function "
+            f"that runs {runs}. Check the loop against the macro in Alteryx."
+        )
+        if node.issues:
+            note += " Not converted: " + "; ".join(node.issues) + "."
+        state.notes.append(note)
 
     # ── Resolution + parsing ───────────────────────────────────────────────
 
@@ -266,6 +321,7 @@ class MacroExpansionEngine:
             calls=find_macro_calls(parsed),
             kind=kind,
             takes_settings=takes_settings,
+            parsed=parsed if kind in _LOOPING_REASON else None,
         )
         self._defn_cache[key] = definition
         return definition
@@ -429,6 +485,16 @@ def _clone_dag(dag: WorkflowDAG) -> WorkflowDAG:
     for src, dst, info in dag.all_edges():
         clone.add_edge(src, dst, info.origin_anchor, info.destination_anchor, info.is_wireless)
     return clone
+
+
+def _rebased_dag(dag: WorkflowDAG, offset: int) -> WorkflowDAG:
+    """A copy of *dag* with every node id shifted by *offset*."""
+    out = WorkflowDAG()
+    for node in dag.all_nodes():
+        out.add_node(_rebased_copy(node, offset))
+    for src, dst, info in dag.all_edges():
+        out.add_edge(src + offset, dst + offset, info.origin_anchor, info.destination_anchor, info.is_wireless)
+    return out
 
 
 def _rebased_copy(node: IRNode, offset: int) -> IRNode:

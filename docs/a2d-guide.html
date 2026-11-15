@@ -811,7 +811,7 @@ step_N_filter_false</code></pre>
       <tr><td>Spatial tools</td><td>Rewrite geospatial logic</td><td>Sedona / Mosaic / H3</td></tr>
       <tr><td>Reporting / Layout</td><td>Rebuild dashboards</td><td>Databricks AI/BI</td></tr>
       <tr><td>R Tool</td><td>Rewrite in Python</td><td>PySpark</td></tr>
-      <tr><td>Iterative macros</td><td>Manual loop rewrite</td><td>Lakeflow Jobs</td></tr>
+      <tr><td>Iterative macros</td><td>Function and loop (PySpark output)</td><td>Check the loop; SQL and Lakeflow can't loop</td></tr>
       <tr><td>Custom third-party tools</td><td>Bespoke conversion</td><td>Plugin SDK or manual</td></tr>
     </tbody>
   </table>
@@ -860,7 +860,7 @@ step_N_filter_false</code></pre>
       <tr><td><code>--performance-hints / --no-performance-hints</code></td><td>true</td><td>Include Spark performance hints (default on)</td></tr>
       <tr><td><code>--generate-ddl</code></td><td>false</td><td>Unity Catalog DDL (non-Delta external tables emit <code>read_files()</code>)</td></tr>
       <tr><td><code>--generate-dab</code></td><td>false</td><td>Databricks Asset Bundle project</td></tr>
-      <tr><td><code>--expand-macros</code></td><td>false</td><td>Inline the <code>.yxmc</code> macros a workflow calls, found next to the workflow (on by default for a <code>.yxzp</code>). Batch and iterative macros are flagged to rewrite by hand.</td></tr>
+      <tr><td><code>--expand-macros</code></td><td>false</td><td>Inline the <code>.yxmc</code> macros a workflow calls, found next to the workflow (on by default for a <code>.yxzp</code>). Batch and iterative macros become a function and a loop in the PySpark output.</td></tr>
       <tr><td><code>-q, --quiet</code></td><td>false</td><td>Suppress info messages (warnings only)</td></tr>
       <tr><td><code>--debug</code></td><td>false</td><td>Enable debug logging</td></tr>
     </tbody>
@@ -1359,7 +1359,7 @@ resources:
     <tbody>
       <tr><td>Spatial analysis</td><td>No PySpark equivalent for spatial primitives</td><td>Use Sedona / Mosaic / H3; a2d emits TODO stubs</td></tr>
       <tr><td>ML model training</td><td>Alteryx predictive tools use R/Python ML under the hood</td><td>Rebuild with MLflow + scikit-learn</td></tr>
-      <tr><td>Iterative macros</td><td>Require loop semantics not expressible in a DAG walk</td><td>Rewrite as Lakeflow Jobs with loops</td></tr>
+      <tr><td>Iterative macros</td><td>Converted to a loop in the PySpark output only; SQL and Lakeflow can't loop</td><td>Use the PySpark output for that step</td></tr>
       <tr><td>Semantic equivalence</td><td>a2d validates syntax, not business logic</td><td>Compare row counts manually in Databricks</td></tr>
       <tr><td>Custom third-party tools</td><td>Unknown XML schema</td><td>Add a custom converter (see Extending a2d)</td></tr>
       <tr><td>Data type inference</td><td>Alteryx types don't always map 1:1 to Spark</td><td>Review generated schema, add explicit casts</td></tr>

@@ -135,8 +135,7 @@ export function AnalyzePage() {
                         {displayData.unresolved_macros!.length > 1 ? "s" : ""} weren't expanded
                       </p>
                       <p className="text-xs text-[var(--fg-muted)] mt-1 mb-2">
-                        A missing macro can be added on the Workflows step; batch and iterative macros are rewritten
-                        by hand.
+                        A missing macro can be added on the Workflows step and the workflow converted again.
                       </p>
                       <ul className="space-y-1 text-xs text-[var(--fg)]">
                         {displayData.unresolved_macros!.map((m) => (

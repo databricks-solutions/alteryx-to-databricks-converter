@@ -11,6 +11,7 @@ renderer, and generated Python always compiles with no escape warnings.
 
 from __future__ import annotations
 
+import ast
 import warnings
 
 import pytest
@@ -125,6 +126,31 @@ class TestRegexPatternsSurviveGeneration:
         output = PySparkGenerator(config).generate(dag)
         assert _compile_clean(_all_python(output), "gen.py") == []
 
+    @pytest.mark.parametrize("mode", ["replace", "parse", "match"])
+    def test_a_pattern_with_quotes_reaches_spark_unchanged(self, config, mode):
+        # From a real workflow (Server Usage Testing): quotes inside the pattern
+        # used to end the Python string early and break the whole notebook.
+        pattern = r'\{ "\$oid" : "(.+?)" \}'
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, original_tool_type="Input", file_path="/d.csv", file_format="csv"))
+        dag.add_node(
+            RegExNode(
+                node_id=2,
+                original_tool_type="RegEx",
+                field_name='my "col"',
+                expression=pattern,
+                replacement="x",
+                mode=mode,
+                output_fields=["Output"],
+            )
+        )
+        dag.add_edge(1, 2)
+
+        code = _all_python(PySparkGenerator(config).generate(dag))
+        assert _compile_clean(code, "gen.py") == []
+        strings = {n.value for n in ast.walk(ast.parse(code)) if isinstance(n, ast.Constant)}
+        assert pattern in strings and 'my "col"' in strings
+
     @pytest.mark.parametrize("pattern", [r"\d+", r"^\D{2,}$"])
     def test_dlt_regex_compiles_cleanly(self, config, pattern):
         dag = WorkflowDAG()
@@ -182,3 +208,28 @@ class TestPacktFixturesCompileWithoutWarnings:
                 assert _compile_clean(generated.content, generated.filename) == [], (
                     f"{generated.filename} still emits an invalid escape sequence"
                 )
+
+
+class TestExpressionsThatDontTranslate:
+    """A formula the translator can't read stays a TODO, and the notebook still runs."""
+
+    def _formula_dag(self, *expressions: str) -> WorkflowDAG:
+        from a2d.ir.nodes import FormulaField, FormulaNode
+
+        dag = WorkflowDAG()
+        dag.add_node(ReadNode(node_id=1, original_tool_type="Input", file_path="/d.csv", file_format="csv"))
+        fields = [FormulaField(output_field=f"f{i}", expression=e) for i, e in enumerate(expressions)]
+        dag.add_node(FormulaNode(node_id=2, original_tool_type="Formula", formulas=fields))
+        dag.add_edge(1, 2)
+        return dag
+
+    def test_a_multi_line_expression_is_commented_on_every_line(self, config):
+        code = _all_python(
+            PySparkGenerator(config).generate(self._formula_dag('IF [a] == "x" THEN\n1\nELSE\n2\nENDIF'))
+        )
+        assert _compile_clean(code, "gen.py") == []
+
+    def test_two_placeholders_in_one_formula_tool(self, config):
+        code = _all_python(PySparkGenerator(config).generate(self._formula_dag("[a] == == 1", "[b] == == 2")))
+        assert _compile_clean(code, "gen.py") == []
+        assert code.count("# PLACEHOLDER: f") == 2

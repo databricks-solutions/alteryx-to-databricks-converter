@@ -19,7 +19,7 @@ class WorkflowControlConverter(ToolConverter):
 
     @property
     def supported_tool_types(self) -> list[str]:
-        return ["BlockUntilDone", "ControlParam", "Action"]
+        return ["BlockUntilDone", "ControlParam", "Action", "Condition"]
 
     def convert(self, parsed_node: ParsedNode, config: ConversionConfig) -> IRNode:
         cfg = parsed_node.configuration
@@ -29,6 +29,7 @@ class WorkflowControlConverter(ToolConverter):
             "BlockUntilDone": "block_until_done",
             "ControlParam": "control_param",
             "Action": "action",
+            "Condition": "condition",
         }
         control_type = control_type_map.get(parsed_node.tool_type, parsed_node.tool_type.lower())
 

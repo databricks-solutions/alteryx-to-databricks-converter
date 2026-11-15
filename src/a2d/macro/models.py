@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from a2d.ir.graph import WorkflowDAG
 from a2d.macro.detect import MacroCall
+from a2d.parser.schema import ParsedWorkflow
 
 
 @dataclass
@@ -46,6 +47,8 @@ class MacroDefinition:
     # True when the macro rewrites its own tools from the calling tool's settings
     # (interface Actions), so the inlined steps carry the macro's saved values.
     takes_settings: bool = False
+    # The parsed macro, so a batch or iterative call can apply its own settings to a copy.
+    parsed: ParsedWorkflow | None = None
 
     @property
     def interior_node_count(self) -> int:
@@ -58,8 +61,8 @@ class UnresolvedMacro:
     """A macro call left unexpanded, and why.
 
     ``kind`` is "missing" (the file wasn't found or couldn't be parsed),
-    "batch" / "iterative" (a looping macro, which one inlined pass can't
-    reproduce), "self_call" or "too_deep".
+    "batch" / "iterative" (a looping macro that couldn't be converted to a
+    loop), "self_call" or "too_deep".
     """
 
     macro_path: str
@@ -84,6 +87,8 @@ class ExpansionResult:
     unresolved: list[UnresolvedMacro] = field(default_factory=list)
     # Things to check about macros that WERE inlined (user-facing sentences).
     notes: list[str] = field(default_factory=list)
+    # Batch and iterative macro calls converted to a function and a loop.
+    looping_calls: int = 0
 
     @property
     def macro_count(self) -> int:

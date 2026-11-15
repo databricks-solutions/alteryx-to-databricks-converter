@@ -206,6 +206,20 @@ PLUGIN_NAME_MAP: dict[str, tuple[str, str]] = {
     "AlteryxGuiToolkit.Questions.Tab.Tab": ("Tab", "interface"),
     "AlteryxGuiToolkit.Questions.NumericUpDown.NumericUpDown": ("NumericUpDown", "interface"),
     "AlteryxGuiToolkit.Action.Action": ("Action", "workflow"),
+    # Questions as Designer saves them in macros and analytic apps.
+    "AlteryxGuiToolkit.Questions.ControlParam.ControlParam": ("ControlParam", "workflow"),
+    "AlteryxGuiToolkit.Questions.TextBox.QuestionTextBox": ("TextBox", "interface"),
+    "AlteryxGuiToolkit.Questions.DropDownListBox.ListBox": ("ListBox", "interface"),
+    "AlteryxGuiToolkit.Questions.DropDownListBox.DropDown": ("DropDown", "interface"),
+    "AlteryxGuiToolkit.Questions.CheckBoxGroup.CheckBoxGroup": ("CheckBox", "interface"),
+    "AlteryxGuiToolkit.Questions.RadioButtonGroup.RadioButtonGroup": ("RadioButton", "interface"),
+    "AlteryxGuiToolkit.Questions.FileBrowse.FileBrowse": ("FileInput", "interface"),
+    "AlteryxGuiToolkit.Questions.FolderBrowse.FolderBrowse": ("FileInput", "interface"),
+    "AlteryxGuiToolkit.Questions.Label.Label": ("Label", "interface"),
+    "AlteryxGuiToolkit.Questions.LabelGroup.LabelGroup": ("Label", "interface"),
+    "AlteryxGuiToolkit.Questions.Link.Link": ("Label", "interface"),
+    "AlteryxGuiToolkit.HtmlBox.HtmlBox": ("Label", "interface"),
+    "AlteryxGuiToolkit.Condition.Condition": ("Condition", "workflow"),
     "AlteryxBasePluginsGui.MacroInput.MacroInput": ("MacroInput", "interface"),
     "AlteryxBasePluginsGui.MacroOutput.MacroOutput": ("MacroOutput", "interface"),
     # ── Workflow orchestration ────────────────────────────────────────
@@ -653,6 +667,16 @@ TOOL_METADATA: dict[str, ToolMetadata] = {
         "unsupported",
         "Visual grouping tab for interface tools — no-op in Databricks",
         "no-op (skipped)",
+    ),
+    "Label": ToolMetadata(
+        "unsupported",
+        "Text or a link on an app's or macro's settings screen — no-op in Databricks",
+        "no-op (skipped)",
+    ),
+    "Condition": ToolMetadata(
+        "template",
+        "Decides which interface Actions run; converted with batch and iterative macros",
+        "Python condition",
     ),
     "RadioButton": ToolMetadata(
         "mapping",

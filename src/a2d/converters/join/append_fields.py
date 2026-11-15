@@ -41,6 +41,18 @@ class AppendFieldsConverter(ToolConverter):
 
         allow_all = cfg.get("AllowAllAppends", "True")
         allow_all_appends = allow_all.lower() != "false" if isinstance(allow_all, str) else True
+        # What Designer saves: Error / Warn / Allow on more than 16 Source records.
+        mode = cfg.get("CartesianMode")
+        mode = mode.lower() if isinstance(mode, str) else ""
+        cartesian_mode = (
+            "error"
+            if "error" in mode
+            else "warn"
+            if "warn" in mode
+            else "allow"
+            if mode or allow_all_appends
+            else "error"
+        )
 
         select_target = _parse_field_ops(cfg, "SelectTargetFields")
         select_source = _parse_field_ops(cfg, "SelectSourceFields")
@@ -52,6 +64,7 @@ class AppendFieldsConverter(ToolConverter):
             annotation=parsed_node.annotation,
             position=parsed_node.position,
             allow_all_appends=allow_all_appends,
+            cartesian_mode=cartesian_mode,
             select_target=select_target,
             select_source=select_source,
             conversion_notes=["AppendFields is a cross-join; can produce very large result sets."],

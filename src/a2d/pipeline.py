@@ -71,7 +71,7 @@ class MultiFormatConversionResult:
 
 
 # Node types to exclude from the DAG (visual-only, no data transformation)
-_SKIP_TYPES = frozenset({"ToolContainer", "Tab"})
+_SKIP_TYPES = frozenset({"ToolContainer", "Tab", "Label"})
 
 # Tiebreak ordering for best_format selection (highest priority first)
 _FORMAT_PRIORITY: tuple[str, ...] = ("pyspark", "dlt", "sql", "lakeflow", "designer")

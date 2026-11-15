@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from a2d.ir.graph import WorkflowDAG
-from a2d.ir.nodes import CommentNode, UnsupportedNode
+from a2d.ir.nodes import CommentNode, UnsupportedNode, counted_tools
 from a2d.macro.detect import macro_file_name, macro_path_for_ir_node
 
 
@@ -46,8 +46,9 @@ class CoverageReport:
 
 
 def tool_nodes(dag: WorkflowDAG) -> list:
-    """The nodes coverage counts: every node except canvas comments."""
-    return [n for n in dag.all_nodes() if not isinstance(n, CommentNode)]
+    """The nodes coverage counts: every node except canvas comments, with a batch
+    or iterative macro counted as the tools inside it (like an inlined macro)."""
+    return [t for n in dag.all_nodes() if not isinstance(n, CommentNode) for t in counted_tools(n)]
 
 
 class CoverageAnalyzer:

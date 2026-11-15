@@ -342,6 +342,9 @@ class AppendFieldsNode(IRNode):
     """Cross-join (append all fields from a secondary input)."""
 
     allow_all_appends: bool = True
+    # Alteryx's guard on more than 16 Source records: "error" stops, "warn"
+    # carries on with a warning, "allow" carries on. Every record is appended either way.
+    cartesian_mode: str = "allow"
     select_target: list[FieldOperation] = field(default_factory=list)
     select_source: list[FieldOperation] = field(default_factory=list)
 
@@ -855,3 +858,70 @@ class CommentNode(IRNode):
     comment_text: str = ""
     background_color: str = ""
     font_size: int = 12
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Looping macros
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class MacroParam:
+    """A value a looping macro's steps take from each control record.
+
+    ``sentinel`` is the placeholder written into the macro's tool settings before
+    they're converted; the generator turns it back into ``var`` in the code.
+    """
+
+    question: str  # the macro's question name, e.g. "Control Parameter (2)"
+    control_field: str  # the control-input field the caller maps to it
+    var: str  # the Python parameter name in the generated function
+    sentinel: str
+    # Written after the placeholder so a converter still sees the saved file's
+    # extension (``.xlsx|||Sheet1``); the control value replaces it too.
+    suffix: str = ""
+
+
+@dataclass
+class LoopingMacroNode(IRNode):
+    """A call to a batch or iterative macro, converted to a function and a loop.
+
+    A batch macro runs its steps once per record of the Control input (each
+    run's settings come from that record) and unions the runs. An iterative
+    macro runs on its input, feeds the records on its iteration output back in,
+    and stops when none are left or at the iteration limit.
+
+    ``body`` is the macro's own DAG with the control values written in as
+    placeholders (see :class:`MacroParam`) and the interface tools removed; its
+    ``MacroIONode`` boundaries are the function's inputs and outputs, matched to
+    the call's anchors by name. ``issues`` are settings that couldn't be wired
+    in: the generated code says so, with a TODO, next to the step.
+    """
+
+    kind: str = "batch"  # "batch" | "iterative"
+    macro_name: str = ""
+    function_name: str = ""
+    body: Any = None  # WorkflowDAG (not imported here: graph imports this module)
+    inputs: list[tuple[str, int]] = field(default_factory=list)  # (anchor, boundary node id)
+    outputs: list[tuple[str, int]] = field(default_factory=list)
+    params: list[MacroParam] = field(default_factory=list)
+    group_by: list[tuple[str, str, str]] = field(default_factory=list)  # (control field, input anchor, input field)
+    output_mode: str = ""  # Alteryx's OutputMode for the union of runs
+    iteration_input: str = ""
+    iteration_output: str = ""
+    iteration_limit: int = 100
+    limit_behavior: str = "Error"  # "Error" | "Warn" | "Output"
+    uses_iteration_number: bool = False
+    issues: list[str] = field(default_factory=list)
+
+
+def counted_tools(node: IRNode) -> list[IRNode]:
+    """The tools a node stands for in coverage counts: a looping macro counts
+    as the tools inside it (like an inlined macro), any other node as itself."""
+    if isinstance(node, LoopingMacroNode) and node.body is not None:
+        inner: list[IRNode] = []
+        for child in node.body.all_nodes():
+            if not isinstance(child, (CommentNode, MacroIONode)):
+                inner.extend(counted_tools(child))
+        return inner or [node]
+    return [node]

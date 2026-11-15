@@ -176,3 +176,18 @@ class CodeGenerator(ABC):
             msg = f"Syntax error in {filename}: {e.msg} (line {e.lineno})"
             logger.warning(msg)
             return [msg]
+
+
+def looping_macro_adjustment(dag) -> tuple[int, int]:
+    """(extra tools, extra unconverted tools) for the batch and iterative macros
+    in ``dag``: a generator counts each as one node, coverage counts the tools
+    inside it (like an inlined macro). Add these to a generator's counts."""
+    from a2d.ir.nodes import LoopingMacroNode, UnsupportedNode, counted_tools
+
+    extra_total = extra_unsupported = 0
+    for node in dag.all_nodes():
+        if isinstance(node, LoopingMacroNode):
+            tools = counted_tools(node)
+            extra_total += len(tools) - 1
+            extra_unsupported += sum(isinstance(t, UnsupportedNode) for t in tools)
+    return extra_total, extra_unsupported

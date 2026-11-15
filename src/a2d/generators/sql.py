@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.sql_translator import SparkSQLTranslator
-from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput
+from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, looping_macro_adjustment
 from a2d.generators.find_replace_code import problem as find_replace_problem
 from a2d.ir.graph import WorkflowDAG
 from a2d.ir.nodes import (
@@ -50,6 +50,7 @@ from a2d.ir.nodes import (
     JoinNode,
     JsonParseNode,
     LiteralDataNode,
+    LoopingMacroNode,
     MacroIONode,
     MakeGridNode,
     MultiFieldFormulaNode,
@@ -144,6 +145,10 @@ class SQLGenerator(CodeGenerator):
                 unsupported_count += 1
 
         # Build full SQL
+        # Batch and iterative macros count as the tools inside them.
+        _extra_total, _extra_unsupported = looping_macro_adjustment(dag)
+        node_count += _extra_total
+        unsupported_count += _extra_unsupported
         self.metadata["stats"] = {
             "total_nodes": node_count,
             "supported_nodes": node_count - unsupported_count,
@@ -411,7 +416,7 @@ class SQLGenerator(CodeGenerator):
             return " UNION ALL ".join(parts), warnings
 
         if isinstance(node, AppendFieldsNode):
-            target = input_ctes.get("Target", input_ctes.get("Input"))
+            target = input_ctes.get("Targets", input_ctes.get("Target", input_ctes.get("Input")))
             source = input_ctes.get("Source")
             # Same reasoning as JoinNode: don't emit a placeholder table name.
             if not target or not source:
@@ -874,6 +879,19 @@ class SQLGenerator(CodeGenerator):
             reason = node.unsupported_reason or "No auto-conversion"
             warnings.append(f"Unsupported node {node.node_id} ({node.original_tool_type}): {reason}")
             return f"SELECT * FROM {inp} /* UNSUPPORTED: {node.original_tool_type} - {reason} */", warnings
+
+        if isinstance(node, LoopingMacroNode):
+            runs = "once per control record" if node.kind == "batch" else "until its iteration output is empty"
+            warnings.append(
+                f"Macro {node.macro_name} (node {node.node_id}) is a {node.kind} macro, which runs {runs}; "
+                "SQL can't loop, so use the PySpark output for this step"
+            )
+            body = (
+                f"-- TODO: {node.kind} macro {node.macro_name} runs {runs}.\n"
+                "-- The PySpark output converts it to a function and a loop; SQL can't express the loop.\n"
+                "SELECT NULL AS _looping_macro_placeholder  -- replace with the PySpark step or a manual rewrite"
+            )
+            return body, warnings
 
         # Fallback
         inp = self._get_single_input(input_ctes)

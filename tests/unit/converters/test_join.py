@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from a2d.converters import ConverterRegistry
 from a2d.ir.nodes import (
     AppendFieldsNode,
@@ -270,3 +272,16 @@ class TestJoinMultipleConverter:
         assert isinstance(result, JoinMultipleNode)
         assert result.input_count == 3
         assert result.join_type == "inner"
+
+
+class TestAppendFieldsCartesianMode:
+    """Designer saves the guard on more than 16 Source records as CartesianMode."""
+
+    @pytest.mark.parametrize(
+        ("saved", "mode"),
+        [("Error", "error"), ("Warning", "warn"), ("Allow", "allow"), (None, "allow")],
+    )
+    def test_mode(self, saved, mode):
+        cfg = {} if saved is None else {"CartesianMode": saved}
+        node = ConverterRegistry.convert_node(make_node(tool_type="AppendFields", configuration=cfg), DEFAULT_CONFIG)
+        assert isinstance(node, AppendFieldsNode) and node.cartesian_mode == mode

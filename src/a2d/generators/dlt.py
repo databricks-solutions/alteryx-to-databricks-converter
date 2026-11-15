@@ -12,7 +12,7 @@ import re
 from a2d.config import ConversionConfig
 from a2d.expressions.base_translator import BaseTranslationError
 from a2d.expressions.translator import PySparkTranslator
-from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput
+from a2d.generators.base import CodeGenerator, GeneratedFile, GeneratedOutput, looping_macro_adjustment
 from a2d.generators.find_replace_code import find_replace_lines
 from a2d.generators.find_replace_code import problem as find_replace_problem
 from a2d.generators.join_code import join_output_lines
@@ -51,6 +51,7 @@ from a2d.ir.nodes import (
     JoinNode,
     JsonParseNode,
     LiteralDataNode,
+    LoopingMacroNode,
     MacroIONode,
     MakeGridNode,
     MultiFieldFormulaNode,
@@ -139,6 +140,10 @@ class DLTGenerator(CodeGenerator):
                 unsupported_count += 1
 
         # Build full file
+        # Batch and iterative macros count as the tools inside them.
+        _extra_total, _extra_unsupported = looping_macro_adjustment(dag)
+        node_count += _extra_total
+        unsupported_count += _extra_unsupported
         self.metadata["stats"] = {
             "total_nodes": node_count,
             "supported_nodes": node_count - unsupported_count,
@@ -440,7 +445,7 @@ class DLTGenerator(CodeGenerator):
             return lines, warnings
 
         if isinstance(node, AppendFieldsNode):
-            target_tbl = input_tables.get("Target", input_tables.get("Input", "MISSING"))
+            target_tbl = input_tables.get("Targets", input_tables.get("Target", input_tables.get("Input", "MISSING")))
             source_tbl = input_tables.get("Source", "MISSING")
             warnings.append(
                 f"AppendFields node {node.node_id}: cross join — verify source is a single-row lookup. "
@@ -951,6 +956,18 @@ class DLTGenerator(CodeGenerator):
             return [
                 f"# UNSUPPORTED: {node.original_tool_type} - {reason}",
                 f"return {inp}  # passthrough placeholder",
+            ], warnings
+
+        if isinstance(node, LoopingMacroNode):
+            runs = "once per control record" if node.kind == "batch" else "until its iteration output is empty"
+            warnings.append(
+                f"Macro {node.macro_name} (node {node.node_id}) is a {node.kind} macro, which runs {runs}; "
+                "use the PySpark output for this step"
+            )
+            return [
+                f"# TODO: {node.kind} macro {node.macro_name} runs {runs}. The PySpark output converts it",
+                "# to a function and a loop; a pipeline table can't loop. Move that step into a notebook task.",
+                "return spark.range(0).drop('id')  # placeholder: no rows",
             ], warnings
 
         # Fallback

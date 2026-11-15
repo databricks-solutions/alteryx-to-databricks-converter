@@ -262,11 +262,31 @@ def _names(code: str) -> tuple[set[str], set[str]] | None:
     return assigned, read
 
 
+def _module_assigned(tree: ast.AST) -> set[str]:
+    """Names a cell binds where later cells can see them: not inside a function,
+    lambda or class body (a batch macro's steps are a function)."""
+    out: set[str] = set()
+    todo: list[ast.AST] = [tree]
+    while todo:
+        node = todo.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+            if not isinstance(node, ast.Lambda):
+                out.add(node.name)
+            continue
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            out.add(node.id)
+        todo.extend(ast.iter_child_nodes(node))
+    return out
+
+
 def _df_assigned(code: str) -> set[str]:
-    names = _names(code)
-    if names is None:  # fall back to top-level assignments for a cell that doesn't parse
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:  # fall back to top-level assignments for a cell that doesn't parse
         return set(re.findall(r"^(df_\w+)\s*=(?!=)", code, re.MULTILINE))
-    return {n for n in names[0] if n.startswith("df_")}
+    return {n for n in _module_assigned(tree) if n.startswith("df_")}
 
 
 def _dotted(node: ast.AST) -> str:
@@ -529,15 +549,17 @@ def _check_reply(
     policy = _policy_problem(tree)
     if policy:
         return policy
-    assigned, read = _names(code) or (set(), set())
-    df_assigned = {n for n in assigned if n.startswith("df_")}
+    # Locals (a function's own variables) count as defined for reads, but only
+    # what the cell binds at the top level counts as assigning a step's output.
+    anywhere, read = _names(code) or (set(), set())
+    df_assigned = {n for n in _module_assigned(tree) if n.startswith("df_")}
     missing = sorted(required - df_assigned)
     if missing:
         return f"the model's code doesn't assign {', '.join(missing)}, which later steps read"
     clobbered = sorted((df_assigned - required) & (owned_elsewhere | defined_before))
     if clobbered:
         return f"the model's code reassigns {', '.join(clobbered)}, which belongs to another step"
-    undefined = sorted(n for n in read if n.startswith("df_") and n not in defined_before and n not in df_assigned)
+    undefined = sorted(n for n in read if n.startswith("df_") and n not in defined_before and n not in anywhere)
     if undefined:
         return f"the model's code reads {', '.join(undefined)}, which isn't defined at this point"
     writes, dests = _sinks(cell.body)
