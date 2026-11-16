@@ -1,5 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Home, Grid3X3, Info, Moon, Sun, Menu, X, Settings, Check, ArrowLeftRight, FileCheck2 } from "lucide-react";
+import { Home, Grid3X3, Info, Moon, Sun, Menu, X, Settings, Check, ArrowLeftRight, FileCheck2, BarChart3 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { useThemeStore } from "@/stores/theme";
@@ -14,6 +16,7 @@ declare const __BUILD_DATE__: string;
 const REFERENCE = [
   { to: "/reference/tools", label: "Tool coverage", icon: Grid3X3 },
   { to: "/reference/syntax-check", label: "Syntax check", icon: FileCheck2 },
+  { to: "/reference/usage", label: "Usage", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/about", label: "About", icon: Info },
 ];
@@ -43,6 +46,9 @@ export function Sidebar() {
   const ctx = useProjectContext();
   const inProject = ctx.projectId != null && !ctx.sessionGone;
   const navRef = useRef<HTMLElement>(null);
+  // Usage lists colleagues' emails: only shown to the people allowed to see it.
+  const usageAccess = useQuery({ queryKey: ["usage-access"], queryFn: api.usageAccess, staleTime: 60_000, retry: false });
+  const reference = REFERENCE.filter((r) => r.to !== "/reference/usage" || usageAccess.data?.allowed);
 
   // On small screens the sidebar is a drawer: Escape closes it, and focus moves
   // into it when it opens.
@@ -183,7 +189,7 @@ export function Sidebar() {
           )}
 
           <SectionLabel>Reference</SectionLabel>
-          {REFERENCE.map(({ to, label, icon: Icon }) => (
+          {reference.map(({ to, label, icon: Icon }) => (
             <Link key={to} to={to} onClick={() => setOpen(false)} className={linkClass(currentPath === to)}>
               <Icon className="h-4 w-4" />
               {label}

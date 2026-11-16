@@ -278,6 +278,10 @@ export const api = {
 
   aiStatus: () => request<AIStatus>("/ai/status"),
 
+  // ── Usage (who used the app; admins only) ──
+  usageAccess: () => request<UsageAccess>("/usage/access"),
+  usage: (days: number) => request<UsageSummary>(`/usage?days=${days}`),
+
   aiGaps: (source: WorkflowSource, opts?: ConvertOptions) => {
     const fd = new FormData();
     appendWorkflow(fd, source);
@@ -961,6 +965,49 @@ export interface CellCompletion {
   attempts: number;
   /** The shared helper the step's code calls, if any. */
   helper: string | null;
+}
+
+/** From /api/usage/access: whether this user may see the Usage page, and why not. */
+export interface UsageAccess {
+  user: string | null;
+  allowed: boolean;
+  admins_configured: boolean;
+  tracking: boolean;
+  database: boolean;
+}
+
+export interface UsageEvent {
+  at: string;
+  user: string | null;
+  action: string;
+  status: number | null;
+  duration_ms: number | null;
+  details: Record<string, unknown>;
+}
+
+/** From /api/usage: activity in the last `days` days, saved projects, and the
+ * conversion history older builds kept (no users). */
+export interface UsageSummary {
+  days: number;
+  tracking: boolean;
+  database: boolean;
+  since: string | null;
+  totals: { events?: number; people?: number; workflows_converted?: number; ai_runs?: number; events_all_time?: number };
+  by_action: Record<string, number>;
+  by_day: { day: string; events: number; people: number; conversions: number }[];
+  by_user: { user: string; events: number; conversions: number; ai_runs: number; first_seen: string; last_seen: string }[];
+  recent: UsageEvent[];
+  projects: { projects: number; first: string | null; last: string | null; workflows: number; by_stage: Record<string, number> } | null;
+  history: {
+    conversions: number;
+    workflows: number;
+    first: string | null;
+    last: string | null;
+    mean_coverage: number | null;
+    by_format: Record<string, number>;
+    by_month: { month: string; conversions: number; workflows: number }[];
+    recent: { at: string; workflow: string; format: string; coverage: number | null }[];
+  } | null;
 }
 
 /** From /api/ai/status: what the AI steps say before anything is sent. */

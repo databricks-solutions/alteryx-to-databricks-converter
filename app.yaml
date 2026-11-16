@@ -64,3 +64,13 @@ env:
   # share it only with the people who should see it. Empty means no tracing.
   - name: "A2D_MLFLOW_EXPERIMENT"
     value: ""
+  # Usage (needs the database): each conversion, review, AI run and project
+  # change is recorded with the signed-in user's email. The Usage page lists
+  # colleagues, so only the comma-separated emails in A2D_USAGE_ADMINS see it.
+  # A2D_DB_READERS get read-only SQL access (SELECT) to the app's tables at
+  # startup; each needs a Lakebase Postgres role first. Set
+  # A2D_USAGE_TRACKING=false to record nothing.
+  - name: "A2D_USAGE_ADMINS"
+    value: ""
+  - name: "A2D_DB_READERS"
+    value: ""

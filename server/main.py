@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
+import re
+import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -24,12 +27,15 @@ from server.routers import (
     readiness,
     review,
     tools,
+    usage,
     validate,
 )
 from server.services import db
 from server.services import project as project_service
+from server.services import usage as usage_service
 from server.services.batch import get_store
 from server.settings import settings
+from server.utils.identity import current_user
 from server.websocket import batch as ws_batch
 
 logger = logging.getLogger("a2d.server")
@@ -68,6 +74,8 @@ async def lifespan(app: FastAPI):
     if backend:
         if project_service.init_db():
             logger.info("Migration-project store ready (backend=%s)", backend)
+        if settings.usage_tracking or settings.db_readers:
+            usage_service.init_db()
         else:
             # Retried lazily on the next project request (see project.is_available).
             logger.warning("Migration-project store configured (backend=%s) but failed to initialize", backend)
@@ -116,6 +124,70 @@ app.add_middleware(
 )
 
 
+# ── usage ──────────────────────────────────────────────────────────────────
+# Which requests are recorded (method, path, action). A page load of the app
+# itself is "open_app"; client-side navigation within it isn't a request.
+_TRACKED = [
+    (method, re.compile(pattern), action)
+    for method, pattern, action in (
+        ("POST", r"^/api/convert$", "convert"),
+        ("POST", r"^/api/convert/batch$", "convert_batch"),
+        ("POST", r"^/api/analyze$", "analyze"),
+        ("POST", r"^/api/assess$", "assess"),
+        ("POST", r"^/api/review$", "review"),
+        ("POST", r"^/api/advise$", "advise"),
+        ("POST", r"^/api/savings$", "business_case"),
+        ("POST", r"^/api/portfolio$", "portfolio"),
+        ("POST", r"^/api/readiness/score$", "readiness"),
+        ("POST", r"^/api/validate$", "syntax_check"),
+        ("POST", r"^/api/ai/complete$", "ai_complete"),
+        ("POST", r"^/api/ai/suggest$", "ai_suggest"),
+        ("POST", r"^/api/ai/feedback$", "ai_feedback"),
+        ("POST", r"^/api/projects$", "project_create"),
+        ("POST", r"^/api/projects/(?P<project>[^/]+)/workflows$", "workflows_add"),
+        ("DELETE", r"^/api/projects/(?P<project>[^/]+)/workflows/[^/]+$", "workflow_remove"),
+        ("DELETE", r"^/api/projects/(?P<project>[^/]+)$", "project_delete"),
+        ("GET", r"^/(?!api/|assets/|ws/)[^.]*$", "open_app"),
+    )
+]
+
+
+def _tracked(method: str, path: str) -> tuple[str | None, str | None]:
+    for m, pattern, action in _TRACKED:
+        if m == method:
+            match = pattern.match(path)
+            if match:
+                return action, match.groupdict().get("project")
+    return None, None
+
+
+@app.middleware("http")
+async def _record_usage(request: Request, call_next):
+    """Record tracked requests after they finish (see server.services.usage)."""
+    action, project = _tracked(request.method, request.url.path)
+    if action is None or not settings.usage_tracking:
+        return await call_next(request)
+    started = time.monotonic()
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        details = dict(getattr(request.state, "usage", None) or {})
+        record = functools.partial(
+            usage_service.record,
+            action,
+            user=current_user(request),
+            status=status,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            project_id=details.pop("project_id", None) or project or request.query_params.get("project_id"),
+            details=details,
+        )
+        # Off the request path: a slow or broken database must not slow the app.
+        asyncio.get_running_loop().run_in_executor(None, record)
+
+
 @app.exception_handler(project_service.StoreUnavailableError)
 async def store_unavailable_handler(request: Request, exc: project_service.StoreUnavailableError) -> JSONResponse:
     # A configured database that isn't responding: say so (503), so the client
@@ -145,6 +217,7 @@ app.include_router(insights.router)
 app.include_router(readiness.router)
 app.include_router(projects.router)
 app.include_router(ai.router)
+app.include_router(usage.router)
 
 # WebSocket
 app.include_router(ws_batch.router)

@@ -93,6 +93,17 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("A2D_FMAPI_TOKEN", "FMAPI_TOKEN"),
     )
 
+    # Usage tracking (needs the database). Each conversion, review, AI run and
+    # project change is recorded with the signed-in user's email, which
+    # Databricks Apps passes to the app. Set A2D_USAGE_TRACKING=false to turn it off.
+    usage_tracking: bool = True
+    # Who can see the Usage page (comma-separated emails). It shows colleagues'
+    # emails, so nobody sees it until this is set.
+    usage_admins: str = ""
+    # Databricks users given read-only SQL access (SELECT) to the app's tables at
+    # startup, comma-separated. Each needs a Lakebase Postgres role first.
+    db_readers: str = ""
+
     # Postgres connection params — read PG* first (native, auto-injected by
     # the Databricks Apps database binding) then fall back to A2D_PG_* aliases.
     pg_host: str = Field(

@@ -590,6 +590,19 @@ make eval-ai MODEL=databricks-claude-opus-5-5 PROFILE=<your profile>
 
 ---
 
+## Usage tracking
+
+With a database configured, the app records who used it for what: each conversion (single or batch), assessment, review, AI completion or suggestion, project change and app visit is a row in the `usage_event` table, with the signed-in user's email (Databricks Apps passes it to the app), the time, the result and a few details such as how many workflows and the coverage. Recording happens after the response and never fails a request. Set `A2D_USAGE_TRACKING=false` to record nothing.
+
+The **Usage** page (under Reference) shows people, workflows converted, AI runs and activity by day for the last 7 to 365 days, each person's activity, recent activity, the saved projects, and the conversion history earlier versions kept in `conversion_history` (one row per conversion, without who ran it). It lists colleagues' emails, so only the people in `A2D_USAGE_ADMINS` (comma-separated) see it, in the sidebar or at `GET /api/usage`.
+
+To query the tables directly, give your user a Lakebase Postgres role with no privileges of its own, then list it in `A2D_DB_READERS`: at startup the app grants it read-only access (`SELECT`) to its tables.
+
+```bash
+databricks postgres create-role projects/<project>/branches/<branch> --role-id <name> \
+  --json '{"spec": {"identity_type": "USER", "postgres_role": "<your email>", "auth_method": "LAKEBASE_OAUTH_V1"}}'
+```
+
 ## Troubleshooting
 
 | Issue | Solution |
