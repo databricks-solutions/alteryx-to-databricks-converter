@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import re
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
 from lxml.etree import XMLSyntaxError
 from starlette.concurrency import run_in_threadpool
 
@@ -28,6 +28,7 @@ from a2d.exceptions import A2dError
 from server.models.requests import ConversionOptions, conversion_options
 from server.services import ai_completion
 from server.utils.deadline import run_with_timeout
+from server.utils.identity import note_usage
 from server.utils.project_input import resolve_one_workflow
 
 logger = logging.getLogger("a2d.server.routers.ai")
@@ -83,6 +84,7 @@ async def gaps(
 
 @router.post("/complete")
 async def complete(
+    request: Request,
     file: UploadFile | None = File(None),
     project_id: str | None = Form(None),
     workflow_id: str | None = Form(None),
@@ -93,8 +95,9 @@ async def complete(
     client = _require_client()
     wf = await resolve_one_workflow(file, project_id, workflow_id, macros)
     name, content = wf.name, wf.content
+    note_usage(request, workflow=name, project_id=project_id)
     try:
-        return await run_with_timeout(
+        result = await run_with_timeout(
             ai_completion.complete_workflow,
             name,
             content,
@@ -103,6 +106,9 @@ async def complete(
             macros=wf.macros,
             label=f"AI completion for {name}",
         )
+        summary = result.get("summary") or {}
+        note_usage(request, steps=summary.get("cells_needing_work"), completed=summary.get("completed"))
+        return result
     except ai_completion.CompletionBusyError as e:
         raise HTTPException(status_code=429, detail=str(e)) from None
     except CompletionUnavailableError as e:
@@ -113,6 +119,7 @@ async def complete(
 
 @router.post("/suggest")
 async def suggest(
+    request: Request,
     node_id: int = Form(...),
     hint: str | None = Form(None),
     file: UploadFile | None = File(None),
@@ -128,8 +135,9 @@ async def suggest(
         raise HTTPException(status_code=422, detail="The note is too long (2,000 characters at most).")
     wf = await resolve_one_workflow(file, project_id, workflow_id, macros)
     name, content = wf.name, wf.content
+    note_usage(request, workflow=name, node_id=node_id, project_id=project_id)
     try:
-        return await run_with_timeout(
+        result = await run_with_timeout(
             ai_completion.suggest_step,
             name,
             content,
@@ -140,6 +148,8 @@ async def suggest(
             macros=wf.macros,
             label=f"AI suggestion for {name} step {node_id}",
         )
+        note_usage(request, result=result.get("status"))
+        return result
     except ai_completion.CompletionBusyError as e:
         raise HTTPException(status_code=429, detail=str(e)) from None
     except CompletionUnavailableError as e:

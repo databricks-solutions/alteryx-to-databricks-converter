@@ -9,7 +9,7 @@ import re
 import zipfile
 from pathlib import PurePosixPath
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from lxml.etree import XMLSyntaxError
 
@@ -23,6 +23,7 @@ from server.services import batch as batch_service
 from server.services.conversion import convert_file
 from server.settings import settings
 from server.utils.deadline import run_with_timeout
+from server.utils.identity import note_usage
 from server.utils.project_input import resolve_one_workflow, resolve_run_inputs
 
 logger = logging.getLogger("a2d.server.routers.convert")
@@ -43,6 +44,7 @@ def _safe_zip_component(name: str) -> str:
 
 @router.post("/convert", response_model=ConversionResponse)
 async def convert_single(
+    request: Request,
     file: UploadFile | None = File(None),
     project_id: str | None = Form(None),
     workflow_id: str | None = Form(None),
@@ -57,6 +59,7 @@ async def convert_single(
     """
     wf = await resolve_one_workflow(file, project_id, workflow_id, macros)
     filename, file_bytes = wf.name, wf.content
+    note_usage(request, workflow=filename, workflows=1, project_id=project_id)
 
     logger.info("Converting %s (multi-format, size=%d bytes)", filename, len(file_bytes))
     try:
@@ -89,12 +92,14 @@ async def convert_single(
         logger.exception("Unexpected error converting %s", filename)
         raise HTTPException(status_code=500, detail="Internal conversion error")
 
+    note_usage(request, coverage=result.get("coverage"))
     logger.info("Successfully converted %s (best_format=%s)", filename, result.get("best_format"))
     return ConversionResponse(**result)
 
 
 @router.post("/convert/batch", response_model=BatchStartResponse)
 async def convert_batch(
+    request: Request,
     files: list[UploadFile] = File(default=[]),
     project_id: str | None = Form(None),
     workflow_names: str | None = Form(None),
@@ -129,6 +134,7 @@ async def convert_batch(
     if not file_data:
         raise HTTPException(status_code=422, detail="There are no workflows to convert, only macros.")
 
+    note_usage(request, workflows=len(file_data), project_id=project_id)
     logger.info("Starting batch conversion: %d files (multi-format)", len(file_data))
     job_id = await batch_service.create_batch_job(
         file_data,

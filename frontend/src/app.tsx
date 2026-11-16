@@ -43,6 +43,7 @@ const BusinessCasePage = lazyWithRetry(() => import("@/routes/business-case").th
 const ConvertPage = lazyWithRetry(() => import("@/routes/convert").then((m) => ({ default: m.ConvertPage })));
 const ReviewHubPage = lazyWithRetry(() => import("@/routes/review-hub").then((m) => ({ default: m.ReviewHubPage })));
 const AiCompletionPage = lazyWithRetry(() => import("@/routes/ai-completion").then((m) => ({ default: m.AiCompletionPage })));
+const UsagePage = lazyWithRetry(() => import("@/routes/usage").then((m) => ({ default: m.UsagePage })));
 const ToolsPage = lazyWithRetry(() => import("@/routes/tools").then((m) => ({ default: m.ToolsPage })));
 const SyntaxCheckPage = lazyWithRetry(() => import("@/routes/syntax-check").then((m) => ({ default: m.SyntaxCheckPage })));
 const AboutPage = lazyWithRetry(() => import("@/routes/about").then((m) => ({ default: m.AboutPage })));
@@ -105,6 +106,7 @@ const aiRoute = step("ai-completion", AiCompletionPage);
 
 const toolsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reference/tools", component: ToolsPage });
 const syntaxRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reference/syntax-check", component: SyntaxCheckPage });
+const usageRoute = createRoute({ getParentRoute: () => rootRoute, path: "/reference/usage", component: UsagePage });
 const aboutRoute = createRoute({ getParentRoute: () => rootRoute, path: "/about", component: AboutPage });
 const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage });
 
@@ -139,7 +141,7 @@ const legacyRoutes = [
   legacyStep("/readiness", "business-case"),
   legacyStep("/convert", "convert"),
   legacyStep("/convert/batch", "convert"),
-  legacyStep("/history", "convert"),
+  legacyRedirect("/history", "/reference/usage"),
   legacyStep("/review", "review"),
   legacyRedirect("/validate", "/reference/syntax-check"),
   legacyStep("/advise", "review"),
@@ -160,6 +162,7 @@ const routeTree = rootRoute.addChildren([
   ]),
   toolsRoute,
   syntaxRoute,
+  usageRoute,
   aboutRoute,
   settingsRoute,
   ...legacyRoutes,

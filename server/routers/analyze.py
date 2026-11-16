@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from server.models.responses import AnalysisResponse
 from server.services import project as project_service
 from server.services.analysis import analyze_files
 from server.utils.deadline import run_with_timeout
+from server.utils.identity import note_usage
 from server.utils.project_input import resolve_input_files
 
 logger = logging.getLogger("a2d.server.routers.analyze")
@@ -20,11 +21,13 @@ router = APIRouter(prefix="/api", tags=["analyze"])
 
 @router.post("/analyze", response_model=AnalysisResponse)
 async def analyze(
+    request: Request,
     files: list[UploadFile] = File(default=[]),
     project_id: str | None = Form(None),
 ) -> AnalysisResponse:
     # Source the estate from a saved project when given, else from the upload.
     file_data = await resolve_input_files(files, project_id)
+    note_usage(request, workflows=len(file_data), project_id=project_id)
 
     logger.info("Analyzing %d workflow(s)%s", len(file_data), f" (project {project_id})" if project_id else "")
     try:
